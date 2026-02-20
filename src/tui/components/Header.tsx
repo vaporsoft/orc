@@ -1,11 +1,14 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
+import type { ToolbarButton } from "./Toolbar.js";
 
 interface HeaderProps {
   entries: Map<string, PREntry>;
   startTime: number;
   lastCheck: string | null;
+  buttons: ToolbarButton[];
+  selectedButton: number;
 }
 
 function formatUptime(ms: number): string {
@@ -20,7 +23,7 @@ function formatCheckTime(iso: string): string {
   return iso.split("T")[1]?.slice(0, 8) ?? iso;
 }
 
-export function Header({ entries, startTime, lastCheck }: HeaderProps) {
+export function Header({ entries, startTime, lastCheck, buttons, selectedButton }: HeaderProps) {
   const total = entries.size;
   const running = [...entries.values()].filter((e) => e.state !== null).length;
   let totalCost = 0;
@@ -37,7 +40,20 @@ export function Header({ entries, startTime, lastCheck }: HeaderProps) {
       paddingX={1}
       justifyContent="space-between"
     >
-      <Text backgroundColor="green" color="black" bold>{" "}orc{" "}</Text>
+      <Box gap={1}>
+        <Text backgroundColor="green" color="black" bold>{" "}orc{" "}</Text>
+        {buttons.map((btn, i) => (
+          <Text
+            key={btn.label}
+            backgroundColor={i === selectedButton ? "green" : undefined}
+            color={i === selectedButton ? "black" : undefined}
+            dimColor={i !== selectedButton}
+            bold={i === selectedButton}
+          >
+            {i === selectedButton ? ` ${btn.label} ` : `  ${btn.label}  `}
+          </Text>
+        ))}
+      </Box>
       <Text>
         <Text color={running > 0 ? "green" : "gray"}>{running}</Text>
         <Text dimColor>/{total} active</Text>

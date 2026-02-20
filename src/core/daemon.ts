@@ -103,6 +103,30 @@ export class Daemon extends EventEmitter {
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
 
+    // Refuse to run on the branch that's currently checked out
+    const currentBranch = await this.getCurrentBranch();
+    if (currentBranch === branch) {
+      logger.warn("Cannot start session — branch is checked out locally. Switch to main first.", branch);
+      this.lastStates.set(branch, {
+        branch,
+        prNumber: pr.number,
+        prUrl: pr.url,
+        status: "error",
+        mode,
+        commentsAddressed: 0,
+        totalCostUsd: 0,
+        error: "Branch is checked out locally — switch to main first",
+        unresolvedCount: 0,
+        commentSummary: null,
+        lastPushAt: null,
+        claudeActivity: [],
+        lastSessionId: null,
+        workDir: null,
+      });
+      this.emit("prUpdate", branch);
+      return;
+    }
+
     // Clean up any worktree left from a previous errored session
     await this.worktreeManager.remove(branch);
 
@@ -253,6 +277,23 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      this.lastStates.set(branch, {
+        branch,
+        prNumber: pr.number,
+        prUrl: pr.url,
+        status: "error",
+        mode,
+        commentsAddressed: 0,
+        totalCostUsd: 0,
+        error: `Failed to create worktree: ${err}`,
+        unresolvedCount: 0,
+        commentSummary: null,
+        lastPushAt: null,
+        claudeActivity: [],
+        lastSessionId: null,
+        workDir: null,
+      });
+      this.emit("prUpdate", branch);
       return;
     }
 
@@ -313,29 +354,26 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  /** Fetch the pushed branch into the main repo and fast-forward if clean. */
+  private async getCurrentBranch(): Promise<string | null> {
+    try {
+      const { stdout } = await exec("git", ["branch", "--show-current"], { cwd: this.cwd });
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fetch the pushed branch and update the local ref so git log stays current. */
   private async syncMainRepo(branch: string): Promise<void> {
-    // Update origin/<branch> in the main repo
     await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
 
-    // Only fast-forward if the user is actually on this branch
-    const { stdout: currentBranch } = await exec(
-      "git", ["branch", "--show-current"], { cwd: this.cwd },
-    );
-    if (currentBranch.trim() !== branch) return;
+    // Update the local branch ref to match the remote
+    // (safe because we block starting sessions for the checked-out branch)
+    await exec("git", ["branch", "-f", branch, `origin/${branch}`], {
+      cwd: this.cwd,
+      allowFailure: true,
+    });
 
-    // Check for uncommitted changes
-    const { stdout: status } = await exec(
-      "git", ["status", "--porcelain"], { cwd: this.cwd },
-    );
-    if (status.trim().length > 0) {
-      logger.info("Main repo has local changes — run `git pull --rebase` to sync", branch);
-      this.emit("syncNeeded", branch);
-      return;
-    }
-
-    // Clean working tree — fast-forward
-    await exec("git", ["merge", "--ff-only", `origin/${branch}`], { cwd: this.cwd });
-    logger.info("Auto-synced main repo with pushed changes", branch);
+    logger.info("Synced local branch ref with remote", branch);
   }
 }

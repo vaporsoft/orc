@@ -40,7 +40,9 @@ function ErrorAction({ error }: { error: string }) {
   const lower = error.toLowerCase();
   const hints: string[] = [];
 
-  if (lower.includes("rebase") || lower.includes("conflict")) {
+  if (lower.includes("checked out")) {
+    hints.push("run: git checkout main");
+  } else if (lower.includes("rebase") || lower.includes("conflict")) {
     hints.push("w to open worktree and resolve conflicts");
   } else if (lower.includes("push")) {
     hints.push("check remote branch state");

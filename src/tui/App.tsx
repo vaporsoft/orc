@@ -7,7 +7,6 @@ import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { Header } from "./components/Header.js";
-import { Toolbar } from "./components/Toolbar.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel } from "./components/DetailPanel.js";
@@ -253,8 +252,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column" height={termHeight}>
-      <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} />
-      <Toolbar buttons={toolbarButtons} selectedIndex={toolbarIndex} />
+      <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} buttons={toolbarButtons} selectedButton={toolbarIndex} />
       <SessionList
         entries={entries}
         selectedIndex={sessionIndex}
