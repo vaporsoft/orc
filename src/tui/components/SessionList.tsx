@@ -13,45 +13,35 @@ export function SessionList({ entries, selectedIndex, focused }: SessionListProp
   const branches = [...entries.keys()].sort();
 
   return (
-    <Box flexDirection="column" borderStyle="single" borderTop={false} borderBottom={false}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="green"
+      borderTop={false}
+      borderBottom={false}
+    >
+      {/* Column headers */}
       <Box paddingX={1}>
-        <Box width={24}>
-          <Text bold dimColor>Branch</Text>
-        </Box>
-        <Box width={8}>
-          <Text bold dimColor>PR</Text>
-        </Box>
-        <Box width={18}>
-          <Text bold dimColor>Status</Text>
-        </Box>
-        <Box width={10}>
-          <Text bold dimColor>Comments</Text>
-        </Box>
-        <Box width={8}>
-          <Text bold dimColor>Iter</Text>
-        </Box>
-        <Box width={10}>
-          <Text bold dimColor>Cost</Text>
-        </Box>
-        <Box width={10}>
-          <Text bold dimColor>Last Push</Text>
-        </Box>
-        <Box width={6}>
-          <Text bold dimColor>Errs</Text>
-        </Box>
+        <Box width={2}><Text> </Text></Box>
+        <Box width={28}><Text dimColor>branch</Text></Box>
+        <Box width={8}><Text dimColor>pr</Text></Box>
+        <Box width={16}><Text dimColor>status</Text></Box>
+        <Box width={10}><Text dimColor>comments</Text></Box>
+        <Box width={8}><Text dimColor>fixed</Text></Box>
+        <Box width={10}><Text dimColor>cost</Text></Box>
+        <Box width={10}><Text dimColor>last push</Text></Box>
       </Box>
       {branches.length === 0 ? (
         <Box paddingX={1}>
-          <Text dimColor>No open PRs found — waiting for discovery...</Text>
+          <Text dimColor>  Discovering PRs...</Text>
         </Box>
       ) : (
         branches.map((branch, i) => (
-          <Box key={branch} paddingX={1}>
-            <SessionRow
-              entry={entries.get(branch)!}
-              selected={focused && i === selectedIndex}
-            />
-          </Box>
+          <SessionRow
+            key={branch}
+            entry={entries.get(branch)!}
+            selected={focused && i === selectedIndex}
+          />
         ))
       )}
     </Box>

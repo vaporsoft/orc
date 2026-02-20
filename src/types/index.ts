@@ -19,7 +19,8 @@ export type CommentCategory =
   | "must_fix"
   | "should_fix"
   | "nice_to_have"
-  | "false_positive";
+  | "false_positive"
+  | "verify_and_fix";
 
 export interface CategorizedComment {
   threadId: string;
@@ -40,6 +41,7 @@ export interface CommentSummary {
   shouldFix: number;
   niceToHave: number;
   falsePositive: number;
+  verifyAndFix: number;
   comments: CategorizedComment[];
 }
 
@@ -50,53 +52,43 @@ export interface RepoPilotConfig {
     must_fix: boolean;
     should_fix: boolean;
     nice_to_have: boolean;
+    verify_and_fix: boolean;
   };
 }
+
+export type SessionMode = "once" | "watch";
 
 export type BranchStatus =
   | "stopped"
   | "initializing"
-  | "awaiting"
+  | "listening"
   | "categorizing"
   | "fixing"
   | "verifying"
   | "pushing"
   | "replying"
-  | "paused"
   | "done"
   | "error";
-
-export interface IterationSummary {
-  iteration: number;
-  startedAt: string;
-  completedAt: string;
-  eventsDetected: number;
-  eventsFixed: number;
-  eventsSkipped: number;
-  costUsd: number;
-  durationMs: number;
-  changes: string[];
-  errors: string[];
-}
 
 export interface BranchState {
   branch: string;
   prNumber: number | null;
   prUrl: string | null;
   status: BranchStatus;
-  currentIteration: number;
-  maxIterations: number;
-  iterations: IterationSummary[];
+  mode: SessionMode;
+  commentsAddressed: number;
   totalCostUsd: number;
   error: string | null;
   unresolvedCount: number;
   commentSummary: CommentSummary | null;
   lastPushAt: string | null;
+  claudeActivity: string[];
+  lastSessionId: string | null;
+  workDir: string | null;
 }
 
 export interface SessionControllerEvents {
   statusChange: (branch: string, status: BranchStatus) => void;
-  iterationComplete: (branch: string, summary: IterationSummary) => void;
   error: (branch: string, error: string) => void;
   done: (branch: string, state: BranchState) => void;
 }

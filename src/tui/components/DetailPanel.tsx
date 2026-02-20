@@ -1,38 +1,81 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
-import type { LogEntry } from "../../utils/logger.js";
+import type { CommentCategory } from "../../types/index.js";
 
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
   selectedIndex: number;
   showDetail: boolean;
-  branchLogs: LogEntry[];
-  logScrollOffset: number;
-  logVisibleLines: number;
 }
 
-const LEVEL_COLORS: Record<string, string> = {
-  debug: "gray",
-  info: "white",
-  warn: "yellow",
-  error: "red",
+const CATEGORY_COLORS: Record<CommentCategory, string> = {
+  must_fix: "red",
+  should_fix: "yellow",
+  nice_to_have: "cyan",
+  false_positive: "gray",
+  verify_and_fix: "magenta",
 };
 
-function formatDuration(ms: number): string {
-  const sec = Math.floor(ms / 1000);
-  const min = Math.floor(sec / 60);
-  const remSec = sec % 60;
-  return `${String(min).padStart(2, "0")}:${String(remSec).padStart(2, "0")}s`;
+const CATEGORY_LABELS: Record<CommentCategory, string> = {
+  must_fix: "MUST FIX",
+  should_fix: "SHOULD FIX",
+  nice_to_have: "NICE",
+  false_positive: "FALSE POS",
+  verify_and_fix: "VERIFY",
+};
+
+function SectionHeader({ label }: { label: string }) {
+  const rule = "─".repeat(Math.max(0, 44 - label.length));
+  return (
+    <Box marginTop={1}>
+      <Text color="green" dimColor>{"━━ "}</Text>
+      <Text color="green" bold>{label}</Text>
+      <Text color="green" dimColor>{" " + rule}</Text>
+    </Box>
+  );
+}
+
+function ErrorAction({ error }: { error: string }) {
+  const lower = error.toLowerCase();
+  const hints: string[] = [];
+
+  if (lower.includes("checked out")) {
+    hints.push("run: git checkout main");
+  } else if (lower.includes("rebase") || lower.includes("conflict")) {
+    hints.push("w to open worktree and resolve conflicts");
+  } else if (lower.includes("push")) {
+    hints.push("check remote branch state");
+  } else if (lower.includes("no open pr")) {
+    hints.push("open a PR for this branch first");
+  } else if (lower.includes("auth")) {
+    hints.push("check gh auth status");
+  } else {
+    hints.push("l to check logs for details");
+    hints.push("c to resume Claude session");
+  }
+
+  hints.push("r to retry when ready");
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Box>
+        <Text color="red" bold>{"✗ ERROR "}</Text>
+        <Text color="red">{error}</Text>
+      </Box>
+      {hints.map((hint, i) => (
+        <Box key={i} marginLeft={2}>
+          <Text dimColor>→ {hint}</Text>
+        </Box>
+      ))}
+    </Box>
+  );
 }
 
 export function DetailPanel({
   entries,
   selectedIndex,
   showDetail,
-  branchLogs,
-  logScrollOffset,
-  logVisibleLines,
 }: DetailPanelProps) {
   const branches = [...entries.keys()].sort();
   const branch = branches[selectedIndex];
@@ -40,115 +83,151 @@ export function DetailPanel({
 
   if (!entry) {
     return (
-      <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
+      <Box
+        borderStyle="round"
+        borderColor="green"
+        borderTop={false}
+        borderBottom={false}
+        paddingX={1}
+        flexDirection="column"
+      >
         <Text dimColor>No PR selected</Text>
       </Box>
     );
   }
 
-  const { pr, state, commentCount } = entry;
-  const label = `#${pr.number} ${pr.title}`;
-
-  if (!state) {
-    return (
-      <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
-        <Text bold> {label}</Text>
-        {commentCount > 0 ? (
-          <Text dimColor>  {commentCount} unresolved comment{commentCount !== 1 ? "s" : ""} — press s to start</Text>
-        ) : (
-          <Text dimColor>  Stopped — press s to start</Text>
-        )}
-      </Box>
-    );
-  }
-
-  const summary = state.commentSummary;
+  const { pr, state, commentCount, commentThreads } = entry;
+  const title = pr.title.length > 50 ? pr.title.slice(0, 49) + "…" : pr.title;
+  const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
-  const isActive = activeStatuses.includes(state.status);
-  const totalFixed = state.iterations.reduce((sum, i) => sum + i.eventsFixed, 0);
-  const totalErrors = state.iterations.reduce((sum, i) => sum + i.errors.length, 0);
+  const isActive = state ? activeStatuses.includes(state.status) : false;
 
-  // Collapsed view: one-line summary
+
+  // Collapsed view
   if (!showDetail) {
     return (
-      <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
-        <Text bold> {label}</Text>
-        {summary && (
+      <Box
+        borderStyle="round"
+        borderColor={state?.error ? "red" : "green"}
+        borderTop={false}
+        borderBottom={false}
+        paddingX={1}
+        flexDirection="column"
+      >
+        <Box>
+          <Text dimColor>#{pr.number} </Text>
+          <Text bold>{title}</Text>
+        </Box>
+        {!state ? (
           <Text dimColor>
-            {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+            {commentCount > 0
+              ? `${commentCount} unresolved · `
+              : ""}
+            <Text color="green">s</Text> start · <Text color="green">enter</Text> details
+          </Text>
+        ) : (
+          <Text>
+            {summary && (
+              <>
+                {summary.mustFix > 0 && <Text color="red">{summary.mustFix} must </Text>}
+                {summary.shouldFix > 0 && <Text color="yellow">{summary.shouldFix} should </Text>}
+                {summary.niceToHave > 0 && <Text color="cyan">{summary.niceToHave} nice </Text>}
+                {summary.verifyAndFix > 0 && <Text color="magenta">{summary.verifyAndFix} verify </Text>}
+                {summary.falsePositive > 0 && <Text dimColor>{summary.falsePositive} fp </Text>}
+                <Text dimColor>· </Text>
+              </>
+            )}
+            <Text color="greenBright">{state.commentsAddressed} fixed</Text>
+            <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
+            {isActive && <Text dimColor> · </Text>}
+            {isActive && <Text color="greenBright">{state.status}...</Text>}
           </Text>
         )}
-        {state.iterations.length > 0 && (
-          <Text dimColor>
-            {"  "}{state.iterations.length} iteration{state.iterations.length !== 1 ? "s" : ""} — {totalFixed} fixed, ${state.totalCostUsd.toFixed(3)} cost{totalErrors > 0 ? `, ${totalErrors} errors` : ""} — press enter for details
-          </Text>
-        )}
-        {isActive && (
-          <Text dimColor>  Iter {state.currentIteration}  ...running ({state.status})</Text>
-        )}
-        {state.error && (
-          <Text color="red">  Error: {state.error}</Text>
-        )}
+        {state?.error && <ErrorAction error={state.error} />}
       </Box>
     );
   }
 
-  // Expanded view: iteration summaries + branch logs
-  const maxOffset = Math.max(0, branchLogs.length - logVisibleLines);
-  const offset = Math.min(logScrollOffset, maxOffset);
-  const visibleLogs = branchLogs.slice(
-    Math.max(0, branchLogs.length - logVisibleLines - offset),
-    branchLogs.length - offset,
-  );
-
+  // Expanded view
   return (
-    <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
-      <Text bold> {label}</Text>
-      {summary && (
+    <Box
+      borderStyle="round"
+      borderColor={state?.error ? "red" : "green"}
+      borderTop={false}
+      borderBottom={false}
+      paddingX={1}
+      flexDirection="column"
+    >
+      <Box justifyContent="space-between">
+        <Box>
+          <Text dimColor>#{pr.number} </Text>
+          <Text bold>{title}</Text>
+        </Box>
+        {state && (
+          <Text>
+            <Text color="greenBright">{state.commentsAddressed} fixed</Text>
+            <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
+            {isActive && <Text dimColor> · </Text>}
+            {isActive && <Text color="greenBright">{state.status}...</Text>}
+          </Text>
+        )}
+      </Box>
+
+      {!state && (
         <Text dimColor>
-          {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+          {commentCount > 0
+            ? `${commentCount} unresolved · `
+            : ""}
+          <Text color="green">s</Text> to start
         </Text>
       )}
 
-      {/* Iteration summaries */}
-      {state.iterations.length > 0 && (
-        <Text bold dimColor>{"\n"}  Iterations</Text>
-      )}
-      {state.iterations.map((iter) => {
-        const ok = iter.errors.length === 0;
-        return (
-          <Text key={iter.iteration}>
-            {"  "}Iter {iter.iteration}{"  "}
-            {formatDuration(iter.durationMs)}{"  "}
-            {iter.eventsDetected} detected{"  "}
-            {iter.eventsFixed} fixed{"  "}
-            {iter.eventsSkipped} skip{"  "}
-            ${iter.costUsd.toFixed(3)}{"  "}
-            <Text color={ok ? "green" : "red"}>{ok ? "✓" : `✗ ${iter.errors.length}`}</Text>
-          </Text>
-        );
-      })}
-      {isActive && (
-        <Text dimColor>  Iter {state.currentIteration}  ...running ({state.status})</Text>
-      )}
-      {state.error && (
-        <Text color="red">  Error: {state.error}</Text>
-      )}
+      {state?.error && <ErrorAction error={state.error} />}
 
-      {/* Branch logs */}
-      <Text bold dimColor>{"\n"}  Logs</Text>
-      {visibleLogs.length === 0 ? (
-        <Text dimColor>  No log entries yet</Text>
+      {/* Categorized comments */}
+      {summary && summary.comments.length > 0 ? (
+        <>
+          <SectionHeader label={`Comments (${summary.comments.length})`} />
+          {summary.comments.map((c) => {
+            const loc = c.line ? `${c.path}:${c.line}` : c.path;
+            const body = c.body.replace(/\n/g, " ");
+            const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+            return (
+              <Box key={c.threadId} marginLeft={2} flexDirection="column">
+                <Text>
+                  <Text color={CATEGORY_COLORS[c.category]} bold>
+                    {CATEGORY_LABELS[c.category].padEnd(11)}
+                  </Text>
+                  <Text color="white">{loc}</Text>
+                  <Text dimColor>  @{c.author}</Text>
+                </Text>
+                <Text dimColor>{"           "}{truncated}</Text>
+              </Box>
+            );
+          })}
+        </>
+      ) : commentThreads.length > 0 ? (
+        <>
+          <SectionHeader label={`Comments (${commentThreads.length})`} />
+          {commentThreads.map((t) => {
+            const loc = t.line ? `${t.path}:${t.line}` : t.path;
+            const body = t.body.replace(/\n/g, " ");
+            const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+            return (
+              <Box key={t.threadId} marginLeft={2} flexDirection="column">
+                <Text>
+                  <Text color="white">{loc}</Text>
+                  <Text dimColor>  @{t.author}</Text>
+                </Text>
+                <Text dimColor>  {truncated}</Text>
+              </Box>
+            );
+          })}
+        </>
       ) : (
-        visibleLogs.map((logEntry, i) => {
-          const time = logEntry.timestamp.split("T")[1]?.slice(0, 8) ?? "";
-          const level = logEntry.level.toUpperCase().padEnd(5);
-          return (
-            <Text key={i} color={LEVEL_COLORS[logEntry.level] ?? "white"}>
-              {"  "}{time} {level} {logEntry.message}
-            </Text>
-          );
-        })
+        <Box marginTop={1}>
+          <Text dimColor>No comments</Text>
+        </Box>
       )}
     </Box>
   );

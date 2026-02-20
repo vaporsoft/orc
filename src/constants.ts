@@ -3,17 +3,14 @@
 /** Seconds between GitHub polls. */
 export const DEFAULT_POLL_INTERVAL = 30;
 
-/** Default max fix iterations per branch. */
-export const DEFAULT_MAX_LOOPS = 10;
-
 /** Default confidence threshold for comment classification. */
 export const DEFAULT_CONFIDENCE = 0.75;
 
 /** Default Claude Code session timeout in seconds. */
 export const DEFAULT_CLAUDE_TIMEOUT = 900;
 
-/** Default max turns per Claude Code session. */
-export const DEFAULT_MAX_TURNS = 30;
+/** Default session timeout in hours. */
+export const DEFAULT_SESSION_TIMEOUT = 1;
 
 /** Retry backoff intervals in milliseconds. */
 export const RETRY_BACKOFF_MS = [2000, 4000, 8000, 16000];

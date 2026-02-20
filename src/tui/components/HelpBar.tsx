@@ -3,14 +3,66 @@ import { Box, Text } from "ink";
 
 interface HelpBarProps {
   showingLogs: boolean;
+  expanded: boolean;
 }
 
-export function HelpBar({ showingLogs }: HelpBarProps) {
+function Key({ k, label }: { k: string; label: string }) {
   return (
-    <Box borderStyle="single" borderTop={false} paddingX={1} justifyContent="center">
-      <Text dimColor>
-        <Text bold>j/k</Text> select   <Text bold>↑↓</Text> scroll   <Text bold>s</Text> start/stop   <Text bold>enter</Text> details   <Text bold>a</Text> start all   <Text bold>x</Text> stop all   <Text bold>tab</Text> {showingLogs ? "hide logs" : "show logs"}   <Text bold>r</Text> refresh   <Text bold>q</Text> quit
-      </Text>
+    <Text>
+      <Text color="green" bold>{k}</Text>
+      <Text dimColor> {label}</Text>
+    </Text>
+  );
+}
+
+export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
+  if (!expanded) {
+    return (
+      <Box
+        borderStyle="round"
+        borderColor="green"
+        borderTop={false}
+        paddingX={1}
+        justifyContent="center"
+        gap={1}
+      >
+        <Key k="?" label="help" />
+        <Text dimColor>·</Text>
+        <Key k="q" label="quit" />
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      borderStyle="round"
+      borderColor="green"
+      borderTop={false}
+      paddingX={1}
+      justifyContent="center"
+      gap={1}
+    >
+      <Key k="j/k" label="select" />
+      <Text dimColor>·</Text>
+      <Key k="s" label="start/stop" />
+      <Text dimColor>·</Text>
+      <Key k="e" label="watch" />
+      <Text dimColor>·</Text>
+      <Key k="r" label="retry" />
+      <Text dimColor>·</Text>
+      <Key k="enter" label="details" />
+      <Text dimColor>·</Text>
+      <Key k="l" label="logs" />
+      <Text dimColor>·</Text>
+      <Key k="c" label="claude" />
+      <Text dimColor>·</Text>
+      <Key k="w" label="shell" />
+      <Text dimColor>·</Text>
+      <Key k="tab" label={showingLogs ? "hide logs" : "all logs"} />
+      <Text dimColor>·</Text>
+      <Key k="?" label="hide help" />
+      <Text dimColor>·</Text>
+      <Key k="q" label="quit" />
     </Box>
   );
 }

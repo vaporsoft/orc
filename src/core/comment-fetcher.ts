@@ -20,6 +20,13 @@ function isPilotReply(body: string): boolean {
   return body.includes(BOT_SIGNATURE);
 }
 
+/** Comments that are just bot mentions/commands (e.g. "@cursor review"). Not review feedback. */
+function isBotCommand(body: string): boolean {
+  const trimmed = body.trim();
+  // Matches "@something" optionally followed by a single word — e.g. "@cursor review", "@copilot fix"
+  return /^@\w+(\s+\w+)?$/.test(trimmed);
+}
+
 export interface FetchedComment {
   thread: ReviewThread;
   /** Present for inline review threads, null for PR conversation comments. */
@@ -50,15 +57,6 @@ export class CommentFetcher {
       this.branch,
     );
     return results;
-  }
-
-  /** Lightweight count for the TUI badge. */
-  async countUnresolved(): Promise<number> {
-    const [threadCount, prCount] = await Promise.all([
-      this.countReviewThreads(),
-      this.countPRConversationComments(),
-    ]);
-    return threadCount + prCount;
   }
 
   private async fetchReviewThreads(): Promise<FetchedComment[]> {
@@ -108,6 +106,12 @@ export class CommentFetcher {
       // Skip Orc's own replies
       if (isPilotReply(comment.body)) continue;
 
+      // Skip bot commands like "@cursor review" — not review feedback
+      if (isBotCommand(comment.body)) {
+        logger.debug(`Skipping PR comment ${comment.id} — bot command`, this.branch);
+        continue;
+      }
+
       // Check if a later Orc reply addresses this comment
       const alreadyReplied = comments.some(
         (c) =>
@@ -136,35 +140,5 @@ export class CommentFetcher {
     }
 
     return results;
-  }
-
-  private async countReviewThreads(): Promise<number> {
-    const threads = await this.ghClient.getReviewThreads(this.prNumber);
-    let count = 0;
-    for (const thread of threads) {
-      if (thread.isResolved || thread.isOutdated) continue;
-      const firstComment = thread.comments.nodes[0];
-      if (!firstComment) continue;
-      const alreadyReplied = thread.comments.nodes.some(
-        (c) => isPilotReply(c.body),
-      );
-      if (!alreadyReplied) count++;
-    }
-    return count;
-  }
-
-  private async countPRConversationComments(): Promise<number> {
-    const comments = await this.ghClient.getPRComments(this.prNumber);
-    let count = 0;
-    for (const comment of comments) {
-      if (isPilotReply(comment.body)) continue;
-      const alreadyReplied = comments.some(
-        (c) =>
-          isPilotReply(c.body) &&
-          c.createdAt > comment.createdAt,
-      );
-      if (!alreadyReplied) count++;
-    }
-    return count;
   }
 }

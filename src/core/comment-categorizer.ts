@@ -26,17 +26,19 @@ Respond with JSON only (no markdown fences):
 
 export class CommentCategorizer {
   private cwd: string;
+  private confidenceThreshold: number;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, confidenceThreshold = 0.75) {
     this.cwd = cwd;
+    this.confidenceThreshold = confidenceThreshold;
   }
 
   async categorize(comments: FetchedComment[]): Promise<CategorizedComment[]> {
     const results: CategorizedComment[] = [];
 
     for (const { thread } of comments) {
-      try {
-        const analysis = await this.classifyComment(thread);
+      // Conversation comments lack diff context — delegate verification to fix executor
+      if (thread.path === "(conversation)") {
         results.push({
           threadId: thread.threadId,
           path: thread.path,
@@ -44,8 +46,45 @@ export class CommentCategorizer {
           body: thread.body,
           author: thread.author,
           diffHunk: thread.diffHunk,
-          ...analysis,
+          category: "verify_and_fix",
+          confidence: 1.0,
+          reasoning: "Conversation comment — delegating verification to fix executor",
+          suggestedAction: "Verify and fix if applicable",
         });
+        continue;
+      }
+
+      try {
+        const analysis = await this.classifyComment(thread);
+
+        // Override low-confidence inline comments to verify_and_fix
+        if (
+          analysis.confidence < this.confidenceThreshold &&
+          analysis.category !== "must_fix"
+        ) {
+          results.push({
+            threadId: thread.threadId,
+            path: thread.path,
+            line: thread.line,
+            body: thread.body,
+            author: thread.author,
+            diffHunk: thread.diffHunk,
+            category: "verify_and_fix",
+            confidence: analysis.confidence,
+            reasoning: `[low confidence — verify] ${analysis.reasoning}`,
+            suggestedAction: analysis.suggestedAction,
+          });
+        } else {
+          results.push({
+            threadId: thread.threadId,
+            path: thread.path,
+            line: thread.line,
+            body: thread.body,
+            author: thread.author,
+            diffHunk: thread.diffHunk,
+            ...analysis,
+          });
+        }
       } catch (err) {
         logger.warn(`Failed to categorize comment ${thread.id}: ${err}`);
         results.push({

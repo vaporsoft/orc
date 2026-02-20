@@ -26,6 +26,7 @@ const DEFAULT_CONFIG: RepoPilotConfig = {
     must_fix: true,
     should_fix: true,
     nice_to_have: false,
+    verify_and_fix: true,
   },
 };
 
@@ -74,7 +75,7 @@ export async function loadPilotConfig(cwd: string): Promise<RepoPilotConfig> {
   const autoFix = { ...DEFAULT_CONFIG.autoFix };
   const autoFixSection = sections.get("auto-fix") ?? "";
   for (const line of autoFixSection.split("\n")) {
-    const match = line.match(/^-\s*(must_fix|should_fix|nice_to_have)\s*:\s*(true|false)/);
+    const match = line.match(/^-\s*(must_fix|should_fix|nice_to_have|verify_and_fix)\s*:\s*(true|false)/);
     if (match) {
       autoFix[match[1] as keyof typeof autoFix] = match[2] === "true";
     }

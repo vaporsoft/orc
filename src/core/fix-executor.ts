@@ -6,6 +6,8 @@
  * and create fixup commits. The orchestrator handles rebase and push.
  */
 
+import { readFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import {
   query,
   type SDKMessage,
@@ -16,6 +18,12 @@ import type { Config } from "../types/config.js";
 import { ALLOWED_TOOLS } from "../constants.js";
 import { logger } from "../utils/logger.js";
 
+export interface VerifyOutcome {
+  status: "fixed" | "not_applicable" | "unknown";
+  summary?: string;
+  reason?: string;
+}
+
 export interface FixResult {
   sessionId: string;
   costUsd: number;
@@ -23,6 +31,7 @@ export interface FixResult {
   isError: boolean;
   changedFiles: string[];
   errors: string[];
+  verifyResults: Map<string, VerifyOutcome>;
 }
 
 export class FixExecutor {
@@ -38,6 +47,7 @@ export class FixExecutor {
     comments: CategorizedComment[],
     pilotConfig: RepoPilotConfig,
     abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
   ): Promise<FixResult> {
     const prompt = this.buildPrompt(comments, pilotConfig);
     logger.info("Invoking Claude Code to fix feedback", undefined, {
@@ -47,6 +57,11 @@ export class FixExecutor {
 
     const startTime = Date.now();
     const abortController = new AbortController();
+    const timeoutMs = this.config.claudeTimeout * 1000;
+    const timeout = setTimeout(() => {
+      logger.info("Claude session timed out, aborting");
+      abortController.abort();
+    }, timeoutMs);
 
     if (abortSignal) {
       abortSignal.addEventListener("abort", () => abortController.abort());
@@ -71,11 +86,12 @@ Do not push — the orchestrator handles that.`;
       systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
     }
 
+    let sessionId = "unknown";
+
     try {
       const stream = query({
         prompt,
         options: {
-          maxTurns: this.config.maxTurns,
           allowedTools: [...ALLOWED_TOOLS],
           permissionMode: "bypassPermissions",
           cwd: this.cwd,
@@ -85,7 +101,6 @@ Do not push — the orchestrator handles that.`;
       });
 
       let resultMessage: SDKResultMessage | null = null;
-      let sessionId = "unknown";
 
       for await (const message of stream) {
         if (message.session_id) {
@@ -96,13 +111,35 @@ Do not push — the orchestrator handles that.`;
           resultMessage = message as SDKResultMessage;
         }
 
+        if (message.type === "assistant" && onActivity) {
+          const msg = message as SDKMessage;
+          const content = (msg as Record<string, unknown>).message as
+            | { content?: Array<{ type: string; name?: string; text?: string; input?: Record<string, unknown> }> }
+            | undefined;
+          if (content?.content) {
+            for (const block of content.content) {
+              if (block.type === "tool_use" && block.name) {
+                onActivity(this.summarizeTool(block.name, block.input));
+              } else if (block.type === "text" && block.text) {
+                const lastLine = block.text.trim().split("\n").pop()?.trim();
+                if (lastLine && lastLine.length > 0) {
+                  const truncated = lastLine.length > 120 ? lastLine.slice(0, 119) + "…" : lastLine;
+                  onActivity(truncated);
+                }
+              }
+            }
+          }
+        }
+
         if (this.config?.verbose && message.type === "assistant") {
           const msg = message as SDKMessage;
           logger.debug(`Claude: ${JSON.stringify(msg).slice(0, 200)}`);
         }
       }
 
+      clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
+      const verifyResults = await this.readVerifyResults(comments);
 
       if (!resultMessage) {
         return {
@@ -112,6 +149,7 @@ Do not push — the orchestrator handles that.`;
           isError: true,
           changedFiles: [],
           errors: ["No result message received from Claude Code"],
+          verifyResults,
         };
       }
 
@@ -128,18 +166,22 @@ Do not push — the orchestrator handles that.`;
                 : `Session ended: ${resultMessage.subtype}`,
             ]
           : [],
+        verifyResults,
       };
     } catch (err) {
+      clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
+      const verifyResults = await this.readVerifyResults(comments);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Claude Code session failed: ${message}`);
       return {
-        sessionId: "error",
+        sessionId,
         costUsd: 0,
         durationMs,
-        isError: true,
+        isError: false,
         changedFiles: [],
         errors: [message],
+        verifyResults,
       };
     }
   }
@@ -155,38 +197,133 @@ Do not push — the orchestrator handles that.`;
     );
 
     // Group by severity
+    const verifyAndFix = comments.filter((c) => c.category === "verify_and_fix");
     const mustFix = comments.filter((c) => c.category === "must_fix");
     const shouldFix = comments.filter((c) => c.category === "should_fix");
     const niceToHave = comments.filter((c) => c.category === "nice_to_have");
+
+    const renderComment = (comment: CategorizedComment, filterSuggestedAction = false) => {
+      const parts: string[] = [];
+      parts.push(
+        `### ${comment.path}${comment.line ? `:${comment.line}` : ""}`,
+      );
+      parts.push(`**Comment by @${comment.author}:**`);
+      parts.push(comment.body);
+      if (comment.diffHunk) {
+        parts.push("\n**Diff context:**");
+        parts.push("```\n" + comment.diffHunk + "\n```");
+      }
+      if (comment.suggestedAction && (!filterSuggestedAction || comment.suggestedAction !== "Verify and fix if applicable")) {
+        parts.push(`\n**Suggested action:** ${comment.suggestedAction}`);
+      }
+      parts.push("");
+      return parts;
+    };
 
     const renderGroup = (label: string, items: CategorizedComment[]) => {
       if (items.length === 0) return;
       sections.push(`## ${label}\n`);
       for (const comment of items) {
-        sections.push(
-          `### ${comment.path}${comment.line ? `:${comment.line}` : ""}`,
-        );
-        sections.push(`**Comment by @${comment.author}:**`);
-        sections.push(comment.body);
-        if (comment.diffHunk) {
-          sections.push("\n**Diff context:**");
-          sections.push("```\n" + comment.diffHunk + "\n```");
-        }
-        if (comment.suggestedAction) {
-          sections.push(`\n**Suggested action:** ${comment.suggestedAction}`);
-        }
-        sections.push("");
+        sections.push(...renderComment(comment));
       }
     };
+
+    // Render verify-and-fix first with special instructions
+    if (verifyAndFix.length > 0) {
+      sections.push(`## Verify and Fix\n`);
+      sections.push(
+        `For each comment below, first read the relevant file(s) and verify the request is valid.
+If valid, make the fix and commit. If not applicable, skip it.\n`,
+      );
+      for (const comment of verifyAndFix) {
+        sections.push(...renderComment(comment, true));
+      }
+    }
 
     renderGroup("Must Fix", mustFix);
     renderGroup("Should Fix", shouldFix);
     renderGroup("Nice to Have", niceToHave);
+
+    // Results file instruction for verify-and-fix comments
+    if (verifyAndFix.length > 0) {
+      sections.push(`## Verify Results\n`);
+      sections.push(
+        `After processing all "Verify and Fix" comments above, write a JSON file \`.orc-verify.json\`
+at the repo root with this exact structure:
+\`\`\`json
+{
+  "<threadId>": { "status": "fixed", "summary": "<what you did>" },
+  "<threadId>": { "status": "not_applicable", "reason": "<why>" }
+}
+\`\`\`
+Include an entry for every Verify and Fix comment. Do not skip any.
+IMPORTANT: Do not add or commit the \`.orc-verify.json\` file to git - it's a temporary results file that will be automatically cleaned up after processing.
+The thread IDs are:\n`,
+      );
+      for (const comment of verifyAndFix) {
+        sections.push(`- \`${comment.threadId}\` — ${comment.path}${comment.line ? `:${comment.line}` : ""}: ${comment.body.slice(0, 80)}${comment.body.length > 80 ? "..." : ""}`);
+      }
+      sections.push("");
+    }
 
     if (pilotConfig.instructions) {
       sections.push(`## Additional Context\n\n${pilotConfig.instructions}\n`);
     }
 
     return sections.join("\n");
+  }
+
+  private summarizeTool(name: string, input?: Record<string, unknown>): string {
+    const path = input?.file_path ?? input?.path ?? "";
+    const pathStr = typeof path === "string" ? path.replace(/^.*\//, "") : "";
+    switch (name) {
+      case "Read": return `Reading ${pathStr || "file"}`;
+      case "Edit": return `Editing ${pathStr || "file"}`;
+      case "Write": return `Writing ${pathStr || "file"}`;
+      case "Bash": {
+        const cmd = typeof input?.command === "string" ? input.command : "";
+        const short = cmd.length > 80 ? cmd.slice(0, 79) + "…" : cmd;
+        return `Running: ${short || "command"}`;
+      }
+      case "Grep": {
+        const pattern = typeof input?.pattern === "string" ? input.pattern : "";
+        return `Searching: ${pattern || "pattern"}`;
+      }
+      case "Glob": {
+        const pattern = typeof input?.pattern === "string" ? input.pattern : "";
+        return `Finding: ${pattern || "files"}`;
+      }
+      default: return `Using ${name}`;
+    }
+  }
+
+  private async readVerifyResults(
+    comments: CategorizedComment[],
+  ): Promise<Map<string, VerifyOutcome>> {
+    const verifyComments = comments.filter((c) => c.category === "verify_and_fix");
+    if (verifyComments.length === 0) return new Map();
+
+    const filePath = join(this.cwd, ".orc-verify.json");
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const parsed = JSON.parse(raw) as Record<string, VerifyOutcome>;
+
+      // Clean up the file
+      await unlink(filePath).catch(() => {});
+
+      const results = new Map<string, VerifyOutcome>();
+      for (const [threadId, outcome] of Object.entries(parsed)) {
+        results.set(threadId, outcome);
+      }
+      return results;
+    } catch {
+      logger.debug("No .orc-verify.json found or failed to parse, defaulting all to unknown");
+      // Fall back: mark all verify_and_fix comments as unknown status
+      const results = new Map<string, VerifyOutcome>();
+      for (const comment of verifyComments) {
+        results.set(comment.threadId, { status: "unknown", reason: "Verification results not found" });
+      }
+      return results;
+    }
   }
 }
