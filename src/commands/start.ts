@@ -1,10 +1,9 @@
 /**
- * The `start` command — launches one or more session controllers
- * for the given branches. Phase 1 uses log output only (no TUI).
+ * Entry point for the daemon — discovers and watches all open PRs
+ * authored by the current user.
  */
 
-import { SessionController } from "../core/session-controller.js";
-import { WorktreeManager } from "../core/worktree-manager.js";
+import { Daemon } from "../core/daemon.js";
 import { ConfigSchema, type Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
 
@@ -20,11 +19,7 @@ export interface StartOptions {
   verbose?: boolean;
 }
 
-export async function startCommand(
-  branches: string[],
-  options: StartOptions,
-): Promise<void> {
-  // Parse and validate config
+export async function startCommand(options: StartOptions): Promise<void> {
   const config: Config = ConfigSchema.parse({
     maxLoops: options.maxLoops,
     pollInterval: options.pollInterval,
@@ -37,10 +32,8 @@ export async function startCommand(
     verbose: options.verbose ?? false,
   });
 
-  // Initialize logger
   logger.init("pr-pilot.log", config.verbose);
-
-  logger.info(`PR Pilot starting for branches: ${branches.join(", ")}`);
+  logger.info(`PR Pilot starting`);
   logger.info(`Config: ${JSON.stringify(config, null, 2)}`);
 
   if (config.dryRun) {
@@ -48,16 +41,10 @@ export async function startCommand(
   }
 
   const cwd = process.cwd();
-  const worktreeManager = new WorktreeManager(cwd);
-  const controllers: SessionController[] = [];
+  const daemon = new Daemon(config, cwd);
 
-  // Graceful shutdown
   const cleanup = async () => {
-    logger.info("Shutting down...");
-    for (const controller of controllers) {
-      controller.stop();
-    }
-    await worktreeManager.cleanup();
+    await daemon.stop();
     logger.close();
     process.exit(0);
   };
@@ -65,63 +52,9 @@ export async function startCommand(
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
 
-  // Launch controllers
-  for (let i = 0; i < branches.length; i++) {
-    const branch = branches[i];
-    let workDir = cwd;
-
-    // First branch uses cwd; additional branches get worktrees
-    if (i > 0) {
-      try {
-        workDir = await worktreeManager.create(branch);
-      } catch (err) {
-        logger.error(
-          `Failed to create worktree for ${branch}: ${err}`,
-        );
-        continue;
-      }
-    }
-
-    const controller = new SessionController(branch, config, workDir);
-
-    controller.on("statusChange", (b: string, status: string) => {
-      logger.info(`Status: ${status}`, b);
-    });
-
-    controller.on("iterationComplete", (b: string, summary: unknown) => {
-      logger.info(
-        `Iteration complete: ${JSON.stringify(summary)}`,
-        b,
-      );
-    });
-
-    controller.on("done", (b: string) => {
-      logger.info("Session finished.", b);
-    });
-
-    controllers.push(controller);
+  try {
+    await daemon.run();
+  } finally {
+    logger.close();
   }
-
-  // Run all controllers concurrently
-  const results = await Promise.allSettled(
-    controllers.map((c) => c.start()),
-  );
-
-  // Report results
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const branch = branches[i];
-    if (result.status === "rejected") {
-      logger.error(`${branch}: ${result.reason}`);
-    } else {
-      const state = controllers[i].getState();
-      logger.info(
-        `${branch}: ${state.status} after ${state.currentIteration} iterations ($${state.totalCostUsd.toFixed(4)})`,
-      );
-    }
-  }
-
-  // Cleanup worktrees
-  await worktreeManager.cleanup();
-  logger.close();
 }

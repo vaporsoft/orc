@@ -10,6 +10,7 @@ import {
   REVIEW_THREADS_QUERY,
   RESOLVE_THREAD_MUTATION,
   PR_FOR_BRANCH_QUERY,
+  MY_OPEN_PRS_QUERY,
 } from "./queries.js";
 import type {
   GHReviewThreadsResponse,
@@ -26,6 +27,7 @@ export interface RepoInfo {
 
 export class GHClient {
   private repoInfo: RepoInfo | null = null;
+  private cachedLogin: string | null = null;
   private cwd: string;
 
   constructor(cwd: string) {
@@ -44,6 +46,37 @@ export class GHClient {
     const parsed = JSON.parse(stdout);
     this.repoInfo = { owner: parsed.owner.login, repo: parsed.name };
     return this.repoInfo;
+  }
+
+  /** Get the authenticated user's login. */
+  async getCurrentUser(): Promise<string> {
+    if (this.cachedLogin) return this.cachedLogin;
+
+    const { stdout } = await exec(
+      "gh",
+      ["api", "user", "--jq", ".login"],
+      { cwd: this.cwd },
+    );
+    this.cachedLogin = stdout.trim();
+    return this.cachedLogin;
+  }
+
+  /** Find all open PRs authored by the current user. */
+  async getMyOpenPRs(): Promise<GHPullRequest[]> {
+    const { owner, repo } = await this.getRepoInfo();
+    const login = await this.getCurrentUser();
+
+    const searchQuery = `repo:${owner}/${repo} is:pr is:open author:${login}`;
+    const result = await this.graphql<{
+      data: {
+        search: {
+          nodes: GHPullRequest[];
+        };
+      };
+    }>(MY_OPEN_PRS_QUERY, { searchQuery });
+
+    // Filter out empty nodes (non-PR results from the union type)
+    return result.data.search.nodes.filter((node) => node.number !== undefined);
   }
 
   /** Execute a GraphQL query via `gh api graphql`. */
