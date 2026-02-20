@@ -7,8 +7,9 @@ interface StatusBadgeProps {
 }
 
 const STATUS_CONFIG: Record<BranchStatus, { symbol: string; color: string }> = {
+  stopped: { symbol: "○", color: "gray" },
   initializing: { symbol: "◌", color: "yellow" },
-  polling: { symbol: "○", color: "blue" },
+  polling: { symbol: "◉", color: "blue" },
   debouncing: { symbol: "◌", color: "cyan" },
   analyzing: { symbol: "◉", color: "magenta" },
   fixing: { symbol: "●", color: "green" },

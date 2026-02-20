@@ -60,6 +60,7 @@ export interface CommentAnalysis {
 }
 
 export type BranchStatus =
+  | "stopped"
   | "initializing"
   | "polling"
   | "debouncing"

@@ -1,9 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { BranchState } from "../../types/index.js";
+import type { PREntry } from "../hooks/useDaemonState.js";
 
 interface DetailPanelProps {
-  sessions: Map<string, BranchState>;
+  entries: Map<string, PREntry>;
   selectedIndex: number;
 }
 
@@ -14,22 +14,30 @@ function formatDuration(ms: number): string {
   return `${String(min).padStart(2, "0")}:${String(remSec).padStart(2, "0")}s`;
 }
 
-export function DetailPanel({ sessions, selectedIndex }: DetailPanelProps) {
-  const branches = [...sessions.keys()].sort();
+export function DetailPanel({ entries, selectedIndex }: DetailPanelProps) {
+  const branches = [...entries.keys()].sort();
   const branch = branches[selectedIndex];
-  const state = branch ? sessions.get(branch) : undefined;
+  const entry = branch ? entries.get(branch) : undefined;
 
-  if (!state) {
+  if (!entry) {
     return (
       <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
-        <Text dimColor>No session selected</Text>
+        <Text dimColor>No PR selected</Text>
       </Box>
     );
   }
 
-  const label = state.prNumber
-    ? `#${state.prNumber} ${state.branch}`
-    : state.branch;
+  const { pr, state } = entry;
+  const label = `#${pr.number} ${pr.title}`;
+
+  if (!state) {
+    return (
+      <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
+        <Text bold> {label}</Text>
+        <Text dimColor>  Stopped — press Enter to start iterating</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">

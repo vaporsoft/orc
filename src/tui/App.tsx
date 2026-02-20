@@ -20,7 +20,7 @@ export function App({ daemon, startTime }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
-  const sessions = useDaemonState(daemon);
+  const entries = useDaemonState(daemon);
   const { entries: logEntries, lastTimestamp } = useLogBuffer();
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
@@ -29,8 +29,9 @@ export function App({ daemon, startTime }: AppProps) {
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
 
-  const sessionCount = sessions.size;
+  const entryCount = entries.size;
   const showLogs = focusedPane === "logs";
+  const branches = [...entries.keys()].sort();
 
   const onQuit = useCallback(() => {
     exit();
@@ -52,11 +53,36 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // Toggle selected PR on/off
+    if (key.return && focusedPane === "sessions") {
+      const branch = branches[sessionIndex];
+      if (branch) {
+        if (daemon.isRunning(branch)) {
+          daemon.stopBranch(branch).catch(() => {});
+        } else {
+          daemon.startBranch(branch).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // Start all
+    if (input === "A") {
+      daemon.startAll().catch(() => {});
+      return;
+    }
+
+    // Stop all
+    if (input === "X") {
+      daemon.stopAll().catch(() => {});
+      return;
+    }
+
     if (focusedPane === "sessions") {
       if (key.upArrow) {
         setSessionIndex((prev) => Math.max(0, prev - 1));
       } else if (key.downArrow) {
-        setSessionIndex((prev) => Math.min(sessionCount - 1, prev + 1));
+        setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
       }
     } else {
       if (key.upArrow) {
@@ -69,13 +95,13 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Header sessions={sessions} startTime={startTime} lastCheck={lastTimestamp} />
+      <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} />
       <SessionList
-        sessions={sessions}
+        entries={entries}
         selectedIndex={sessionIndex}
         focused={focusedPane === "sessions"}
       />
-      <DetailPanel sessions={sessions} selectedIndex={sessionIndex} />
+      <DetailPanel entries={entries} selectedIndex={sessionIndex} />
       {showLogs && (
         <LogPane
           entries={logEntries}

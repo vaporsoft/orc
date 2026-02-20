@@ -1,9 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { BranchState } from "../../types/index.js";
+import type { PREntry } from "../hooks/useDaemonState.js";
 
 interface HeaderProps {
-  sessions: Map<string, BranchState>;
+  entries: Map<string, PREntry>;
   startTime: number;
   lastCheck: string | null;
 }
@@ -20,11 +20,12 @@ function formatCheckTime(iso: string): string {
   return iso.split("T")[1]?.slice(0, 8) ?? iso;
 }
 
-export function Header({ sessions, startTime, lastCheck }: HeaderProps) {
-  const count = sessions.size;
+export function Header({ entries, startTime, lastCheck }: HeaderProps) {
+  const total = entries.size;
+  const running = [...entries.values()].filter((e) => e.state !== null).length;
   let totalCost = 0;
-  for (const state of sessions.values()) {
-    totalCost += state.totalCostUsd;
+  for (const entry of entries.values()) {
+    totalCost += entry.state?.totalCostUsd ?? 0;
   }
   const uptime = formatUptime(Date.now() - startTime);
 
@@ -32,7 +33,7 @@ export function Header({ sessions, startTime, lastCheck }: HeaderProps) {
     <Box borderStyle="single" borderBottom={false} paddingX={1} justifyContent="space-between">
       <Text bold color="cyan">PR Pilot</Text>
       <Text>
-        <Text dimColor>{count} session{count !== 1 ? "s" : ""}</Text>
+        <Text dimColor>{running}/{total} active</Text>
         {"   "}
         <Text dimColor>${totalCost.toFixed(2)} total</Text>
         {"   "}

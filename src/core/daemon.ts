@@ -1,6 +1,6 @@
 /**
- * Always-on daemon that discovers open PRs authored by the current user,
- * spins up SessionControllers for each, and cleans up when PRs close/merge.
+ * Always-on daemon that discovers open PRs authored by the current user.
+ * PRs are discovered but not auto-started — the TUI controls which to run.
  */
 
 import { EventEmitter } from "node:events";
@@ -9,8 +9,8 @@ import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
 import type { GHPullRequest } from "../github/types.js";
+import type { BranchState } from "../types/index.js";
 import { logger } from "../utils/logger.js";
-import { sleep } from "../utils/retry.js";
 import { exec } from "../utils/process.js";
 
 interface ActiveSession {
@@ -24,6 +24,7 @@ export class Daemon extends EventEmitter {
   private ghClient: GHClient;
   private worktreeManager: WorktreeManager;
   private sessions = new Map<string, ActiveSession>();
+  private discoveredPRs = new Map<string, GHPullRequest>();
   private running = false;
   /** Branch currently checked out in cwd — used instead of a worktree. */
   private cwdBranch: string | null = null;
@@ -46,6 +47,14 @@ export class Daemon extends EventEmitter {
     return result;
   }
 
+  getDiscoveredPRs(): Map<string, GHPullRequest> {
+    return new Map(this.discoveredPRs);
+  }
+
+  isRunning(branch: string): boolean {
+    return this.sessions.has(branch);
+  }
+
   async run(): Promise<void> {
     this.running = true;
     await this.ghClient.validateAuth();
@@ -63,16 +72,48 @@ export class Daemon extends EventEmitter {
     this.currentBranch = stdout.trim();
 
     while (this.running) {
-      await this.discover(this.currentBranch);
+      await this.discover();
       if (!this.running) break;
       await this.cancellableSleep(this.config.pollInterval * 1000);
     }
   }
 
   async refreshNow(): Promise<void> {
-    if (!this.currentBranch) return;
     logger.info("Manual refresh triggered");
-    await this.discover(this.currentBranch);
+    await this.discover();
+  }
+
+  /** Start iterating on a specific branch. */
+  async startBranch(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+    await this.launchSession(pr);
+  }
+
+  /** Stop iterating on a specific branch. */
+  async stopBranch(branch: string): Promise<void> {
+    await this.teardownSession(branch);
+    // Re-emit as stopped (still discovered)
+    if (this.discoveredPRs.has(branch)) {
+      this.emit("prUpdate", branch);
+    }
+  }
+
+  /** Start all discovered PRs. */
+  async startAll(): Promise<void> {
+    for (const [branch] of this.discoveredPRs) {
+      if (!this.sessions.has(branch)) {
+        await this.startBranch(branch);
+      }
+    }
+  }
+
+  /** Stop all running sessions. */
+  async stopAll(): Promise<void> {
+    for (const branch of [...this.sessions.keys()]) {
+      await this.stopBranch(branch);
+    }
   }
 
   private cancellableSleep(ms: number): Promise<void> {
@@ -92,12 +133,12 @@ export class Daemon extends EventEmitter {
     logger.info("Shutting down daemon...");
     const branches = [...this.sessions.keys()];
     for (const branch of branches) {
-      await this.stopSession(branch);
+      await this.teardownSession(branch);
     }
     await this.worktreeManager.cleanup();
   }
 
-  private async discover(currentBranch: string): Promise<void> {
+  private async discover(): Promise<void> {
     let prs: GHPullRequest[];
     try {
       prs = await this.ghClient.getMyOpenPRs();
@@ -108,32 +149,32 @@ export class Daemon extends EventEmitter {
 
     const activeBranches = new Set(prs.map((pr) => pr.headRefName));
 
-    if (prs.length === 0 && this.sessions.size === 0) {
+    if (prs.length === 0 && this.discoveredPRs.size === 0) {
       logger.info("No open PRs found, waiting...");
     }
 
-    // Start controllers for new PRs
+    // Track newly discovered PRs
     for (const pr of prs) {
-      if (!this.sessions.has(pr.headRefName)) {
-        await this.startSession(pr, currentBranch);
+      if (!this.discoveredPRs.has(pr.headRefName)) {
+        logger.info(`Discovered PR #${pr.number}: ${pr.title}`, pr.headRefName);
+        this.discoveredPRs.set(pr.headRefName, pr);
+        this.emit("prDiscovered", pr.headRefName, pr);
       }
     }
 
-    // Stop controllers for closed/merged PRs
-    for (const branch of this.sessions.keys()) {
+    // Remove PRs that were closed/merged
+    for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
-        logger.info(`PR closed/merged, stopping`, branch);
-        await this.stopSession(branch);
+        logger.info(`PR closed/merged, removing`, branch);
+        this.discoveredPRs.delete(branch);
+        await this.teardownSession(branch);
+        this.emit("prRemoved", branch);
       }
     }
   }
 
-  private async startSession(
-    pr: GHPullRequest,
-    currentBranch: string,
-  ): Promise<void> {
+  private async launchSession(pr: GHPullRequest): Promise<void> {
     const branch = pr.headRefName;
-    logger.info(`Discovered PR #${pr.number}: ${pr.title}`, branch);
 
     if (this.config.dryRun) {
       logger.info(
@@ -143,6 +184,7 @@ export class Daemon extends EventEmitter {
       return;
     }
 
+    const currentBranch = this.currentBranch ?? "";
     let workDir: string;
 
     // Reuse cwd if the PR branch matches what's checked out
@@ -182,10 +224,10 @@ export class Daemon extends EventEmitter {
 
     const promise = controller.start();
     this.sessions.set(branch, { controller, promise });
-    this.emit("sessionAdded", branch, controller.getState());
+    this.emit("sessionUpdate", branch, controller.getState());
   }
 
-  private async stopSession(branch: string): Promise<void> {
+  private async teardownSession(branch: string): Promise<void> {
     const session = this.sessions.get(branch);
     if (!session) return;
 
@@ -196,12 +238,18 @@ export class Daemon extends EventEmitter {
 
   private async cleanupSession(branch: string): Promise<void> {
     this.sessions.delete(branch);
-    this.emit("sessionRemoved", branch);
 
     if (branch === this.cwdBranch) {
       this.cwdBranch = null;
     } else {
       await this.worktreeManager.remove(branch);
+    }
+
+    // If still discovered, emit update so TUI shows it as stopped
+    if (this.discoveredPRs.has(branch)) {
+      this.emit("prUpdate", branch);
+    } else {
+      this.emit("prRemoved", branch);
     }
   }
 }

@@ -1,16 +1,16 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { BranchState } from "../../types/index.js";
+import type { PREntry } from "../hooks/useDaemonState.js";
 import { SessionRow } from "./SessionRow.js";
 
 interface SessionListProps {
-  sessions: Map<string, BranchState>;
+  entries: Map<string, PREntry>;
   selectedIndex: number;
   focused: boolean;
 }
 
-export function SessionList({ sessions, selectedIndex, focused }: SessionListProps) {
-  const branches = [...sessions.keys()].sort();
+export function SessionList({ entries, selectedIndex, focused }: SessionListProps) {
+  const branches = [...entries.keys()].sort();
 
   return (
     <Box flexDirection="column" borderStyle="single" borderTop={false} borderBottom={false}>
@@ -36,13 +36,13 @@ export function SessionList({ sessions, selectedIndex, focused }: SessionListPro
       </Box>
       {branches.length === 0 ? (
         <Box paddingX={1}>
-          <Text dimColor>No active sessions — waiting for PRs...</Text>
+          <Text dimColor>No open PRs found — waiting for discovery...</Text>
         </Box>
       ) : (
         branches.map((branch, i) => (
           <Box key={branch} paddingX={1}>
             <SessionRow
-              state={sessions.get(branch)!}
+              entry={entries.get(branch)!}
               selected={focused && i === selectedIndex}
             />
           </Box>

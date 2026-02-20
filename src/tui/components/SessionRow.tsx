@@ -1,22 +1,26 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { BranchState } from "../../types/index.js";
+import type { PREntry } from "../hooks/useDaemonState.js";
 import { StatusBadge } from "./StatusBadge.js";
 
 interface SessionRowProps {
-  state: BranchState;
+  entry: PREntry;
   selected: boolean;
 }
 
-export function SessionRow({ state, selected }: SessionRowProps) {
-  const branch = state.branch.length > 20
-    ? state.branch.slice(0, 19) + "…"
-    : state.branch;
+export function SessionRow({ entry, selected }: SessionRowProps) {
+  const { pr, state } = entry;
+  const branch = entry.branch.length > 20
+    ? entry.branch.slice(0, 19) + "…"
+    : entry.branch;
 
-  const pr = state.prNumber ? `#${state.prNumber}` : "—";
-  const iter = `${state.currentIteration}/${state.maxIterations}`;
-  const cost = `$${state.totalCostUsd.toFixed(2)}`;
-  const errors = state.iterations.reduce((sum, i) => sum + i.errors.length, 0);
+  const prLabel = `#${pr.number}`;
+  const status = state?.status ?? "stopped";
+  const iter = state ? `${state.currentIteration}/${state.maxIterations}` : "—";
+  const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
+  const errors = state
+    ? state.iterations.reduce((sum, i) => sum + i.errors.length, 0)
+    : 0;
 
   return (
     <Box>
@@ -27,10 +31,10 @@ export function SessionRow({ state, selected }: SessionRowProps) {
         <Text bold={selected}>{branch}</Text>
       </Box>
       <Box width={8}>
-        <Text dimColor>{pr}</Text>
+        <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={18}>
-        <StatusBadge status={state.status} />
+        <StatusBadge status={status} />
       </Box>
       <Box width={8}>
         <Text>{iter}</Text>
