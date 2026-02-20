@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
+import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { Header } from "./components/Header.js";
@@ -43,7 +44,7 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    if (input === "R") {
+    if (input === "r") {
       daemon.refreshNow().catch(() => {});
       return;
     }
@@ -67,14 +68,18 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Start all
-    if (input === "A") {
-      daemon.startAll().catch(() => {});
+    if (input === "a") {
+      daemon.startAll().catch((err) => {
+        logger.error(`startAll failed: ${err}`);
+      });
       return;
     }
 
     // Stop all
-    if (input === "X") {
-      daemon.stopAll().catch(() => {});
+    if (input === "x") {
+      daemon.stopAll().catch((err) => {
+        logger.error(`stopAll failed: ${err}`);
+      });
       return;
     }
 
