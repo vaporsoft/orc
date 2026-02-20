@@ -175,28 +175,34 @@ export class SessionController extends EventEmitter {
       );
 
       if (pollResult.newEvents.length > 0) {
-        this.debouncer.add(pollResult.newEvents);
-        this.setStatus("debouncing");
+        // First iteration: act immediately on existing events.
+        // Subsequent iterations: debounce to batch new comments.
+        if (iterNum === 1) {
+          eventsCollected = pollResult.newEvents;
+        } else {
+          this.debouncer.add(pollResult.newEvents);
+          this.setStatus("debouncing");
 
-        // Start debounce — keep polling during debounce window
-        const debouncePromise = this.debouncer.waitForFlush();
+          // Start debounce — keep polling during debounce window
+          const debouncePromise = this.debouncer.waitForFlush();
 
-        // Poll once more during debounce to catch late-arriving events
-        const debounceCheck = async () => {
-          await sleep(this.config.pollInterval * 1000 / 2);
-          if (!this.running) return;
-          const morePoll = await this.monitor.poll(
-            this.state.seenThreadIds,
-            this.state.seenCheckIds,
-          );
-          if (morePoll.newEvents.length > 0) {
-            this.debouncer.add(morePoll.newEvents);
-          }
-        };
+          // Poll once more during debounce to catch late-arriving events
+          const debounceCheck = async () => {
+            await sleep(this.config.pollInterval * 1000 / 2);
+            if (!this.running) return;
+            const morePoll = await this.monitor.poll(
+              this.state.seenThreadIds,
+              this.state.seenCheckIds,
+            );
+            if (morePoll.newEvents.length > 0) {
+              this.debouncer.add(morePoll.newEvents);
+            }
+          };
 
-        // Run debounce check in parallel with the debounce timer
-        debounceCheck().catch(() => {});
-        eventsCollected = await debouncePromise;
+          // Run debounce check in parallel with the debounce timer
+          debounceCheck().catch(() => {});
+          eventsCollected = await debouncePromise;
+        }
       } else {
         // No new events, sleep and poll again
         if (!this.running) return;
