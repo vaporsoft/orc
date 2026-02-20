@@ -10,12 +10,7 @@ export const cli = new Command()
   .description(
     "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
   )
-  .version("0.1.0");
-
-cli
-  .command("start")
-  .description("Start watching branches for PR feedback")
-  .argument("<branches...>", "One or more branch names to watch")
+  .version("0.1.0")
   .option("--max-loops <n>", "Max fix iterations per branch", parseInt)
   .option("--poll-interval <n>", "Seconds between polls", parseInt)
   .option("--debounce <n>", "Seconds to wait after last event", parseInt)

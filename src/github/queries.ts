@@ -74,6 +74,24 @@ query PullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
 }
 `;
 
+export const MY_OPEN_PRS_QUERY = `
+query MyOpenPRs($searchQuery: String!) {
+  search(query: $searchQuery, type: ISSUE, first: 50) {
+    nodes {
+      ... on PullRequest {
+        number
+        url
+        title
+        state
+        headRefName
+        baseRefName
+        headRefOid
+      }
+    }
+  }
+}
+`;
+
 export const PR_FOR_BRANCH_QUERY = `
 query PRForBranch($owner: String!, $repo: String!, $branch: String!) {
   repository(owner: $owner, name: $repo) {
