@@ -27,18 +27,19 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
   return (
     <Box paddingX={1}>
       <Box width={2}>
-        <Text color={selected ? "greenBright" : "gray"} bold={selected}>
+        <Text color={selected ? "green" : "gray"}>
           {selected ? "▍" : " "}
         </Text>
       </Box>
       <Box width={28}>
-        <Text color={selected ? "white" : undefined} bold={selected}>{branch}</Text>
+        <Text color={selected ? "green" : "white"}>{branch}</Text>
       </Box>
       <Box width={8}>
         <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={16}>
         <StatusBadge status={status} />
+        {state?.mode === "watch" && <Text color="cyan"> ⟳</Text>}
       </Box>
       <Box width={10}>
         <Text color={commentCount > 0 ? "yellow" : "gray"}>

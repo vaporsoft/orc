@@ -44,17 +44,15 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
     >
       <Key k="j/k" label="select" />
       <Text dimColor>·</Text>
-      <Key k="enter" label="details" />
-      <Text dimColor>·</Text>
-      <Key k="l" label="logs" />
-      <Text dimColor>·</Text>
       <Key k="s" label="start/stop" />
+      <Text dimColor>·</Text>
+      <Key k="e" label="watch" />
       <Text dimColor>·</Text>
       <Key k="r" label="retry" />
       <Text dimColor>·</Text>
-      <Key k="a" label="start all" />
+      <Key k="enter" label="details" />
       <Text dimColor>·</Text>
-      <Key k="x" label="stop all" />
+      <Key k="l" label="logs" />
       <Text dimColor>·</Text>
       <Key k="c" label="claude" />
       <Text dimColor>·</Text>

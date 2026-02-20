@@ -3,6 +3,7 @@
  * Each additional branch gets its own worktree at /tmp/orc/<branch-safe>.
  */
 
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { exec } from "../utils/process.js";
@@ -27,24 +28,16 @@ export class WorktreeManager {
     }
 
     const safeName = branch.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const worktreePath = path.join(WORKTREE_BASE, safeName);
+    const suffix = crypto.randomBytes(3).toString("hex");
+    const worktreePath = path.join(WORKTREE_BASE, `${safeName}_${suffix}`);
 
     fs.mkdirSync(WORKTREE_BASE, { recursive: true });
 
     logger.info(`Creating worktree at ${worktreePath}`, branch);
 
-    try {
-      await exec("git", ["worktree", "add", "--detach", worktreePath, branch], {
-        cwd: this.cwd,
-      });
-    } catch (err) {
-      // Worktree might already exist from a previous run
-      if (fs.existsSync(worktreePath)) {
-        logger.warn(`Worktree already exists at ${worktreePath}`, branch);
-      } else {
-        throw err;
-      }
-    }
+    await exec("git", ["worktree", "add", "--detach", worktreePath, branch], {
+      cwd: this.cwd,
+    });
 
     // Detect package manager and install dependencies
     await this.installDependencies(worktreePath, branch);
@@ -71,7 +64,39 @@ export class WorktreeManager {
     this.worktrees.delete(branch);
   }
 
-  /** Clean up all worktrees. */
+  /** Remove all worktrees in WORKTREE_BASE from a previous run and prune git refs. */
+  async purgeStale(): Promise<void> {
+    try {
+      await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+    } catch {
+      // Best-effort
+    }
+
+    if (!fs.existsSync(WORKTREE_BASE)) return;
+
+    const entries = fs.readdirSync(WORKTREE_BASE);
+    for (const entry of entries) {
+      const fullPath = path.join(WORKTREE_BASE, entry);
+      try {
+        await exec("git", ["worktree", "remove", fullPath, "--force"], {
+          cwd: this.cwd,
+        });
+      } catch {
+        // If git doesn't know about it, just rm it
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      }
+    }
+
+    try {
+      await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+    } catch {
+      // Best-effort
+    }
+
+    logger.info("Purged stale worktrees");
+  }
+
+  /** Clean up all worktrees managed by this instance. */
   async cleanup(): Promise<void> {
     for (const branch of this.worktrees.keys()) {
       await this.remove(branch);

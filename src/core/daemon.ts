@@ -10,7 +10,7 @@ import { CommentFetcher } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
-import type { BranchState, ReviewThread } from "../types/index.js";
+import type { BranchState, ReviewThread, SessionMode } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
@@ -72,6 +72,7 @@ export class Daemon extends EventEmitter {
 
   async run(): Promise<void> {
     this.running = true;
+    await this.worktreeManager.purgeStale();
     await this.ghClient.validateAuth();
 
     const user = await this.ghClient.getCurrentUser();
@@ -97,12 +98,16 @@ export class Daemon extends EventEmitter {
     await this.discover();
   }
 
-  async startBranch(branch: string): Promise<void> {
+  async startBranch(branch: string, mode: SessionMode = "once"): Promise<void> {
     if (this.sessions.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
+
+    // Clean up any worktree left from a previous errored session
+    await this.worktreeManager.remove(branch);
+
     this.lastStates.delete(branch);
-    await this.launchSession(pr);
+    await this.launchSession(pr, mode);
   }
 
   async stopBranch(branch: string): Promise<void> {
@@ -112,12 +117,20 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  async startAll(): Promise<void> {
+  async startAll(mode: SessionMode = "once"): Promise<void> {
     for (const [branch] of this.discoveredPRs) {
       if (!this.sessions.has(branch)) {
-        await this.startBranch(branch);
+        await this.startBranch(branch, mode);
       }
     }
+  }
+
+  async watchBranch(branch: string): Promise<void> {
+    await this.startBranch(branch, "watch");
+  }
+
+  async watchAll(): Promise<void> {
+    await this.startAll("watch");
   }
 
   async stopAll(): Promise<void> {
@@ -199,6 +212,9 @@ export class Daemon extends EventEmitter {
     if (!this.botLogin) return;
 
     for (const pr of prs) {
+      // Skip branches with active sessions — they manage their own comment state
+      if (this.sessions.has(pr.headRefName)) continue;
+
       try {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin, pr.headRefName,
@@ -221,7 +237,7 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  private async launchSession(pr: GHPullRequest): Promise<void> {
+  private async launchSession(pr: GHPullRequest, mode: SessionMode = "once"): Promise<void> {
     const branch = pr.headRefName;
 
     if (this.config.dryRun) {
@@ -240,7 +256,7 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    const controller = new SessionController(branch, this.config, workDir);
+    const controller = new SessionController(branch, this.config, workDir, mode);
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);
@@ -255,9 +271,17 @@ export class Daemon extends EventEmitter {
 
     controller.on("done", (b: string) => {
       logger.info("Session finished.", b);
-      this.cleanupSession(b).catch((err) => {
-        logger.warn(`Cleanup failed for ${b}: ${err}`);
-      });
+      const state = controller.getState();
+      if (state.status === "error") {
+        // Keep the worktree alive for manual intervention
+        this.lastStates.set(b, state);
+        this.sessions.delete(b);
+        this.emit("prUpdate", b);
+      } else {
+        this.cleanupSession(b).catch((err) => {
+          logger.warn(`Cleanup failed for ${b}: ${err}`);
+        });
+      }
     });
 
     const promise = controller.start();

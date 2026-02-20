@@ -56,6 +56,8 @@ export interface RepoPilotConfig {
   };
 }
 
+export type SessionMode = "once" | "watch";
+
 export type BranchStatus =
   | "stopped"
   | "initializing"
@@ -73,6 +75,7 @@ export interface BranchState {
   prNumber: number | null;
   prUrl: string | null;
   status: BranchStatus;
+  mode: SessionMode;
   commentsAddressed: number;
   totalCostUsd: number;
   error: string | null;

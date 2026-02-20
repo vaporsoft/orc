@@ -38,17 +38,22 @@ function SectionHeader({ label }: { label: string }) {
 
 function ErrorAction({ error }: { error: string }) {
   const lower = error.toLowerCase();
-  let hint = "r to retry";
+  const hints: string[] = [];
 
   if (lower.includes("rebase") || lower.includes("conflict")) {
-    hint = "w to open worktree, resolve conflicts, then r to retry";
+    hints.push("w to open worktree and resolve conflicts");
   } else if (lower.includes("push")) {
-    hint = "check remote branch state, then r to retry";
+    hints.push("check remote branch state");
   } else if (lower.includes("no open pr")) {
-    hint = "open a PR for this branch first";
+    hints.push("open a PR for this branch first");
   } else if (lower.includes("auth")) {
-    hint = "check gh auth status";
+    hints.push("check gh auth status");
+  } else {
+    hints.push("l to check logs for details");
+    hints.push("c to resume Claude session");
   }
+
+  hints.push("r to retry when ready");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -56,9 +61,11 @@ function ErrorAction({ error }: { error: string }) {
         <Text color="red" bold>{"✗ ERROR "}</Text>
         <Text color="red">{error}</Text>
       </Box>
-      <Box marginLeft={2}>
-        <Text dimColor>→ {hint}</Text>
-      </Box>
+      {hints.map((hint, i) => (
+        <Box key={i} marginLeft={2}>
+          <Text dimColor>→ {hint}</Text>
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -92,7 +99,7 @@ export function DetailPanel({
   const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
-  const isFixing = state?.status === "fixing";
+
 
   // Collapsed view
   if (!showDetail) {
@@ -174,18 +181,6 @@ export function DetailPanel({
       )}
 
       {state?.error && <ErrorAction error={state.error} />}
-
-      {/* Claude activity feed */}
-      {isFixing && state.claudeActivity.length > 0 && (
-        <>
-          <SectionHeader label="Claude" />
-          {state.claudeActivity.map((line, i) => (
-            <Box key={i} marginLeft={2}>
-              <Text dimColor>{line}</Text>
-            </Box>
-          ))}
-        </>
-      )}
 
       {/* Categorized comments */}
       {summary && summary.comments.length > 0 ? (

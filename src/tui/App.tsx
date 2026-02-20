@@ -7,9 +7,12 @@ import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { Header } from "./components/Header.js";
+import { Toolbar } from "./components/Toolbar.js";
+import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
+import { ActivityPane } from "./components/ActivityPane.js";
 import { HelpBar } from "./components/HelpBar.js";
 
 type Pane = "sessions" | "logs";
@@ -32,6 +35,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [showBranchLogs, setShowBranchLogs] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
+  const [toolbarIndex, setToolbarIndex] = useState(-1);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -43,6 +47,16 @@ export function App({ daemon, startTime }: AppProps) {
   const selectedBranch = branches[sessionIndex] ?? null;
 
   const branchLogs = useBranchLogs(selectedBranch);
+
+  const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
+  const activityLines = selectedEntry?.state?.claudeActivity ?? [];
+
+  const toolbarButtons: ToolbarButton[] = [
+    { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
+    { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
+    { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
+    { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
+  ];
 
   const onQuit = useCallback(() => {
     exit();
@@ -73,6 +87,34 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // Toolbar: Enter activates focused button
+    if ((key.return || input === "\n") && toolbarIndex >= 0) {
+      toolbarButtons[toolbarIndex]?.action();
+      return;
+    }
+
+    // Toolbar: Escape deselects
+    if (key.escape && toolbarIndex >= 0) {
+      setToolbarIndex(-1);
+      return;
+    }
+
+    // Toolbar: left/right navigate between buttons
+    if (key.leftArrow && toolbarIndex >= 0) {
+      setToolbarIndex((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    if (key.rightArrow && toolbarIndex >= 0) {
+      setToolbarIndex((prev) => Math.min(toolbarButtons.length - 1, prev + 1));
+      return;
+    }
+
+    // Toolbar: down arrow exits toolbar back to session list
+    if (key.downArrow && toolbarIndex >= 0) {
+      setToolbarIndex(-1);
+      return;
+    }
+
     // Toggle detail pane for selected branch (handle both \r and \n)
     if ((key.return || input === "\n") && focusedPane === "sessions") {
       setShowDetail((prev) => !prev);
@@ -86,22 +128,31 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Start/stop selected branch
+    // Start/stop selected branch (one-shot)
     if (input === "s" && focusedPane === "sessions") {
       const branch = branches[sessionIndex];
       if (branch) {
         if (daemon.isRunning(branch)) {
           daemon.stopBranch(branch).catch(() => {});
         } else {
-          daemon.startBranch(branch).catch(() => {});
+          daemon.startBranch(branch, "once").catch(() => {});
         }
       }
       return;
     }
 
-    // Start all
+    // Watch selected branch (continuous)
+    if (input === "e" && focusedPane === "sessions") {
+      const branch = branches[sessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.watchBranch(branch).catch(() => {});
+      }
+      return;
+    }
+
+    // Start all (one-shot)
     if (input === "a") {
-      daemon.startAll().catch((err) => {
+      daemon.startAll("once").catch((err) => {
         logger.error(`startAll failed: ${err}`);
       });
       return;
@@ -180,9 +231,13 @@ export function App({ daemon, startTime }: AppProps) {
           setBranchLogOffset((prev) => Math.max(0, prev - 1));
         }
       } else {
-        // Otherwise arrows navigate the session list
         if (key.upArrow) {
-          setSessionIndex((prev) => Math.max(0, prev - 1));
+          if (sessionIndex === 0) {
+            // At top of session list — move focus up into toolbar
+            setToolbarIndex(0);
+          } else {
+            setSessionIndex((prev) => prev - 1);
+          }
         } else if (key.downArrow) {
           setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
         }
@@ -199,16 +254,20 @@ export function App({ daemon, startTime }: AppProps) {
   return (
     <Box flexDirection="column" height={termHeight}>
       <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} />
+      <Toolbar buttons={toolbarButtons} selectedIndex={toolbarIndex} />
       <SessionList
         entries={entries}
         selectedIndex={sessionIndex}
-        focused={focusedPane === "sessions"}
+        focused={focusedPane === "sessions" && toolbarIndex < 0}
       />
       <DetailPanel
         entries={entries}
         selectedIndex={sessionIndex}
         showDetail={showDetail}
       />
+      {activityLines.length > 0 && selectedBranch && (
+        <ActivityPane lines={activityLines} branch={selectedBranch} />
+      )}
       {showBranchLogs && (
         <LogPane
           entries={branchLogs}

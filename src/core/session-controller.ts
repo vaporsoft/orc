@@ -18,6 +18,7 @@ import type {
   BranchStatus,
   CommentSummary,
   RepoPilotConfig,
+  SessionMode,
 } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
@@ -35,17 +36,19 @@ export class SessionController extends EventEmitter {
   private gitManager: GitManager;
   private responder!: ThreadResponder;
   private pilotConfig!: RepoPilotConfig;
+  private mode: SessionMode;
   private state: BranchState;
   private prAuthor: string | null = null;
   private abortController: AbortController;
   private running = false;
   private startedAt = 0;
 
-  constructor(branch: string, config: Config, cwd: string) {
+  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once") {
     super();
     this.branch = branch;
     this.config = config;
     this.cwd = cwd;
+    this.mode = mode;
 
     this.ghClient = new GHClient(cwd);
     this.categorizer = new CommentCategorizer(cwd, config.confidence);
@@ -58,6 +61,7 @@ export class SessionController extends EventEmitter {
       prNumber: null,
       prUrl: null,
       status: "initializing",
+      mode,
       commentsAddressed: 0,
       totalCostUsd: 0,
       error: null,
@@ -104,8 +108,16 @@ export class SessionController extends EventEmitter {
         this.branch,
       );
 
-      while (this.running) {
+      if (this.mode === "once") {
         await this.runCycle(pr.baseRefName);
+        if (this.running) {
+          this.setStatus("done");
+          this.running = false;
+        }
+      } else {
+        while (this.running) {
+          await this.runCycle(pr.baseRefName);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -130,8 +142,16 @@ export class SessionController extends EventEmitter {
     const fetchedComments = await this.fetcher.fetch();
 
     if (fetchedComments.length === 0) {
-      logger.info("No comments found — awaiting review feedback", this.branch);
       this.state.unresolvedCount = 0;
+
+      if (this.mode === "once") {
+        logger.info("No comments to address", this.branch);
+        this.setStatus("done");
+        this.running = false;
+        return;
+      }
+
+      logger.info("No comments found — awaiting review feedback", this.branch);
       if (!this.running) return;
 
       // Check if PR is still open
@@ -213,7 +233,7 @@ export class SessionController extends EventEmitter {
     this.state.claudeActivity = [];
     const headBefore = await this.gitManager.getHeadSha();
 
-    const MAX_ACTIVITY_LINES = 8;
+    const MAX_ACTIVITY_LINES = 10;
     const fixResult = await this.executor.execute(
       actionable,
       this.pilotConfig,
@@ -341,8 +361,10 @@ export class SessionController extends EventEmitter {
       return;
     }
 
-    // Wait before next cycle to let GitHub propagate replies
-    await sleep(this.config.pollInterval * 1000);
+    // Wait before next cycle to let GitHub propagate replies (only in watch mode)
+    if (this.mode === "watch") {
+      await sleep(this.config.pollInterval * 1000);
+    }
   }
 
   private setStatus(status: BranchStatus): void {
