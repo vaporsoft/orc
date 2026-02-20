@@ -143,7 +143,9 @@ export class Daemon {
 
     controller.on("done", (b: string) => {
       logger.info("Session finished.", b);
-      this.cleanupSession(b);
+      this.cleanupSession(b).catch((err) => {
+        logger.warn(`Cleanup failed for ${b}: ${err}`);
+      });
     });
 
     const promise = controller.start();
