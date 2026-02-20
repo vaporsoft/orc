@@ -19,9 +19,14 @@ export class ThreadResponder {
   }
 
   /** Reply to threads/comments that were addressed by fixes. */
-  async replyToAddressed(comments: CategorizedComment[]): Promise<void> {
+  async replyToAddressed(comments: CategorizedComment[], commitSha?: string): Promise<void> {
+    const { owner, repo } = await this.ghClient.getRepoInfo();
+    const commitRef = commitSha
+      ? `[${commitSha.slice(0, 7)}](https://github.com/${owner}/${repo}/commit/${commitSha})`
+      : "latest commit";
+
     for (const comment of comments) {
-      const body = `Addressed by PR Pilot (${comment.category}, confidence: ${comment.confidence.toFixed(2)}).`;
+      const body = this.buildAddressedReply(comment, commitRef);
       try {
         await this.reply(comment, body);
         logger.info(
@@ -40,7 +45,7 @@ export class ThreadResponder {
   /** Reply to threads/comments that were skipped, explaining why. */
   async replyToSkipped(comments: CategorizedComment[]): Promise<void> {
     for (const comment of comments) {
-      const body = `PR Pilot skipped this comment (${comment.category}, confidence: ${comment.confidence.toFixed(2)}): ${comment.reasoning}`;
+      const body = this.buildSkippedReply(comment);
       try {
         await this.reply(comment, body);
         logger.debug(
@@ -54,6 +59,53 @@ export class ThreadResponder {
         );
       }
     }
+  }
+
+  private buildAddressedReply(comment: CategorizedComment, commitRef: string): string {
+    const isConversation = comment.path === "(conversation)";
+
+    const parts: string[] = [];
+
+    if (isConversation) {
+      // Quote the original comment and tag the author
+      const quotedBody = comment.body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      parts.push(quotedBody);
+      parts.push("");
+      parts.push(`@${comment.author} Addressed in ${commitRef}.`);
+    } else {
+      parts.push(`Addressed in ${commitRef}.`);
+    }
+
+    parts.push("");
+    parts.push(`*PR Pilot — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+
+    return parts.join("\n");
+  }
+
+  private buildSkippedReply(comment: CategorizedComment): string {
+    const isConversation = comment.path === "(conversation)";
+
+    const parts: string[] = [];
+
+    if (isConversation) {
+      const quotedBody = comment.body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      parts.push(quotedBody);
+      parts.push("");
+      parts.push(`@${comment.author} Skipped — ${comment.reasoning}`);
+    } else {
+      parts.push(`Skipped — ${comment.reasoning}`);
+    }
+
+    parts.push("");
+    parts.push(`*PR Pilot — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+
+    return parts.join("\n");
   }
 
   /** Route reply to the correct API based on comment type. */

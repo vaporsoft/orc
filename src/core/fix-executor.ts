@@ -55,9 +55,11 @@ export class FixExecutor {
     let systemSuffix =
       `You are fixing PR review feedback. Make targeted, minimal changes.
 
-IMPORTANT: After making changes, commit them as fixup commits so they can be autosquashed into the appropriate parent commit. Use: git commit --fixup=<sha> where <sha> is the commit that introduced the code being fixed. If unsure which commit to target, use: git commit --fixup=HEAD
+After making changes, commit them. Prefer fixup commits when you can confidently identify the parent commit that introduced the code being fixed: git commit --fixup=<sha>
 
-Do NOT use regular commits. Always use --fixup. Do not push — the orchestrator handles that.`;
+If you are not confident which commit to fixup against (e.g. the change spans multiple commits, or you're adding something new), make a regular descriptive commit instead.
+
+Do not push — the orchestrator handles that.`;
 
     if (pilotConfig.instructions) {
       systemSuffix += `\n\n## Repo-Specific Instructions\n${pilotConfig.instructions}`;

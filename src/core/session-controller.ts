@@ -39,6 +39,7 @@ export class SessionController extends EventEmitter {
   private responder!: ThreadResponder;
   private pilotConfig!: RepoPilotConfig;
   private state: BranchState;
+  private prAuthor: string | null = null;
   private abortController: AbortController;
   private running = false;
 
@@ -91,6 +92,7 @@ export class SessionController extends EventEmitter {
 
       this.state.prNumber = pr.number;
       this.state.prUrl = pr.url;
+      this.prAuthor = pr.author.login;
 
       const botLogin = await this.ghClient.getCurrentUser();
       this.fetcher = new CommentFetcher(this.ghClient, pr.number, botLogin, this.branch);
@@ -311,14 +313,18 @@ export class SessionController extends EventEmitter {
         logger.error("Push failed", this.branch);
       }
 
-      // 7. REPLY
+      // 7. REPLY — include the commit SHA so replies link to the fix
       this.setStatus("replying");
-      await this.responder.replyToAddressed(actionable);
+      const headAfterPush = await this.gitManager.getHeadSha();
+      await this.responder.replyToAddressed(actionable, headAfterPush);
 
-      // 8. RE-REQUEST review
+      // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
       if (this.state.prNumber) {
-        const uniqueAuthors = [...new Set(actionable.map((c) => c.author))];
-        await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
+        const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
+          .filter((a) => a !== this.prAuthor);
+        if (uniqueAuthors.length > 0) {
+          await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
+        }
       }
     }
 

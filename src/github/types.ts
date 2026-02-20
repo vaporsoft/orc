@@ -8,6 +8,7 @@ export interface GHPullRequest {
   headRefName: string;
   baseRefName: string;
   headRefOid: string;
+  author: { login: string };
 }
 
 export interface GHReviewComment {

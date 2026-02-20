@@ -69,6 +69,7 @@ query PullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
       headRefName
       baseRefName
       headRefOid
+      author { login }
     }
   }
 }
@@ -86,6 +87,7 @@ query MyOpenPRs($searchQuery: String!) {
         headRefName
         baseRefName
         headRefOid
+        author { login }
       }
     }
   }
@@ -129,6 +131,7 @@ query PRForBranch($owner: String!, $repo: String!, $branch: String!) {
         headRefName
         baseRefName
         headRefOid
+        author { login }
       }
     }
   }
