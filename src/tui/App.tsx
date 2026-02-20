@@ -4,6 +4,7 @@ import type { Daemon } from "../core/daemon.js";
 import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
+import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { Header } from "./components/Header.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel } from "./components/DetailPanel.js";
@@ -27,13 +28,19 @@ export function App({ daemon, startTime }: AppProps) {
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
   const [showDetail, setShowDetail] = useState(false);
+  const [detailLogOffset, setDetailLogOffset] = useState(0);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
+  // Branch log area gets roughly half the remaining space
+  const branchLogLines = Math.max(3, Math.floor((termHeight - 16) / 2));
 
   const entryCount = entries.size;
   const showLogs = focusedPane === "logs";
   const branches = [...entries.keys()].sort();
+  const selectedBranch = branches[sessionIndex] ?? null;
+
+  const branchLogs = useBranchLogs(selectedBranch);
 
   const onQuit = useCallback(() => {
     exit();
@@ -58,6 +65,7 @@ export function App({ daemon, startTime }: AppProps) {
     // Toggle detail pane for selected branch
     if (key.return && focusedPane === "sessions") {
       setShowDetail((prev) => !prev);
+      setDetailLogOffset(0); // Reset scroll when toggling
       return;
     }
 
@@ -90,11 +98,33 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // j/k always navigate the session list
+    if (input === "k" && focusedPane === "sessions") {
+      setSessionIndex((prev) => Math.max(0, prev - 1));
+      setDetailLogOffset(0);
+      return;
+    }
+    if (input === "j" && focusedPane === "sessions") {
+      setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
+      setDetailLogOffset(0);
+      return;
+    }
+
     if (focusedPane === "sessions") {
-      if (key.upArrow) {
-        setSessionIndex((prev) => Math.max(0, prev - 1));
-      } else if (key.downArrow) {
-        setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
+      if (showDetail) {
+        // When detail is open, arrows scroll the branch log
+        if (key.upArrow) {
+          setDetailLogOffset((prev) => Math.min(prev + 1, Math.max(0, branchLogs.length - branchLogLines)));
+        } else if (key.downArrow) {
+          setDetailLogOffset((prev) => Math.max(0, prev - 1));
+        }
+      } else {
+        // When detail is closed, arrows navigate the session list
+        if (key.upArrow) {
+          setSessionIndex((prev) => Math.max(0, prev - 1));
+        } else if (key.downArrow) {
+          setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
+        }
       }
     } else {
       if (key.upArrow) {
@@ -113,7 +143,14 @@ export function App({ daemon, startTime }: AppProps) {
         selectedIndex={sessionIndex}
         focused={focusedPane === "sessions"}
       />
-      <DetailPanel entries={entries} selectedIndex={sessionIndex} showDetail={showDetail} />
+      <DetailPanel
+        entries={entries}
+        selectedIndex={sessionIndex}
+        showDetail={showDetail}
+        branchLogs={branchLogs}
+        logScrollOffset={detailLogOffset}
+        logVisibleLines={branchLogLines}
+      />
       {showLogs && (
         <LogPane
           entries={logEntries}
