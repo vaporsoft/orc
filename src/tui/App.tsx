@@ -26,6 +26,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
+  const [showDetail, setShowDetail] = useState(false);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -54,8 +55,14 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Toggle selected PR on/off
+    // Toggle detail pane for selected branch
     if (key.return && focusedPane === "sessions") {
+      setShowDetail((prev) => !prev);
+      return;
+    }
+
+    // Start/stop selected branch
+    if (input === "s" && focusedPane === "sessions") {
       const branch = branches[sessionIndex];
       if (branch) {
         if (daemon.isRunning(branch)) {
@@ -106,7 +113,7 @@ export function App({ daemon, startTime }: AppProps) {
         selectedIndex={sessionIndex}
         focused={focusedPane === "sessions"}
       />
-      <DetailPanel entries={entries} selectedIndex={sessionIndex} />
+      <DetailPanel entries={entries} selectedIndex={sessionIndex} showDetail={showDetail} />
       {showLogs && (
         <LogPane
           entries={logEntries}

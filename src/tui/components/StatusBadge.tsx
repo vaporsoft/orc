@@ -9,8 +9,7 @@ interface StatusBadgeProps {
 const STATUS_CONFIG: Record<BranchStatus, { symbol: string; color: string }> = {
   stopped: { symbol: "○", color: "gray" },
   initializing: { symbol: "◌", color: "yellow" },
-  checking: { symbol: "◉", color: "blue" },
-  fetching: { symbol: "◉", color: "blue" },
+  awaiting: { symbol: "◉", color: "blue" },
   categorizing: { symbol: "◉", color: "magenta" },
   fixing: { symbol: "●", color: "green" },
   verifying: { symbol: "◉", color: "cyan" },

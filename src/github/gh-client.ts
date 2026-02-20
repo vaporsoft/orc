@@ -249,12 +249,16 @@ export class GHClient {
     if (reviewers.length === 0) return;
     const { owner, repo } = await this.getRepoInfo();
     try {
-      await exec("gh", [
+      // gh api -F passes typed JSON fields; repeating the key builds an array
+      const args = [
         "api",
         "--method", "POST",
         `repos/${owner}/${repo}/pulls/${prNumber}/requested_reviewers`,
-        "-f", `reviewers=${JSON.stringify(reviewers)}`,
-      ], { cwd: this.cwd });
+      ];
+      for (const reviewer of reviewers) {
+        args.push("-f", `reviewers[]=${reviewer}`);
+      }
+      await exec("gh", args, { cwd: this.cwd });
       logger.info(`Re-requested review from: ${reviewers.join(", ")}`);
     } catch (err) {
       logger.warn(`Failed to re-request reviewers: ${err}`);

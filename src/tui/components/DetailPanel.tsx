@@ -5,6 +5,7 @@ import type { PREntry } from "../hooks/useDaemonState.js";
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
   selectedIndex: number;
+  showDetail: boolean;
 }
 
 function formatDuration(ms: number): string {
@@ -14,7 +15,7 @@ function formatDuration(ms: number): string {
   return `${String(min).padStart(2, "0")}:${String(remSec).padStart(2, "0")}s`;
 }
 
-export function DetailPanel({ entries, selectedIndex }: DetailPanelProps) {
+export function DetailPanel({ entries, selectedIndex, showDetail }: DetailPanelProps) {
   const branches = [...entries.keys()].sort();
   const branch = branches[selectedIndex];
   const entry = branch ? entries.get(branch) : undefined;
@@ -35,43 +36,48 @@ export function DetailPanel({ entries, selectedIndex }: DetailPanelProps) {
       <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
         <Text bold> {label}</Text>
         {commentCount > 0 ? (
-          <Text dimColor>  {commentCount} unresolved comment{commentCount !== 1 ? "s" : ""} — press Enter to start</Text>
+          <Text dimColor>  {commentCount} unresolved comment{commentCount !== 1 ? "s" : ""} — press s to start</Text>
         ) : (
-          <Text dimColor>  Stopped — press Enter to start iterating</Text>
+          <Text dimColor>  Stopped — press s to start</Text>
         )}
       </Box>
     );
   }
 
   const summary = state.commentSummary;
+  const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
+  const isActive = activeStatuses.includes(state.status);
+  const totalFixed = state.iterations.reduce((sum, i) => sum + i.eventsFixed, 0);
+  const totalErrors = state.iterations.reduce((sum, i) => sum + i.errors.length, 0);
 
   return (
     <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
       <Text bold> {label}</Text>
       {summary && (
         <Text dimColor>
-          {"  "}Comments: {summary.total} total — {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+          {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
         </Text>
       )}
-      {state.iterations.length === 0 && !summary ? (
-        <Text dimColor>  No iterations yet</Text>
-      ) : (
-        state.iterations.map((iter) => {
-          const ok = iter.errors.length === 0;
-          return (
-            <Text key={iter.iteration}>
-              {"  "}Iter {iter.iteration}{"  "}
-              {formatDuration(iter.durationMs)}{"  "}
-              {iter.eventsDetected} detected{"  "}
-              {iter.eventsFixed} fixed{"  "}
-              {iter.eventsSkipped} skip{"  "}
-              ${iter.costUsd.toFixed(3)}{"  "}
-              <Text color={ok ? "green" : "red"}>{ok ? "✓" : `✗ ${iter.errors.length}`}</Text>
-            </Text>
-          );
-        })
+      {state.iterations.length > 0 && !showDetail && (
+        <Text dimColor>
+          {"  "}{state.iterations.length} iteration{state.iterations.length !== 1 ? "s" : ""} — {totalFixed} fixed, ${state.totalCostUsd.toFixed(3)} cost{totalErrors > 0 ? `, ${totalErrors} errors` : ""} — press enter for details
+        </Text>
       )}
-      {["fixing", "fetching", "categorizing", "verifying", "pushing", "replying"].includes(state.status) && (
+      {showDetail && state.iterations.map((iter) => {
+        const ok = iter.errors.length === 0;
+        return (
+          <Text key={iter.iteration}>
+            {"  "}Iter {iter.iteration}{"  "}
+            {formatDuration(iter.durationMs)}{"  "}
+            {iter.eventsDetected} detected{"  "}
+            {iter.eventsFixed} fixed{"  "}
+            {iter.eventsSkipped} skip{"  "}
+            ${iter.costUsd.toFixed(3)}{"  "}
+            <Text color={ok ? "green" : "red"}>{ok ? "✓" : `✗ ${iter.errors.length}`}</Text>
+          </Text>
+        );
+      })}
+      {isActive && (
         <Text dimColor>  Iter {state.currentIteration}  ...running ({state.status})</Text>
       )}
       {state.error && (

@@ -56,8 +56,7 @@ export interface RepoPilotConfig {
 export type BranchStatus =
   | "stopped"
   | "initializing"
-  | "checking"
-  | "fetching"
+  | "awaiting"
   | "categorizing"
   | "fixing"
   | "verifying"
@@ -92,6 +91,7 @@ export interface BranchState {
   error: string | null;
   unresolvedCount: number;
   commentSummary: CommentSummary | null;
+  lastPushAt: string | null;
 }
 
 export interface SessionControllerEvents {

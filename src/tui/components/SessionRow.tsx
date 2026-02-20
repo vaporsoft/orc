@@ -8,6 +8,11 @@ interface SessionRowProps {
   selected: boolean;
 }
 
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 export function SessionRow({ entry, selected }: SessionRowProps) {
   const { pr, state, commentCount } = entry;
   const branch = entry.branch.length > 20
@@ -18,6 +23,7 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
   const status = state?.status ?? "stopped";
   const iter = state ? `${state.currentIteration}/${state.maxIterations}` : "—";
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
+  const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
   const errors = state
     ? state.iterations.reduce((sum, i) => sum + i.errors.length, 0)
     : 0;
@@ -46,6 +52,9 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
       </Box>
       <Box width={10}>
         <Text>{cost}</Text>
+      </Box>
+      <Box width={10}>
+        <Text dimColor>{lastPush}</Text>
       </Box>
       <Box width={6}>
         <Text color={errors > 0 ? "red" : undefined}>{errors}</Text>

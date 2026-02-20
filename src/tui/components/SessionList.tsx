@@ -33,6 +33,9 @@ export function SessionList({ entries, selectedIndex, focused }: SessionListProp
         <Box width={10}>
           <Text bold dimColor>Cost</Text>
         </Box>
+        <Box width={10}>
+          <Text bold dimColor>Last Push</Text>
+        </Box>
         <Box width={6}>
           <Text bold dimColor>Errs</Text>
         </Box>

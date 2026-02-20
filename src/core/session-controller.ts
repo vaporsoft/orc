@@ -66,6 +66,7 @@ export class SessionController extends EventEmitter {
       error: null,
       unresolvedCount: 0,
       commentSummary: null,
+      lastPushAt: null,
     };
   }
 
@@ -156,15 +157,14 @@ export class SessionController extends EventEmitter {
       this.branch,
     );
 
-    // 1. FETCH
-    this.setStatus("fetching");
+    // 1. FETCH — poll until comments appear
+    this.setStatus("awaiting");
     const fetchedComments = await this.fetcher.fetch();
 
     if (fetchedComments.length === 0) {
-      logger.info("No comments found — waiting for review feedback", this.branch);
+      logger.info("No comments found — awaiting review feedback", this.branch);
       this.state.currentIteration--; // Don't count empty polls as iterations
       this.state.unresolvedCount = 0;
-      this.setStatus("checking");
       if (!this.running) return;
 
       // Check if PR is still open
@@ -305,7 +305,9 @@ export class SessionController extends EventEmitter {
       }
 
       const pushed = await this.gitManager.forcePushWithLease();
-      if (!pushed) {
+      if (pushed) {
+        this.state.lastPushAt = new Date().toISOString();
+      } else {
         logger.error("Push failed", this.branch);
       }
 
