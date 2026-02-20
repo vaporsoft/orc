@@ -33,7 +33,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
     verbose: options.verbose ?? false,
   });
 
-  logger.init("pr-pilot.log", config.verbose);
+  logger.init("orc.log", config.verbose);
 
   const isTTY = process.stdin.isTTY === true;
 
@@ -41,7 +41,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
     logger.setSuppressConsole(true);
   }
 
-  logger.info(`PR Pilot starting`);
+  logger.info(`Orc starting`);
   logger.info(`Config: ${JSON.stringify(config, null, 2)}`);
 
   if (config.dryRun) {

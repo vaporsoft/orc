@@ -1,13 +1,13 @@
 {
-  "name": "pr-pilot",
+  "name": "orc",
   "version": "0.1.0",
   "description": "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
   "type": "module",
-  "bin": "./dist/bin/pr-pilot.js",
+  "bin": "./dist/bin/orc.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/bin/pr-pilot.js",
+    "start": "node dist/bin/orc.js",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

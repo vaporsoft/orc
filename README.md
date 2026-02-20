@@ -1,10 +1,10 @@
-# pr-pilot
+# orc
 
 Interactive terminal dashboard to automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.
 
 ## What it does
 
-pr-pilot provides an interactive terminal dashboard to monitor your open pull requests. It:
+orc provides an interactive terminal dashboard to monitor your open pull requests. It:
 
 1. **Monitors** multiple PRs simultaneously with real-time status updates
 2. **Fetches** new review comments and conversation threads
@@ -16,7 +16,7 @@ You can manually start/stop monitoring per PR or let it run automatically until 
 
 ## Tech Stack
 
-pr-pilot is built with:
+orc is built with:
 
 - **TypeScript + Node.js**: Core runtime for cross-platform CLI tooling and robust type safety
 - **Ink**: React-like framework for building rich terminal user interfaces with component-based architecture
@@ -41,10 +41,10 @@ yarn build
 
 ## Configuration
 
-pr-pilot can be configured per-repository using a `PR-PILOT.md` file in your repo root:
+orc can be configured per-repository using an `ORC.md` file in your repo root:
 
 ```markdown
-# PR Pilot
+# Orc
 
 ## Instructions
 Custom instructions passed to Claude Code for context about your project.
@@ -69,13 +69,13 @@ The configuration allows you to:
 
 ```bash
 # Start interactive TUI dashboard for one or more branches
-npx pr-pilot start my-feature-branch
+npx orc start my-feature-branch
 
 # Watch multiple branches in TUI
-npx pr-pilot start branch-a branch-b
+npx orc start branch-a branch-b
 
 # With options
-npx pr-pilot start my-branch \
+npx orc start my-branch \
   --poll-interval 60 \
   --max-loops 5 \
   --confidence 0.8 \
@@ -84,7 +84,7 @@ npx pr-pilot start my-branch \
 
 ### Interactive TUI Controls
 
-Once started, pr-pilot opens an interactive terminal dashboard with these controls:
+Once started, orc opens an interactive terminal dashboard with these controls:
 
 | Key | Action |
 |-----|--------|
