@@ -49,7 +49,7 @@ export class SessionController extends EventEmitter {
     this.cwd = cwd;
 
     this.ghClient = new GHClient(cwd);
-    this.categorizer = new CommentCategorizer();
+    this.categorizer = new CommentCategorizer(cwd);
     this.executor = new FixExecutor(config, cwd);
     this.gitManager = new GitManager(cwd, branch);
     this.abortController = new AbortController();

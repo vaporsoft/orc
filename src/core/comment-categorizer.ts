@@ -1,9 +1,9 @@
 /**
- * Uses the Anthropic API (Haiku) for fast, cheap classification of
- * PR review comments. Determines category and confidence for each.
+ * Uses the Claude Code SDK to classify PR review comments by severity.
+ * Piggybacks on Claude Code's existing authentication (no separate API key needed).
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { query, type SDKResultMessage } from "@anthropic-ai/claude-code";
 import type { CategorizedComment } from "../types/index.js";
 import type { FetchedComment } from "./comment-fetcher.js";
 import { logger } from "../utils/logger.js";
@@ -25,10 +25,10 @@ Respond with JSON only (no markdown fences):
 }`;
 
 export class CommentCategorizer {
-  private client: Anthropic;
+  private cwd: string;
 
-  constructor() {
-    this.client = new Anthropic();
+  constructor(cwd: string) {
+    this.cwd = cwd;
   }
 
   async categorize(comments: FetchedComment[]): Promise<CategorizedComment[]> {
@@ -79,19 +79,34 @@ ${thread.diffHunk}
 ### Review Comment (by @${thread.author}):
 ${thread.body}`;
 
-    const response = await this.client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      messages: [
-        { role: "user", content: `${ANALYSIS_PROMPT}\n\n${userMessage}` },
-      ],
+    const prompt = `${ANALYSIS_PROMPT}\n\n${userMessage}`;
+
+    let resultText = "";
+
+    const stream = query({
+      prompt,
+      options: {
+        maxTurns: 1,
+        allowedTools: [],
+        permissionMode: "bypassPermissions",
+        cwd: this.cwd,
+      },
     });
 
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "";
+    for await (const message of stream) {
+      if (message.type === "result") {
+        const result = message as SDKResultMessage;
+        if (result.subtype === "success") {
+          resultText = result.result;
+        }
+      }
+    }
+
+    // Strip markdown fences if present
+    const cleaned = resultText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
 
     try {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(cleaned);
       return {
         confidence: Number(parsed.confidence),
         category: parsed.category,
@@ -99,7 +114,7 @@ ${thread.body}`;
         suggestedAction: parsed.suggestedAction,
       };
     } catch {
-      logger.warn(`Failed to parse Haiku response: ${text}`);
+      logger.warn(`Failed to parse categorization response: ${cleaned}`);
       return {
         confidence: 0.5,
         category: "should_fix",
