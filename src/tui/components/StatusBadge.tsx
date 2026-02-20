@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Text } from "ink";
 import type { BranchStatus } from "../../types/index.js";
+import { useTheme, type Theme } from "../theme.js";
 
 interface StatusBadgeProps {
   status: BranchStatus;
@@ -17,17 +18,17 @@ const ACTIVE_STATUSES = new Set<BranchStatus>([
   "replying",
 ]);
 
-const STATUS_CONFIG: Record<BranchStatus, { color: string; label: string }> = {
-  stopped:      { color: "gray",        label: "stopped" },
-  initializing: { color: "green",       label: "init" },
-  listening:    { color: "green",       label: "listening" },
-  categorizing: { color: "yellow",      label: "sorting" },
-  fixing:       { color: "greenBright", label: "fixing" },
-  verifying:    { color: "cyan",        label: "verify" },
-  pushing:      { color: "greenBright", label: "pushing" },
-  replying:     { color: "cyan",        label: "replying" },
-  done:         { color: "green",       label: "done" },
-  error:        { color: "red",         label: "error" },
+const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> = {
+  stopped:      { role: "muted",        label: "stopped" },
+  initializing: { role: "accent",       label: "init" },
+  listening:    { role: "accent",       label: "listening" },
+  categorizing: { role: "warning",      label: "sorting" },
+  fixing:       { role: "accentBright", label: "fixing" },
+  verifying:    { role: "info",         label: "verify" },
+  pushing:      { role: "accentBright", label: "pushing" },
+  replying:     { role: "info",         label: "replying" },
+  done:         { role: "accent",       label: "done" },
+  error:        { role: "error",        label: "error" },
 };
 
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
@@ -38,6 +39,7 @@ const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
+  const theme = useTheme();
   const isActive = ACTIVE_STATUSES.has(status);
   const [frame, setFrame] = useState(0);
 
@@ -49,11 +51,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     return () => clearInterval(id);
   }, [isActive]);
 
-  const config = STATUS_CONFIG[status];
+  const config = STATUS_ROLES[status];
   const symbol = isActive ? SPINNER_FRAMES[frame] : (STATIC_SYMBOLS[status] ?? "●");
 
   return (
-    <Text color={config.color}>
+    <Text color={theme[config.role]}>
       {symbol} {config.label}
     </Text>
   );

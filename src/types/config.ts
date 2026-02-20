@@ -8,6 +8,7 @@ export const ConfigSchema = z.object({
   claudeTimeout: z.number().int().positive().default(900),
   dryRun: z.boolean().default(false),
   verbose: z.boolean().default(false),
+  theme: z.enum(["dark", "light"]).default("dark"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

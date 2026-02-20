@@ -30,4 +30,5 @@ export const cli = new Command()
   )
   .option("--dry-run", "Show what would be done without executing")
   .option("--verbose", "Include detailed output")
+  .option("--theme <mode>", "Color theme (dark, light)")
   .action(startCommand);
