@@ -5,6 +5,7 @@
 
 import { GHClient } from "../github/gh-client.js";
 import type { CategorizedComment } from "../types/index.js";
+import type { VerifyOutcome } from "./fix-executor.js";
 import { logger } from "../utils/logger.js";
 
 export class ThreadResponder {
@@ -61,6 +62,35 @@ export class ThreadResponder {
     }
   }
 
+  /** Reply to verify_and_fix comments based on actual verification outcomes. */
+  async replyToVerified(
+    comments: CategorizedComment[],
+    verifyResults: Map<string, VerifyOutcome>,
+    commitSha?: string,
+  ): Promise<void> {
+    const { owner, repo } = await this.ghClient.getRepoInfo();
+    const commitRef = commitSha
+      ? `[${commitSha.slice(0, 7)}](https://github.com/${owner}/${repo}/commit/${commitSha})`
+      : "latest commit";
+
+    for (const comment of comments) {
+      const outcome = verifyResults.get(comment.threadId);
+      const body = this.buildVerifiedReply(comment, outcome, commitRef);
+      try {
+        await this.reply(comment, body);
+        logger.info(
+          `Replied to verified comment on ${comment.path} (${outcome?.status ?? "unknown"})`,
+          this.branch,
+        );
+      } catch (err) {
+        logger.warn(
+          `Failed to reply to verified comment ${comment.threadId}: ${err}`,
+          this.branch,
+        );
+      }
+    }
+  }
+
   private buildAddressedReply(comment: CategorizedComment, commitRef: string): string {
     const isConversation = comment.path === "(conversation)";
 
@@ -100,6 +130,53 @@ export class ThreadResponder {
       parts.push(`@${comment.author} Skipped — ${comment.reasoning}`);
     } else {
       parts.push(`Skipped — ${comment.reasoning}`);
+    }
+
+    parts.push("");
+    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+
+    return parts.join("\n");
+  }
+
+  private buildVerifiedReply(
+    comment: CategorizedComment,
+    outcome: VerifyOutcome | undefined,
+    commitRef: string,
+  ): string {
+    const isConversation = comment.path === "(conversation)";
+    const parts: string[] = [];
+
+    if (isConversation) {
+      const quotedBody = comment.body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      parts.push(quotedBody);
+      parts.push("");
+    }
+
+    if (outcome?.status === "fixed") {
+      const summary = outcome.summary ? ` ${outcome.summary}` : "";
+      if (isConversation) {
+        parts.push(`@${comment.author} Verified and addressed in ${commitRef}.${summary}`);
+      } else {
+        parts.push(`Verified and addressed in ${commitRef}.${summary}`);
+      }
+    } else if (outcome?.status === "not_applicable") {
+      const reason = outcome.reason ? ` ${outcome.reason}` : "";
+      if (isConversation) {
+        parts.push(`@${comment.author} Verified — not applicable.${reason}`);
+      } else {
+        parts.push(`Verified — not applicable.${reason}`);
+      }
+    } else {
+      // Unknown or missing outcome
+      const reason = outcome?.reason ? ` ${outcome.reason}` : " Status could not be determined.";
+      if (isConversation) {
+        parts.push(`@${comment.author} Could not verify completion.${reason}`);
+      } else {
+        parts.push(`Could not verify completion.${reason}`);
+      }
     }
 
     parts.push("");

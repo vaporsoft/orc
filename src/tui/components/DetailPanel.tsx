@@ -75,7 +75,7 @@ export function DetailPanel({
         <Text bold> {label}</Text>
         {summary && (
           <Text dimColor>
-            {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+            {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive{summary.verifyAndFix > 0 ? `, ${summary.verifyAndFix} verify_and_fix` : ""}
           </Text>
         )}
         {state.iterations.length > 0 && (
@@ -106,7 +106,7 @@ export function DetailPanel({
       <Text bold> {label}</Text>
       {summary && (
         <Text dimColor>
-          {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+          {"  "}Comments: {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive{summary.verifyAndFix > 0 ? `, ${summary.verifyAndFix} verify_and_fix` : ""}
         </Text>
       )}
 

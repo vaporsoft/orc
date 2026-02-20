@@ -19,7 +19,8 @@ export type CommentCategory =
   | "must_fix"
   | "should_fix"
   | "nice_to_have"
-  | "false_positive";
+  | "false_positive"
+  | "verify_and_fix";
 
 export interface CategorizedComment {
   threadId: string;
@@ -40,6 +41,7 @@ export interface CommentSummary {
   shouldFix: number;
   niceToHave: number;
   falsePositive: number;
+  verifyAndFix: number;
   comments: CategorizedComment[];
 }
 
@@ -50,6 +52,7 @@ export interface RepoPilotConfig {
     must_fix: boolean;
     should_fix: boolean;
     nice_to_have: boolean;
+    verify_and_fix: boolean;
   };
 }
 

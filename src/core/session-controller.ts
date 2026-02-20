@@ -50,7 +50,7 @@ export class SessionController extends EventEmitter {
     this.cwd = cwd;
 
     this.ghClient = new GHClient(cwd);
-    this.categorizer = new CommentCategorizer(cwd);
+    this.categorizer = new CommentCategorizer(cwd, config.confidence);
     this.executor = new FixExecutor(config, cwd);
     this.gitManager = new GitManager(cwd, branch);
     this.abortController = new AbortController();
@@ -197,18 +197,20 @@ export class SessionController extends EventEmitter {
       shouldFix: categorized.filter((c) => c.category === "should_fix").length,
       niceToHave: categorized.filter((c) => c.category === "nice_to_have").length,
       falsePositive: categorized.filter((c) => c.category === "false_positive").length,
+      verifyAndFix: categorized.filter((c) => c.category === "verify_and_fix").length,
       comments: categorized,
     };
     this.state.commentSummary = summary;
     this.emit("sessionUpdate", this.branch, this.getState());
 
     logger.info(
-      `Categorized: ${summary.mustFix} must_fix, ${summary.shouldFix} should_fix, ${summary.niceToHave} nice_to_have, ${summary.falsePositive} false_positive`,
+      `Categorized: ${summary.mustFix} must_fix, ${summary.shouldFix} should_fix, ${summary.niceToHave} nice_to_have, ${summary.falsePositive} false_positive, ${summary.verifyAndFix} verify_and_fix`,
       this.branch,
     );
 
     // 3. FILTER by pilotConfig.autoFix settings
     const actionable = categorized.filter((c) => {
+      if (c.category === "verify_and_fix") return this.pilotConfig.autoFix.verify_and_fix;
       if (c.category === "false_positive") return false;
       if (c.category === "must_fix") return this.pilotConfig.autoFix.must_fix;
       if (c.category === "should_fix") return this.pilotConfig.autoFix.should_fix;
@@ -316,7 +318,16 @@ export class SessionController extends EventEmitter {
       // 7. REPLY — include the commit SHA so replies link to the fix
       this.setStatus("replying");
       const headAfterPush = await this.gitManager.getHeadSha();
-      await this.responder.replyToAddressed(actionable, headAfterPush);
+
+      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+
+      if (regularComments.length > 0) {
+        await this.responder.replyToAddressed(regularComments, headAfterPush);
+      }
+      if (verifyComments.length > 0) {
+        await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, headAfterPush);
+      }
 
       // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
       if (this.state.prNumber) {
