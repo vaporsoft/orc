@@ -27,6 +27,7 @@ export class Daemon extends EventEmitter {
   private running = false;
   /** Branch currently checked out in cwd — used instead of a worktree. */
   private cwdBranch: string | null = null;
+  private currentBranch: string | null = null;
 
   constructor(config: Config, cwd: string) {
     super();
@@ -58,13 +59,19 @@ export class Daemon extends EventEmitter {
     const { stdout } = await exec("git", ["branch", "--show-current"], {
       cwd: this.cwd,
     });
-    const currentBranch = stdout.trim();
+    this.currentBranch = stdout.trim();
 
     while (this.running) {
-      await this.discover(currentBranch);
+      await this.discover(this.currentBranch);
       if (!this.running) break;
       await sleep(this.config.pollInterval * 1000);
     }
+  }
+
+  async refreshNow(): Promise<void> {
+    if (!this.currentBranch) return;
+    logger.info("Manual refresh triggered");
+    await this.discover(this.currentBranch);
   }
 
   async stop(): Promise<void> {

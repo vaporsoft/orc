@@ -42,6 +42,11 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    if (input === "R") {
+      daemon.refreshNow().catch(() => {});
+      return;
+    }
+
     if (key.tab) {
       setFocusedPane((prev) => (prev === "sessions" ? "logs" : "sessions"));
       return;
