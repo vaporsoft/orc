@@ -166,6 +166,18 @@ export class SessionController extends EventEmitter {
         return;
       }
 
+      // Check session timeout even when no comments are found
+      const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
+      if (elapsedHours >= this.config.sessionTimeout) {
+        logger.info(
+          `Session timeout reached (${this.config.sessionTimeout}h)`,
+          this.branch,
+        );
+        this.setStatus("done");
+        this.running = false;
+        return;
+      }
+
       await sleep(this.config.pollInterval * 1000);
       return;
     }
@@ -260,8 +272,8 @@ export class SessionController extends EventEmitter {
     const headAfter = await this.gitManager.getHeadSha();
     const madeCommits = headAfter !== headBefore;
 
-    if (fixResult.isError && !madeCommits) {
-      logger.warn("Fix session had errors and no commits, skipping push", this.branch);
+    if (fixResult.isError) {
+      logger.warn("Fix session had errors, skipping push", this.branch);
     } else if (madeCommits) {
       // 5. VERIFY
       if (this.pilotConfig.verifyCommands.length > 0) {
@@ -296,6 +308,7 @@ export class SessionController extends EventEmitter {
         this.state.error = "Rebase conflict — manual intervention needed";
         this.setStatus("error");
         this.running = false;
+        this.state.totalCostUsd += fixResult.costUsd;
         return;
       }
 
