@@ -3,6 +3,7 @@
  * spins up SessionControllers for each, and cleans up when PRs close/merge.
  */
 
+import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
@@ -17,7 +18,7 @@ interface ActiveSession {
   promise: Promise<void>;
 }
 
-export class Daemon {
+export class Daemon extends EventEmitter {
   private config: Config;
   private cwd: string;
   private ghClient: GHClient;
@@ -28,10 +29,19 @@ export class Daemon {
   private cwdBranch: string | null = null;
 
   constructor(config: Config, cwd: string) {
+    super();
     this.config = config;
     this.cwd = cwd;
     this.ghClient = new GHClient(cwd);
     this.worktreeManager = new WorktreeManager(cwd);
+  }
+
+  getSessions(): Map<string, SessionController> {
+    const result = new Map<string, SessionController>();
+    for (const [branch, session] of this.sessions) {
+      result.set(branch, session.controller);
+    }
+    return result;
   }
 
   async run(): Promise<void> {
@@ -132,6 +142,7 @@ export class Daemon {
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);
+      this.emit("sessionUpdate", b, controller.getState());
     });
 
     controller.on("iterationComplete", (b: string, summary: unknown) => {
@@ -139,6 +150,7 @@ export class Daemon {
         `Iteration complete: ${JSON.stringify(summary)}`,
         b,
       );
+      this.emit("sessionUpdate", b, controller.getState());
     });
 
     controller.on("done", (b: string) => {
@@ -150,6 +162,7 @@ export class Daemon {
 
     const promise = controller.start();
     this.sessions.set(branch, { controller, promise });
+    this.emit("sessionAdded", branch, controller.getState());
   }
 
   private async stopSession(branch: string): Promise<void> {
@@ -163,6 +176,7 @@ export class Daemon {
 
   private async cleanupSession(branch: string): Promise<void> {
     this.sessions.delete(branch);
+    this.emit("sessionRemoved", branch);
 
     if (branch === this.cwdBranch) {
       this.cwdBranch = null;

@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-interface LogEntry {
+export interface LogEntry {
   timestamp: string;
   level: LogLevel;
   branch: string | null;
@@ -18,6 +18,11 @@ interface LogEntry {
 class Logger extends EventEmitter {
   private logFile: fs.WriteStream | null = null;
   private verbose = false;
+  private suppressConsole = false;
+
+  setSuppressConsole(v: boolean): void {
+    this.suppressConsole = v;
+  }
 
   init(logPath?: string, verbose = false): void {
     this.verbose = verbose;
@@ -48,8 +53,8 @@ class Logger extends EventEmitter {
     // Emit for UI consumption
     this.emit("log", entry);
 
-    // Console output (Phase 1 — before TUI exists)
-    if (this.verbose || level !== "debug") {
+    // Console output (suppressed when TUI is active)
+    if (!this.suppressConsole && (this.verbose || level !== "debug")) {
       const prefix = branch ? `[${branch}]` : "";
       const levelTag = level.toUpperCase().padEnd(5);
       console.error(`${entry.timestamp} ${levelTag} ${prefix} ${message}`);
