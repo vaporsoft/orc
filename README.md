@@ -1,17 +1,18 @@
 # pr-pilot
 
-Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.
+Interactive terminal dashboard to automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.
 
 ## What it does
 
-pr-pilot watches your open pull requests and automatically:
+pr-pilot provides an interactive terminal dashboard to monitor your open pull requests. It:
 
-1. **Polls** for new review comments and CI failures
-2. **Analyzes** feedback to classify severity (must-fix, should-fix, nice-to-have, false-positive)
-3. **Fixes** issues using Claude Code in isolated git worktrees
-4. **Pushes** changes and moves on to the next round
+1. **Monitors** multiple PRs simultaneously with real-time status updates
+2. **Polls** for new review comments and CI failures
+3. **Analyzes** feedback to classify severity (must-fix, should-fix, nice-to-have, false-positive)
+4. **Fixes** issues using Claude Code in isolated git worktrees
+5. **Pushes** changes and continues monitoring
 
-It keeps looping until the PR is clean or a configurable iteration limit is reached.
+You can manually start/stop monitoring per PR or let it run automatically until each PR is clean.
 
 ## Prerequisites
 
@@ -29,10 +30,10 @@ yarn build
 ## Usage
 
 ```bash
-# Watch one or more branches
+# Start interactive TUI dashboard for one or more branches
 npx pr-pilot start my-feature-branch
 
-# Watch multiple branches
+# Watch multiple branches in TUI
 npx pr-pilot start branch-a branch-b
 
 # With options
@@ -42,6 +43,26 @@ npx pr-pilot start my-branch \
   --confidence 0.8 \
   --dry-run
 ```
+
+### Interactive TUI Controls
+
+Once started, pr-pilot opens an interactive terminal dashboard with these controls:
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `r` | Refresh all PRs immediately |
+| `Tab` | Toggle between Sessions and Logs view |
+| `↑`/`↓` | Navigate sessions or scroll logs |
+| `Enter` | Start/stop monitoring for selected PR |
+| `a` | Start monitoring all PRs |
+| `x` | Stop monitoring all PRs |
+
+The dashboard shows:
+- **Real-time status** of each PR being monitored
+- **Last check timestamp** for polling activity
+- **Detailed information** about comments, CI status, and fixes
+- **Scrollable logs** accessible via Tab key
 
 ### Options
 

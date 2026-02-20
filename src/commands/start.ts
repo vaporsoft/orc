@@ -85,9 +85,13 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
   await instance.waitUntilExit();
 
-  // User quit the TUI — shut down daemon
-  await daemon.stop();
-  await daemonPromise;
-  logger.close();
+  // User quit the TUI — shut down daemon gracefully, but don't hang
+  const shutdown = async () => {
+    await daemon.stop();
+    await daemonPromise;
+    logger.close();
+  };
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
+  await Promise.race([shutdown(), timeout]);
   process.exit(0);
 }
