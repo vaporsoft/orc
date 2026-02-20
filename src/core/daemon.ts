@@ -1,15 +1,17 @@
 /**
- * Always-on daemon that discovers open PRs authored by the current user,
- * spins up SessionControllers for each, and cleans up when PRs close/merge.
+ * Always-on daemon that discovers open PRs authored by the current user.
+ * PRs are discovered but not auto-started — the TUI controls which to run.
+ * Also fetches unresolved comment counts for the TUI badge.
  */
 
+import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
+import { CommentFetcher } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
-import { sleep } from "../utils/retry.js";
 import { exec } from "../utils/process.js";
 
 interface ActiveSession {
@@ -17,21 +19,46 @@ interface ActiveSession {
   promise: Promise<void>;
 }
 
-export class Daemon {
+export class Daemon extends EventEmitter {
   private config: Config;
   private cwd: string;
   private ghClient: GHClient;
   private worktreeManager: WorktreeManager;
   private sessions = new Map<string, ActiveSession>();
+  private discoveredPRs = new Map<string, GHPullRequest>();
+  private commentCounts = new Map<string, number>();
   private running = false;
-  /** Branch currently checked out in cwd — used instead of a worktree. */
   private cwdBranch: string | null = null;
+  private currentBranch: string | null = null;
+  private abortController = new AbortController();
+  private botLogin: string | null = null;
 
   constructor(config: Config, cwd: string) {
+    super();
     this.config = config;
     this.cwd = cwd;
     this.ghClient = new GHClient(cwd);
     this.worktreeManager = new WorktreeManager(cwd);
+  }
+
+  getSessions(): Map<string, SessionController> {
+    const result = new Map<string, SessionController>();
+    for (const [branch, session] of this.sessions) {
+      result.set(branch, session.controller);
+    }
+    return result;
+  }
+
+  getDiscoveredPRs(): Map<string, GHPullRequest> {
+    return new Map(this.discoveredPRs);
+  }
+
+  getCommentCounts(): Map<string, number> {
+    return new Map(this.commentCounts);
+  }
+
+  isRunning(branch: string): boolean {
+    return this.sessions.has(branch);
   }
 
   async run(): Promise<void> {
@@ -39,35 +66,80 @@ export class Daemon {
     await this.ghClient.validateAuth();
 
     const user = await this.ghClient.getCurrentUser();
+    this.botLogin = user;
     const { owner, repo } = await this.ghClient.getRepoInfo();
     logger.info(
       `Watching ${owner}/${repo} for open PRs by ${user}`,
     );
 
-    // Detect the branch checked out in cwd so we can reuse it
     const { stdout } = await exec("git", ["branch", "--show-current"], {
       cwd: this.cwd,
     });
-    const currentBranch = stdout.trim();
+    this.currentBranch = stdout.trim();
 
     while (this.running) {
-      await this.discover(currentBranch);
+      await this.discover();
       if (!this.running) break;
-      await sleep(this.config.pollInterval * 1000);
+      await this.cancellableSleep(this.config.pollInterval * 1000);
     }
+  }
+
+  async refreshNow(): Promise<void> {
+    logger.info("Manual refresh triggered");
+    await this.discover();
+  }
+
+  async startBranch(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+    await this.launchSession(pr);
+  }
+
+  async stopBranch(branch: string): Promise<void> {
+    await this.teardownSession(branch);
+    if (this.discoveredPRs.has(branch)) {
+      this.emit("prUpdate", branch);
+    }
+  }
+
+  async startAll(): Promise<void> {
+    for (const [branch] of this.discoveredPRs) {
+      if (!this.sessions.has(branch)) {
+        await this.startBranch(branch);
+      }
+    }
+  }
+
+  async stopAll(): Promise<void> {
+    for (const branch of [...this.sessions.keys()]) {
+      await this.stopBranch(branch);
+    }
+  }
+
+  private cancellableSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.abortController.signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   async stop(): Promise<void> {
     this.running = false;
+    this.abortController.abort();
     logger.info("Shutting down daemon...");
     const branches = [...this.sessions.keys()];
     for (const branch of branches) {
-      await this.stopSession(branch);
+      await this.teardownSession(branch);
     }
     await this.worktreeManager.cleanup();
   }
 
-  private async discover(currentBranch: string): Promise<void> {
+  private async discover(): Promise<void> {
     let prs: GHPullRequest[];
     try {
       prs = await this.ghClient.getMyOpenPRs();
@@ -78,32 +150,56 @@ export class Daemon {
 
     const activeBranches = new Set(prs.map((pr) => pr.headRefName));
 
-    if (prs.length === 0 && this.sessions.size === 0) {
+    if (prs.length === 0 && this.discoveredPRs.size === 0) {
       logger.info("No open PRs found, waiting...");
     }
 
-    // Start controllers for new PRs
     for (const pr of prs) {
-      if (!this.sessions.has(pr.headRefName)) {
-        await this.startSession(pr, currentBranch);
+      if (!this.discoveredPRs.has(pr.headRefName)) {
+        logger.info(`Discovered PR #${pr.number}: ${pr.title}`, pr.headRefName);
+        this.discoveredPRs.set(pr.headRefName, pr);
+        this.emit("prDiscovered", pr.headRefName, pr);
       }
     }
 
-    // Stop controllers for closed/merged PRs
-    for (const branch of this.sessions.keys()) {
+    // Fetch comment counts for all discovered PRs
+    await this.updateCommentCounts(prs);
+
+    // Remove PRs that were closed/merged
+    for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
-        logger.info(`PR closed/merged, stopping`, branch);
-        await this.stopSession(branch);
+        logger.info(`PR closed/merged, removing`, branch);
+        this.discoveredPRs.delete(branch);
+        this.commentCounts.delete(branch);
+        await this.teardownSession(branch);
+        this.emit("prRemoved", branch);
       }
     }
   }
 
-  private async startSession(
-    pr: GHPullRequest,
-    currentBranch: string,
-  ): Promise<void> {
+  private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
+    if (!this.botLogin) return;
+
+    for (const pr of prs) {
+      try {
+        const fetcher = new CommentFetcher(
+          this.ghClient, pr.number, this.botLogin, pr.headRefName,
+        );
+        const count = await fetcher.countUnresolved();
+        const prev = this.commentCounts.get(pr.headRefName) ?? -1;
+        this.commentCounts.set(pr.headRefName, count);
+
+        if (count !== prev) {
+          this.emit("commentCountUpdate", pr.headRefName, count);
+        }
+      } catch (err) {
+        logger.debug(`Failed to count comments for ${pr.headRefName}: ${err}`);
+      }
+    }
+  }
+
+  private async launchSession(pr: GHPullRequest): Promise<void> {
     const branch = pr.headRefName;
-    logger.info(`Discovered PR #${pr.number}: ${pr.title}`, branch);
 
     if (this.config.dryRun) {
       logger.info(
@@ -113,9 +209,9 @@ export class Daemon {
       return;
     }
 
+    const currentBranch = this.currentBranch ?? "";
     let workDir: string;
 
-    // Reuse cwd if the PR branch matches what's checked out
     if (branch === currentBranch && !this.cwdBranch) {
       workDir = this.cwd;
       this.cwdBranch = branch;
@@ -132,6 +228,7 @@ export class Daemon {
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);
+      this.emit("sessionUpdate", b, controller.getState());
     });
 
     controller.on("iterationComplete", (b: string, summary: unknown) => {
@@ -139,6 +236,7 @@ export class Daemon {
         `Iteration complete: ${JSON.stringify(summary)}`,
         b,
       );
+      this.emit("sessionUpdate", b, controller.getState());
     });
 
     controller.on("done", (b: string) => {
@@ -150,9 +248,10 @@ export class Daemon {
 
     const promise = controller.start();
     this.sessions.set(branch, { controller, promise });
+    this.emit("sessionUpdate", branch, controller.getState());
   }
 
-  private async stopSession(branch: string): Promise<void> {
+  private async teardownSession(branch: string): Promise<void> {
     const session = this.sessions.get(branch);
     if (!session) return;
 
@@ -168,6 +267,12 @@ export class Daemon {
       this.cwdBranch = null;
     } else {
       await this.worktreeManager.remove(branch);
+    }
+
+    if (this.discoveredPRs.has(branch)) {
+      this.emit("prUpdate", branch);
+    } else {
+      this.emit("prRemoved", branch);
     }
   }
 }

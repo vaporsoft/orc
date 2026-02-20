@@ -18,8 +18,29 @@ export class GitManager {
     this.branch = branch;
   }
 
-  /** Interactive rebase with autosquash against the base branch. */
+  /** Interactive rebase with autosquash against the base branch.
+   *  Skips if there are no fixup/squash commits to fold. */
   async rebaseAutosquash(baseBranch: string): Promise<boolean> {
+    // Check if there are any fixup!/squash! commits to autosquash
+    try {
+      const result = await this.git([
+        "log",
+        "--oneline",
+        `${baseBranch}..HEAD`,
+        "--grep=^fixup!",
+        "--grep=^squash!",
+        "--format=%s",
+      ]);
+      if (result.stdout.trim().length === 0) {
+        logger.info("No fixup commits found, skipping autosquash rebase", this.branch);
+        return true;
+      }
+    } catch {
+      // If the log fails (e.g. baseBranch doesn't exist locally), skip rebase
+      logger.info("Could not check for fixup commits, skipping autosquash rebase", this.branch);
+      return true;
+    }
+
     logger.info(`Rebasing ${this.branch} onto ${baseBranch} with autosquash`);
 
     try {
@@ -132,6 +153,26 @@ export class GitManager {
     } catch {
       logger.error(`Pull --rebase failed`, this.branch);
       return false;
+    }
+  }
+
+  /** Stash uncommitted changes (staged + unstaged + untracked). Returns true if something was stashed. */
+  async stash(): Promise<boolean> {
+    const dirty = await this.hasUncommittedChanges();
+    if (!dirty) return false;
+
+    logger.info("Stashing uncommitted changes", this.branch);
+    await this.git(["stash", "push", "--include-untracked", "-m", "pr-pilot: auto-stash"]);
+    return true;
+  }
+
+  /** Pop the most recent stash. */
+  async stashPop(): Promise<void> {
+    logger.info("Restoring stashed changes", this.branch);
+    try {
+      await this.git(["stash", "pop"]);
+    } catch (err) {
+      logger.warn(`Stash pop had conflicts — your changes are in the stash`, this.branch);
     }
   }
 

@@ -3,14 +3,16 @@
  * authored by the current user.
  */
 
+import React from "react";
+import { render } from "ink";
 import { Daemon } from "../core/daemon.js";
 import { ConfigSchema, type Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
+import { App } from "../tui/App.js";
 
 export interface StartOptions {
   maxLoops?: number;
   pollInterval?: number;
-  debounce?: number;
   confidence?: number;
   model?: string;
   maxTurns?: number;
@@ -23,7 +25,6 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const config: Config = ConfigSchema.parse({
     maxLoops: options.maxLoops,
     pollInterval: options.pollInterval,
-    debounce: options.debounce,
     confidence: options.confidence,
     model: options.model,
     maxTurns: options.maxTurns,
@@ -33,6 +34,13 @@ export async function startCommand(options: StartOptions): Promise<void> {
   });
 
   logger.init("pr-pilot.log", config.verbose);
+
+  const isTTY = process.stdin.isTTY === true;
+
+  if (isTTY) {
+    logger.setSuppressConsole(true);
+  }
+
   logger.info(`PR Pilot starting`);
   logger.info(`Config: ${JSON.stringify(config, null, 2)}`);
 
@@ -43,18 +51,41 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const cwd = process.cwd();
   const daemon = new Daemon(config, cwd);
 
-  const cleanup = async () => {
-    await daemon.stop();
-    logger.close();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
-
-  try {
-    await daemon.run();
-  } finally {
-    logger.close();
+  if (!isTTY) {
+    const cleanup = async () => {
+      await daemon.stop();
+      logger.close();
+      process.exit(0);
+    };
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+    try {
+      await daemon.run();
+    } finally {
+      logger.close();
+    }
+    return;
   }
+
+  const startTime = Date.now();
+
+  const daemonPromise = daemon.run().catch((err) => {
+    logger.error(`Daemon error: ${err}`);
+  });
+
+  const instance = render(
+    React.createElement(App, { daemon, startTime }),
+    { exitOnCtrlC: true },
+  );
+
+  await instance.waitUntilExit();
+
+  const shutdown = async () => {
+    await daemon.stop();
+    await daemonPromise;
+    logger.close();
+  };
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
+  await Promise.race([shutdown(), timeout]);
+  process.exit(0);
 }

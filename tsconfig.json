@@ -8,6 +8,8 @@
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,

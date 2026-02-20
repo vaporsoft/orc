@@ -1,41 +1,45 @@
 /**
  * Main orchestration loop for a single branch.
  *
- * Coordinates: polling → debouncing → analyzing → fixing → pushing → replying.
+ * Pipeline: fetch → categorize → filter → fix → verify → push → reply → re-request review.
  * Emits events for the UI/TUI layer to consume.
  */
 
 import { EventEmitter } from "node:events";
 import { GHClient } from "../github/gh-client.js";
-import { PRMonitor } from "./pr-monitor.js";
-import { EventDebouncer } from "./event-debouncer.js";
-import { CommentAnalyzer } from "./comment-analyzer.js";
+import { CommentFetcher } from "./comment-fetcher.js";
+import { CommentCategorizer } from "./comment-categorizer.js";
 import { FixExecutor } from "./fix-executor.js";
 import { GitManager } from "./git-manager.js";
 import { ThreadResponder } from "./thread-responder.js";
+import { loadPilotConfig } from "./pilot-config.js";
 import type {
   BranchState,
   BranchStatus,
+  CategorizedComment,
+  CommentSummary,
   IterationSummary,
-  PREvent,
+  RepoPilotConfig,
 } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/retry.js";
 import { notify } from "../utils/notify.js";
+import { exec } from "../utils/process.js";
 
 export class SessionController extends EventEmitter {
   private config: Config;
   private branch: string;
   private cwd: string;
   private ghClient: GHClient;
-  private monitor!: PRMonitor;
-  private debouncer: EventDebouncer;
-  private analyzer: CommentAnalyzer;
+  private fetcher!: CommentFetcher;
+  private categorizer: CommentCategorizer;
   private executor: FixExecutor;
   private gitManager: GitManager;
-  private responder: ThreadResponder;
+  private responder!: ThreadResponder;
+  private pilotConfig!: RepoPilotConfig;
   private state: BranchState;
+  private prAuthor: string | null = null;
   private abortController: AbortController;
   private running = false;
 
@@ -46,14 +50,9 @@ export class SessionController extends EventEmitter {
     this.cwd = cwd;
 
     this.ghClient = new GHClient(cwd);
-    this.debouncer = new EventDebouncer(
-      config.debounce * 1000,
-      branch,
-    );
-    this.analyzer = new CommentAnalyzer();
+    this.categorizer = new CommentCategorizer(cwd);
     this.executor = new FixExecutor(config, cwd);
     this.gitManager = new GitManager(cwd, branch);
-    this.responder = new ThreadResponder(this.ghClient, branch);
     this.abortController = new AbortController();
 
     this.state = {
@@ -66,22 +65,20 @@ export class SessionController extends EventEmitter {
       iterations: [],
       totalCostUsd: 0,
       error: null,
-      seenThreadIds: new Set(),
-      seenCheckIds: new Set(),
+      unresolvedCount: 0,
+      commentSummary: null,
+      lastPushAt: null,
     };
   }
 
-  /** Get the current branch state (for UI). */
   getState(): BranchState {
     return { ...this.state };
   }
 
-  /** Start the orchestration loop. */
   async start(): Promise<void> {
     this.running = true;
 
     try {
-      // Validate prerequisites
       this.setStatus("initializing");
       await this.ghClient.validateAuth();
 
@@ -95,14 +92,18 @@ export class SessionController extends EventEmitter {
 
       this.state.prNumber = pr.number;
       this.state.prUrl = pr.url;
-      this.monitor = new PRMonitor(this.ghClient, pr.number, this.branch);
+      this.prAuthor = pr.author.login;
+
+      const botLogin = await this.ghClient.getCurrentUser();
+      this.fetcher = new CommentFetcher(this.ghClient, pr.number, botLogin, this.branch);
+      this.responder = new ThreadResponder(this.ghClient, this.branch, pr.number);
+      this.pilotConfig = await loadPilotConfig(this.cwd);
 
       logger.info(
         `Starting session for PR #${pr.number} (${pr.title})`,
         this.branch,
       );
 
-      // Main loop
       while (
         this.running &&
         this.state.currentIteration < this.state.maxIterations
@@ -110,7 +111,6 @@ export class SessionController extends EventEmitter {
         await this.runIteration(pr.baseRefName);
       }
 
-      // Finished all iterations
       if (this.state.currentIteration >= this.state.maxIterations) {
         this.setStatus("paused");
         notify(
@@ -132,22 +132,18 @@ export class SessionController extends EventEmitter {
     }
   }
 
-  /** Stop the loop gracefully. */
   stop(): void {
     this.running = false;
     this.abortController.abort();
-    this.debouncer.cancel();
     logger.info("Stopping session", this.branch);
   }
 
-  /** Extend the max iterations. */
   extendLoops(n: number): void {
     this.state.maxIterations += n;
     logger.info(
       `Extended max iterations to ${this.state.maxIterations}`,
       this.branch,
     );
-    // Resume if paused
     if (this.state.status === "paused") {
       this.start();
     }
@@ -163,47 +159,17 @@ export class SessionController extends EventEmitter {
       this.branch,
     );
 
-    // 1. Poll for new events
-    this.setStatus("polling");
-    let eventsCollected: PREvent[] = [];
+    // 1. FETCH — poll until comments appear
+    this.setStatus("awaiting");
+    const fetchedComments = await this.fetcher.fetch();
 
-    // Poll loop: keep polling until we get events, then debounce
-    while (this.running && eventsCollected.length === 0) {
-      const pollResult = await this.monitor.poll(
-        this.state.seenThreadIds,
-        this.state.seenCheckIds,
-      );
+    if (fetchedComments.length === 0) {
+      logger.info("No comments found — awaiting review feedback", this.branch);
+      this.state.currentIteration--; // Don't count empty polls as iterations
+      this.state.unresolvedCount = 0;
+      if (!this.running) return;
 
-      if (pollResult.newEvents.length > 0) {
-        this.debouncer.add(pollResult.newEvents);
-        this.setStatus("debouncing");
-
-        // Start debounce — keep polling during debounce window
-        const debouncePromise = this.debouncer.waitForFlush();
-
-        // Poll once more during debounce to catch late-arriving events
-        const debounceCheck = async () => {
-          await sleep(this.config.pollInterval * 1000 / 2);
-          if (!this.running) return;
-          const morePoll = await this.monitor.poll(
-            this.state.seenThreadIds,
-            this.state.seenCheckIds,
-          );
-          if (morePoll.newEvents.length > 0) {
-            this.debouncer.add(morePoll.newEvents);
-          }
-        };
-
-        // Run debounce check in parallel with the debounce timer
-        debounceCheck().catch(() => {});
-        eventsCollected = await debouncePromise;
-      } else {
-        // No new events, sleep and poll again
-        if (!this.running) return;
-        await sleep(this.config.pollInterval * 1000);
-      }
-
-      // Check if PR was closed/merged
+      // Check if PR is still open
       const pr = await this.ghClient.findPRForBranch(this.branch);
       if (!pr || pr.state !== "OPEN") {
         logger.info(
@@ -214,89 +180,82 @@ export class SessionController extends EventEmitter {
         this.running = false;
         return;
       }
+
+      await sleep(this.config.pollInterval * 1000);
+      return;
     }
 
-    if (!this.running || eventsCollected.length === 0) return;
+    this.state.unresolvedCount = fetchedComments.length;
 
-    // 2. Fetch CI logs for failures
-    for (const event of eventsCollected) {
-      if (event.type === "ci_failure" && event.ciCheck?.runId) {
-        event.ciLog = await this.monitor.fetchCILog(event.ciCheck.runId);
-      }
-    }
+    // 2. CATEGORIZE
+    this.setStatus("categorizing");
+    const categorized = await this.categorizer.categorize(fetchedComments);
 
-    // 3. Analyze comments
-    this.setStatus("analyzing");
-    const analyses = await this.analyzer.analyze(eventsCollected);
+    const summary: CommentSummary = {
+      total: categorized.length,
+      mustFix: categorized.filter((c) => c.category === "must_fix").length,
+      shouldFix: categorized.filter((c) => c.category === "should_fix").length,
+      niceToHave: categorized.filter((c) => c.category === "nice_to_have").length,
+      falsePositive: categorized.filter((c) => c.category === "false_positive").length,
+      comments: categorized,
+    };
+    this.state.commentSummary = summary;
+    this.emit("sessionUpdate", this.branch, this.getState());
 
-    // Split into actionable vs skipped
-    const actionable = eventsCollected.filter((event) => {
-      if (event.type === "ci_failure") return true;
-      const analysis = analyses.find(
-        (a) => a.threadId === event.thread?.threadId,
-      );
-      return (
-        analysis &&
-        analysis.confidence >= this.config.confidence &&
-        analysis.category !== "false_positive"
-      );
+    logger.info(
+      `Categorized: ${summary.mustFix} must_fix, ${summary.shouldFix} should_fix, ${summary.niceToHave} nice_to_have, ${summary.falsePositive} false_positive`,
+      this.branch,
+    );
+
+    // 3. FILTER by pilotConfig.autoFix settings
+    const actionable = categorized.filter((c) => {
+      if (c.category === "false_positive") return false;
+      if (c.category === "must_fix") return this.pilotConfig.autoFix.must_fix;
+      if (c.category === "should_fix") return this.pilotConfig.autoFix.should_fix;
+      if (c.category === "nice_to_have") return this.pilotConfig.autoFix.nice_to_have;
+      return false;
     });
 
-    const skipped = eventsCollected.filter(
-      (e) => !actionable.includes(e),
-    );
+    const skipped = categorized.filter((c) => !actionable.includes(c));
 
     logger.info(
       `${actionable.length} actionable, ${skipped.length} skipped`,
       this.branch,
     );
 
-    // Mark all events as seen
-    for (const event of eventsCollected) {
-      if (event.type === "review_comment" && event.thread) {
-        this.state.seenThreadIds.add(event.key);
-      } else if (event.type === "ci_failure") {
-        this.state.seenCheckIds.add(event.key);
-      }
-    }
-
     // Reply to skipped comments
     if (skipped.length > 0 && !this.config.dryRun) {
-      await this.responder.replyToSkipped(
-        skipped,
-        analyses,
-        this.config.confidence,
-      );
+      await this.responder.replyToSkipped(skipped);
     }
 
     if (actionable.length === 0) {
-      logger.info("No actionable events, continuing to poll", this.branch);
+      logger.info("No actionable comments after filtering", this.branch);
+      const iterSummary = this.buildSummary(
+        iterNum, iterationStart, categorized, actionable, skipped, 0, [],
+      );
+      this.state.iterations.push(iterSummary);
+      this.emit("iterationComplete", this.branch, iterSummary);
       return;
     }
 
-    // 4. Fix
+    // 4. FIX
     if (this.config.dryRun) {
-      logger.info("[DRY RUN] Would fix the following events:", this.branch);
-      for (const e of actionable) {
-        logger.info(
-          `  - ${e.type}: ${e.thread?.path ?? e.ciCheck?.name ?? e.key}`,
-          this.branch,
-        );
+      logger.info("[DRY RUN] Would fix the following comments:", this.branch);
+      for (const c of actionable) {
+        logger.info(`  - ${c.path}:${c.line ?? "?"} (${c.category})`, this.branch);
       }
       return;
     }
+
+    // Stash any uncommitted work before making changes
+    const didStash = await this.gitManager.stash();
 
     this.setStatus("fixing");
     const headBefore = await this.gitManager.getHeadSha();
 
     const fixResult = await this.executor.execute(
       actionable,
-      analyses.filter((a) =>
-        actionable.some(
-          (e) =>
-            e.thread?.threadId === a.threadId || e.key === a.threadId,
-        ),
-      ),
+      this.pilotConfig,
       this.abortController.signal,
     );
 
@@ -304,39 +263,43 @@ export class SessionController extends EventEmitter {
       logger.warn("Fix session had errors, discarding changes", this.branch);
       await this.gitManager.discardChanges();
     } else {
-      // 5. Rebase + push
+      // 5. VERIFY
+      if (this.pilotConfig.verifyCommands.length > 0) {
+        this.setStatus("verifying");
+        for (const cmd of this.pilotConfig.verifyCommands) {
+          try {
+            const parts = cmd.split(/\s+/);
+            await exec(parts[0], parts.slice(1), { cwd: this.cwd });
+            logger.info(`Verify passed: ${cmd}`, this.branch);
+          } catch (err) {
+            logger.warn(`Verify failed: ${cmd}: ${err}`, this.branch);
+          }
+        }
+      }
+
+      // 6. PUSH
       this.setStatus("pushing");
 
-      // Check for divergence first
       const diverged = await this.gitManager.checkDivergence();
       if (diverged) {
         const pulled = await this.gitManager.pullRebase();
         if (!pulled) {
-          logger.error(
-            "Could not pull --rebase, skipping push",
-            this.branch,
+          logger.error("Could not pull --rebase, skipping push", this.branch);
+          if (didStash) await this.gitManager.stashPop();
+          const iterSummary = this.buildSummary(
+            iterNum, iterationStart, categorized, actionable, skipped,
+            fixResult.costUsd, ["Rebase after divergence failed"],
           );
-          const summary = this.buildSummary(
-            iterNum,
-            iterationStart,
-            eventsCollected,
-            actionable,
-            skipped,
-            fixResult.costUsd,
-            ["Rebase after divergence failed"],
-          );
-          this.state.iterations.push(summary);
-          this.emit("iterationComplete", this.branch, summary);
+          this.state.iterations.push(iterSummary);
+          this.emit("iterationComplete", this.branch, iterSummary);
           return;
         }
       }
 
       const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
       if (!rebased) {
-        logger.error(
-          "Rebase failed — manual intervention needed",
-          this.branch,
-        );
+        logger.error("Rebase failed — manual intervention needed", this.branch);
+        if (didStash) await this.gitManager.stashPop();
         this.state.error = "Rebase conflict — manual intervention needed";
         this.setStatus("error");
         this.running = false;
@@ -344,16 +307,29 @@ export class SessionController extends EventEmitter {
       }
 
       const pushed = await this.gitManager.forcePushWithLease();
-      if (!pushed) {
+      if (pushed) {
+        this.state.lastPushAt = new Date().toISOString();
+      } else {
         logger.error("Push failed", this.branch);
       }
 
-      // 6. Reply to addressed threads
-      await this.responder.replyToAddressed(
-        actionable,
-        analyses,
-      );
+      // 7. REPLY — include the commit SHA so replies link to the fix
+      this.setStatus("replying");
+      const headAfterPush = await this.gitManager.getHeadSha();
+      await this.responder.replyToAddressed(actionable, headAfterPush);
+
+      // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
+      if (this.state.prNumber) {
+        const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
+          .filter((a) => a !== this.prAuthor);
+        if (uniqueAuthors.length > 0) {
+          await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
+        }
+      }
     }
+
+    // Restore stashed changes
+    if (didStash) await this.gitManager.stashPop();
 
     // Record iteration summary
     const changedFiles = fixResult.isError
@@ -362,20 +338,15 @@ export class SessionController extends EventEmitter {
           .getChangedFilesSince(headBefore)
           .catch(() => [] as string[]);
 
-    const summary = this.buildSummary(
-      iterNum,
-      iterationStart,
-      eventsCollected,
-      actionable,
-      skipped,
-      fixResult.costUsd,
-      fixResult.errors,
+    const iterSummary = this.buildSummary(
+      iterNum, iterationStart, categorized, actionable, skipped,
+      fixResult.costUsd, fixResult.errors,
     );
-    summary.changes = changedFiles;
+    iterSummary.changes = changedFiles;
 
-    this.state.iterations.push(summary);
+    this.state.iterations.push(iterSummary);
     this.state.totalCostUsd += fixResult.costUsd;
-    this.emit("iterationComplete", this.branch, summary);
+    this.emit("iterationComplete", this.branch, iterSummary);
 
     logger.info(
       `Iteration ${iterNum} complete: ${actionable.length} fixed, ${skipped.length} skipped, $${fixResult.costUsd.toFixed(4)} cost`,
@@ -386,9 +357,9 @@ export class SessionController extends EventEmitter {
   private buildSummary(
     iteration: number,
     startTime: number,
-    allEvents: PREvent[],
-    actionable: PREvent[],
-    skipped: PREvent[],
+    allComments: CategorizedComment[],
+    actionable: CategorizedComment[],
+    skipped: CategorizedComment[],
     costUsd: number,
     errors: string[],
   ): IterationSummary {
@@ -396,7 +367,7 @@ export class SessionController extends EventEmitter {
       iteration,
       startedAt: new Date(startTime).toISOString(),
       completedAt: new Date().toISOString(),
-      eventsDetected: allEvents.length,
+      eventsDetected: allComments.length,
       eventsFixed: actionable.length,
       eventsSkipped: skipped.length,
       costUsd,

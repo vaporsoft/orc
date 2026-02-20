@@ -69,6 +69,7 @@ query PullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
       headRefName
       baseRefName
       headRefOid
+      author { login }
     }
   }
 }
@@ -86,6 +87,31 @@ query MyOpenPRs($searchQuery: String!) {
         headRefName
         baseRefName
         headRefOid
+        author { login }
+      }
+    }
+  }
+}
+`;
+
+export const PR_COMMENTS_QUERY = `
+query PRComments($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      comments(first: 100, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          databaseId
+          body
+          author {
+            login
+          }
+          createdAt
+        }
       }
     }
   }
@@ -105,6 +131,7 @@ query PRForBranch($owner: String!, $repo: String!, $branch: String!) {
         headRefName
         baseRefName
         headRefOid
+        author { login }
       }
     }
   }

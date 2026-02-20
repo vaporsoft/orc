@@ -1,7 +1,7 @@
 /**
  * Spawns Claude Code via the Agent SDK to fix PR feedback.
  *
- * Builds a focused prompt containing only the filtered events,
+ * Builds a focused prompt containing only the categorized comments,
  * then lets Claude Code read the code, make changes, run lint/tests,
  * and create fixup commits. The orchestrator handles rebase and push.
  */
@@ -11,7 +11,7 @@ import {
   type SDKMessage,
   type SDKResultMessage,
 } from "@anthropic-ai/claude-code";
-import type { PREvent, CommentAnalysis } from "../types/index.js";
+import type { CategorizedComment, RepoPilotConfig } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { ALLOWED_TOOLS } from "../constants.js";
 import { logger } from "../utils/logger.js";
@@ -21,7 +21,6 @@ export interface FixResult {
   costUsd: number;
   durationMs: number;
   isError: boolean;
-  /** Files changed by the fix. */
   changedFiles: string[];
   errors: string[];
 }
@@ -35,27 +34,41 @@ export class FixExecutor {
     this.cwd = cwd;
   }
 
-  /**
-   * Build a prompt from the filtered events and analyses, then
-   * invoke Claude Code to make the fixes.
-   */
   async execute(
-    events: PREvent[],
-    analyses: CommentAnalysis[],
+    comments: CategorizedComment[],
+    pilotConfig: RepoPilotConfig,
     abortSignal?: AbortSignal,
   ): Promise<FixResult> {
-    const prompt = this.buildPrompt(events, analyses);
+    const prompt = this.buildPrompt(comments, pilotConfig);
     logger.info("Invoking Claude Code to fix feedback", undefined, {
-      eventsCount: events.length,
+      commentsCount: comments.length,
     });
     logger.debug("Fix prompt:\n" + prompt);
 
     const startTime = Date.now();
     const abortController = new AbortController();
 
-    // Forward external abort signal
     if (abortSignal) {
       abortSignal.addEventListener("abort", () => abortController.abort());
+    }
+
+    let systemSuffix =
+      `You are fixing PR review feedback. Make targeted, minimal changes.
+
+After making changes, commit them. Prefer fixup commits when you can confidently identify the parent commit that introduced the code being fixed: git commit --fixup=<sha>
+
+If you are not confident which commit to fixup against (e.g. the change spans multiple commits, or you're adding something new), make a regular descriptive commit instead.
+
+Do not push — the orchestrator handles that.`;
+
+    if (pilotConfig.instructions) {
+      systemSuffix += `\n\n## Repo-Specific Instructions\n${pilotConfig.instructions}`;
+    }
+
+    if (pilotConfig.verifyCommands.length > 0) {
+      systemSuffix += `\n\nAfter making changes, run these verification commands:\n${pilotConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
+    } else {
+      systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
     }
 
     try {
@@ -67,8 +80,7 @@ export class FixExecutor {
           permissionMode: "bypassPermissions",
           cwd: this.cwd,
           abortController,
-          appendSystemPrompt:
-            "You are fixing PR review feedback and CI failures. Make targeted, minimal changes. Create fixup commits (git commit --fixup=HEAD or appropriate parent) for each logical fix. Run lint and typecheck after changes. Do not push — the orchestrator handles that.",
+          appendSystemPrompt: systemSuffix,
         },
       });
 
@@ -76,17 +88,14 @@ export class FixExecutor {
       let sessionId = "unknown";
 
       for await (const message of stream) {
-        // Capture the session ID from any message
         if (message.session_id) {
           sessionId = message.session_id;
         }
 
-        // Look for the result message
         if (message.type === "result") {
           resultMessage = message as SDKResultMessage;
         }
 
-        // Log assistant messages in verbose mode
         if (this.config?.verbose && message.type === "assistant") {
           const msg = message as SDKMessage;
           logger.debug(`Claude: ${JSON.stringify(msg).slice(0, 200)}`);
@@ -136,51 +145,46 @@ export class FixExecutor {
   }
 
   private buildPrompt(
-    events: PREvent[],
-    analyses: CommentAnalysis[],
+    comments: CategorizedComment[],
+    pilotConfig: RepoPilotConfig,
   ): string {
     const sections: string[] = [];
 
     sections.push(
-      "# PR Feedback to Address\n\nFix the following review comments and CI failures. Make targeted changes and create fixup commits.\n",
+      "# PR Review Comments to Address\n\nFix the following review comments. Make targeted changes and create fixup commits.\n",
     );
 
-    // Group by type
-    const ciFailures = events.filter((e) => e.type === "ci_failure");
-    const reviewComments = events.filter((e) => e.type === "review_comment");
+    // Group by severity
+    const mustFix = comments.filter((c) => c.category === "must_fix");
+    const shouldFix = comments.filter((c) => c.category === "should_fix");
+    const niceToHave = comments.filter((c) => c.category === "nice_to_have");
 
-    if (ciFailures.length > 0) {
-      sections.push("## CI Failures (must fix)\n");
-      for (const event of ciFailures) {
-        sections.push(`### ${event.ciCheck?.name ?? "Unknown check"}`);
-        if (event.ciLog) {
-          sections.push("```\n" + event.ciLog + "\n```");
-        }
-        sections.push("");
-      }
-    }
-
-    if (reviewComments.length > 0) {
-      sections.push("## Review Comments\n");
-      for (const event of reviewComments) {
-        const thread = event.thread;
-        if (!thread) continue;
-
-        const analysis = analyses.find((a) => a.threadId === thread.threadId);
+    const renderGroup = (label: string, items: CategorizedComment[]) => {
+      if (items.length === 0) return;
+      sections.push(`## ${label}\n`);
+      for (const comment of items) {
         sections.push(
-          `### ${thread.path}${thread.line ? `:${thread.line}` : ""} (${analysis?.category ?? "unknown"})`,
+          `### ${comment.path}${comment.line ? `:${comment.line}` : ""}`,
         );
-        sections.push(`**Comment by @${thread.author}:**`);
-        sections.push(thread.body);
-        if (thread.diffHunk) {
+        sections.push(`**Comment by @${comment.author}:**`);
+        sections.push(comment.body);
+        if (comment.diffHunk) {
           sections.push("\n**Diff context:**");
-          sections.push("```\n" + thread.diffHunk + "\n```");
+          sections.push("```\n" + comment.diffHunk + "\n```");
         }
-        if (analysis?.suggestedAction) {
-          sections.push(`\n**Suggested action:** ${analysis.suggestedAction}`);
+        if (comment.suggestedAction) {
+          sections.push(`\n**Suggested action:** ${comment.suggestedAction}`);
         }
         sections.push("");
       }
+    };
+
+    renderGroup("Must Fix", mustFix);
+    renderGroup("Should Fix", shouldFix);
+    renderGroup("Nice to Have", niceToHave);
+
+    if (pilotConfig.instructions) {
+      sections.push(`## Additional Context\n\n${pilotConfig.instructions}\n`);
     }
 
     return sections.join("\n");

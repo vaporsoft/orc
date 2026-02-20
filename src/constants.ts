@@ -3,9 +3,6 @@
 /** Seconds between GitHub polls. */
 export const DEFAULT_POLL_INTERVAL = 30;
 
-/** Seconds to wait after last event before acting. */
-export const DEFAULT_DEBOUNCE = 60;
-
 /** Default max fix iterations per branch. */
 export const DEFAULT_MAX_LOOPS = 10;
 
