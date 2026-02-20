@@ -3,17 +3,25 @@ import { logger, type LogEntry } from "../../utils/logger.js";
 
 const MAX_ENTRIES = 200;
 
-export function useLogBuffer(): LogEntry[] {
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+export interface LogBufferState {
+  entries: LogEntry[];
+  lastTimestamp: string | null;
+}
+
+export function useLogBuffer(): LogBufferState {
+  const [state, setState] = useState<LogBufferState>({
+    entries: [],
+    lastTimestamp: null,
+  });
 
   useEffect(() => {
     const onLog = (entry: LogEntry) => {
-      setEntries((prev) => {
-        const next = [...prev, entry];
-        if (next.length > MAX_ENTRIES) {
-          return next.slice(next.length - MAX_ENTRIES);
-        }
-        return next;
+      setState((prev) => {
+        const next = [...prev.entries, entry];
+        return {
+          entries: next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next,
+          lastTimestamp: entry.timestamp,
+        };
       });
     };
 
@@ -23,5 +31,5 @@ export function useLogBuffer(): LogEntry[] {
     };
   }, []);
 
-  return entries;
+  return state;
 }

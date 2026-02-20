@@ -21,16 +21,16 @@ export function App({ daemon, startTime }: AppProps) {
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
   const sessions = useDaemonState(daemon);
-  const logEntries = useLogBuffer();
+  const { entries: logEntries, lastTimestamp } = useLogBuffer();
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
 
   const termHeight = stdout?.rows ?? 24;
-  // Reserve: header(3) + column header(1) + sessions(max 6) + detail(~6) + help(3) = ~19
-  const logVisibleLines = Math.max(3, termHeight - 22);
+  const logVisibleLines = Math.max(3, termHeight - 12);
 
   const sessionCount = sessions.size;
+  const showLogs = focusedPane === "logs";
 
   const onQuit = useCallback(() => {
     exit();
@@ -69,20 +69,22 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Header sessions={sessions} startTime={startTime} />
+      <Header sessions={sessions} startTime={startTime} lastCheck={lastTimestamp} />
       <SessionList
         sessions={sessions}
         selectedIndex={sessionIndex}
         focused={focusedPane === "sessions"}
       />
       <DetailPanel sessions={sessions} selectedIndex={sessionIndex} />
-      <LogPane
-        entries={logEntries}
-        focused={focusedPane === "logs"}
-        scrollOffset={logOffset}
-        visibleLines={logVisibleLines}
-      />
-      <HelpBar />
+      {showLogs && (
+        <LogPane
+          entries={logEntries}
+          focused={true}
+          scrollOffset={logOffset}
+          visibleLines={logVisibleLines}
+        />
+      )}
+      <HelpBar showingLogs={showLogs} />
     </Box>
   );
 }

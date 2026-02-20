@@ -5,6 +5,7 @@ import type { BranchState } from "../../types/index.js";
 interface HeaderProps {
   sessions: Map<string, BranchState>;
   startTime: number;
+  lastCheck: string | null;
 }
 
 function formatUptime(ms: number): string {
@@ -15,7 +16,11 @@ function formatUptime(ms: number): string {
   return `${minutes}m`;
 }
 
-export function Header({ sessions, startTime }: HeaderProps) {
+function formatCheckTime(iso: string): string {
+  return iso.split("T")[1]?.slice(0, 8) ?? iso;
+}
+
+export function Header({ sessions, startTime, lastCheck }: HeaderProps) {
   const count = sessions.size;
   let totalCost = 0;
   for (const state of sessions.values()) {
@@ -32,6 +37,8 @@ export function Header({ sessions, startTime }: HeaderProps) {
         <Text dimColor>${totalCost.toFixed(2)} total</Text>
         {"   "}
         <Text dimColor>up {uptime}</Text>
+        {"   "}
+        <Text dimColor>last check {lastCheck ? formatCheckTime(lastCheck) : "—"}</Text>
       </Text>
     </Box>
   );

@@ -89,4 +89,5 @@ export async function startCommand(options: StartOptions): Promise<void> {
   await daemon.stop();
   await daemonPromise;
   logger.close();
+  process.exit(0);
 }

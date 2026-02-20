@@ -28,6 +28,7 @@ export class Daemon extends EventEmitter {
   /** Branch currently checked out in cwd — used instead of a worktree. */
   private cwdBranch: string | null = null;
   private currentBranch: string | null = null;
+  private abortController = new AbortController();
 
   constructor(config: Config, cwd: string) {
     super();
@@ -64,7 +65,7 @@ export class Daemon extends EventEmitter {
     while (this.running) {
       await this.discover(this.currentBranch);
       if (!this.running) break;
-      await sleep(this.config.pollInterval * 1000);
+      await this.cancellableSleep(this.config.pollInterval * 1000);
     }
   }
 
@@ -74,8 +75,20 @@ export class Daemon extends EventEmitter {
     await this.discover(this.currentBranch);
   }
 
+  private cancellableSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.abortController.signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
   async stop(): Promise<void> {
     this.running = false;
+    this.abortController.abort();
     logger.info("Shutting down daemon...");
     const branches = [...this.sessions.keys()];
     for (const branch of branches) {
