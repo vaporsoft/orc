@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Daemon } from "../../core/daemon.js";
-import type { BranchState } from "../../types/index.js";
+import type { BranchState, ReviewThread } from "../../types/index.js";
 import type { GHPullRequest } from "../../github/types.js";
 
 export interface PREntry {
@@ -8,29 +8,54 @@ export interface PREntry {
   pr: GHPullRequest;
   state: BranchState | null; // null = discovered but not running
   commentCount: number;
+  commentThreads: ReviewThread[];
 }
 
 function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const entries = new Map<string, PREntry>();
   const counts = daemon.getCommentCounts();
+  const threads = daemon.getCommentThreads();
+  const lastStates = daemon.getLastStates();
   for (const [branch, pr] of daemon.getDiscoveredPRs()) {
     const session = daemon.getSessions().get(branch);
     entries.set(branch, {
       branch,
       pr,
-      state: session ? session.getState() : null,
+      state: session ? session.getState() : (lastStates.get(branch) ?? null),
       commentCount: counts.get(branch) ?? 0,
+      commentThreads: threads.get(branch) ?? [],
     });
   }
   return entries;
 }
 
+const THROTTLE_MS = 100;
+
 export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
   const [entries, setEntries] = useState<Map<string, PREntry>>(() => buildEntries(daemon));
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef(false);
 
-  const rebuild = useCallback(() => {
+  const flush = useCallback(() => {
+    timerRef.current = null;
+    pendingRef.current = false;
     setEntries(buildEntries(daemon));
   }, [daemon]);
+
+  const rebuild = useCallback(() => {
+    if (timerRef.current) {
+      pendingRef.current = true;
+      return;
+    }
+    flush();
+    timerRef.current = setTimeout(() => {
+      if (pendingRef.current) {
+        flush();
+      } else {
+        timerRef.current = null;
+      }
+    }, THROTTLE_MS);
+  }, [flush]);
 
   useEffect(() => {
     daemon.on("prDiscovered", rebuild);
@@ -45,6 +70,10 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
       daemon.off("prUpdate", rebuild);
       daemon.off("sessionUpdate", rebuild);
       daemon.off("commentCountUpdate", rebuild);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [daemon, rebuild]);
 

@@ -34,7 +34,7 @@ export class WorktreeManager {
     logger.info(`Creating worktree at ${worktreePath}`, branch);
 
     try {
-      await exec("git", ["worktree", "add", worktreePath, branch], {
+      await exec("git", ["worktree", "add", "--detach", worktreePath, branch], {
         cwd: this.cwd,
       });
     } catch (err) {

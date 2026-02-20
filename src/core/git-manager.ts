@@ -69,7 +69,7 @@ export class GitManager {
         "push",
         "--force-with-lease",
         "origin",
-        this.branch,
+        `HEAD:${this.branch}`,
       ]);
       return true;
     } catch (err) {
@@ -81,7 +81,7 @@ export class GitManager {
           "push",
           "--force-with-lease",
           "origin",
-          this.branch,
+          `HEAD:${this.branch}`,
         ]);
         return true;
       } catch {
@@ -145,34 +145,16 @@ export class GitManager {
     }
   }
 
-  /** Pull with rebase to handle external force-pushes. */
+  /** Fetch and rebase onto remote branch (works with detached HEAD). */
   async pullRebase(): Promise<boolean> {
     try {
-      await this.git(["pull", "--rebase", "origin", this.branch]);
+      await this.git(["fetch", "origin", this.branch]);
+      await this.git(["rebase", `origin/${this.branch}`]);
       return true;
     } catch {
-      logger.error(`Pull --rebase failed`, this.branch);
+      logger.error(`Rebase onto origin/${this.branch} failed`, this.branch);
+      await this.git(["rebase", "--abort"]).catch(() => {});
       return false;
-    }
-  }
-
-  /** Stash uncommitted changes (staged + unstaged + untracked). Returns true if something was stashed. */
-  async stash(): Promise<boolean> {
-    const dirty = await this.hasUncommittedChanges();
-    if (!dirty) return false;
-
-    logger.info("Stashing uncommitted changes", this.branch);
-    await this.git(["stash", "push", "--include-untracked", "-m", "orc: auto-stash"]);
-    return true;
-  }
-
-  /** Pop the most recent stash. */
-  async stashPop(): Promise<void> {
-    logger.info("Restoring stashed changes", this.branch);
-    try {
-      await this.git(["stash", "pop"]);
-    } catch (err) {
-      logger.warn(`Stash pop had conflicts — your changes are in the stash`, this.branch);
     }
   }
 

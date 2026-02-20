@@ -11,11 +11,10 @@ import { logger } from "../utils/logger.js";
 import { App } from "../tui/App.js";
 
 export interface StartOptions {
-  maxLoops?: number;
   pollInterval?: number;
   confidence?: number;
   model?: string;
-  maxTurns?: number;
+  sessionTimeout?: number;
   claudeTimeout?: number;
   dryRun?: boolean;
   verbose?: boolean;
@@ -23,11 +22,10 @@ export interface StartOptions {
 
 export async function startCommand(options: StartOptions): Promise<void> {
   const config: Config = ConfigSchema.parse({
-    maxLoops: options.maxLoops,
     pollInterval: options.pollInterval,
     confidence: options.confidence,
     model: options.model,
-    maxTurns: options.maxTurns,
+    sessionTimeout: options.sessionTimeout,
     claudeTimeout: options.claudeTimeout,
     dryRun: options.dryRun ?? false,
     verbose: options.verbose ?? false,

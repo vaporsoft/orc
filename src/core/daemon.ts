@@ -10,6 +10,7 @@ import { CommentFetcher } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
+import type { BranchState, ReviewThread } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
@@ -27,9 +28,9 @@ export class Daemon extends EventEmitter {
   private sessions = new Map<string, ActiveSession>();
   private discoveredPRs = new Map<string, GHPullRequest>();
   private commentCounts = new Map<string, number>();
+  private commentThreads = new Map<string, ReviewThread[]>();
+  private lastStates = new Map<string, BranchState>();
   private running = false;
-  private cwdBranch: string | null = null;
-  private currentBranch: string | null = null;
   private abortController = new AbortController();
   private botLogin: string | null = null;
 
@@ -57,6 +58,14 @@ export class Daemon extends EventEmitter {
     return new Map(this.commentCounts);
   }
 
+  getCommentThreads(): Map<string, ReviewThread[]> {
+    return new Map(this.commentThreads);
+  }
+
+  getLastStates(): Map<string, BranchState> {
+    return new Map(this.lastStates);
+  }
+
   isRunning(branch: string): boolean {
     return this.sessions.has(branch);
   }
@@ -72,13 +81,12 @@ export class Daemon extends EventEmitter {
       `Watching ${owner}/${repo} for open PRs by ${user}`,
     );
 
-    const { stdout } = await exec("git", ["branch", "--show-current"], {
-      cwd: this.cwd,
-    });
-    this.currentBranch = stdout.trim();
-
     while (this.running) {
-      await this.discover();
+      try {
+        await this.discover();
+      } catch (err) {
+        logger.error(`Discovery failed: ${err}`);
+      }
       if (!this.running) break;
       await this.cancellableSleep(this.config.pollInterval * 1000);
     }
@@ -93,6 +101,7 @@ export class Daemon extends EventEmitter {
     if (this.sessions.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
+    this.lastStates.delete(branch);
     await this.launchSession(pr);
   }
 
@@ -119,12 +128,16 @@ export class Daemon extends EventEmitter {
 
   private cancellableSleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
+      const signal = this.abortController.signal;
       const onAbort = () => {
         clearTimeout(timer);
         resolve();
       };
-      this.abortController.signal.addEventListener("abort", onAbort, { once: true });
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -171,7 +184,12 @@ export class Daemon extends EventEmitter {
         logger.info(`PR closed/merged, removing`, branch);
         this.discoveredPRs.delete(branch);
         this.commentCounts.delete(branch);
-        await this.teardownSession(branch);
+        this.commentThreads.delete(branch);
+        try {
+          await this.teardownSession(branch);
+        } catch (err) {
+          logger.warn(`Failed to teardown session for ${branch}: ${err}`);
+        }
         this.emit("prRemoved", branch);
       }
     }
@@ -185,15 +203,20 @@ export class Daemon extends EventEmitter {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin, pr.headRefName,
         );
-        const count = await fetcher.countUnresolved();
+        const fetched = await fetcher.fetch();
+        const count = fetched.length;
         const prev = this.commentCounts.get(pr.headRefName) ?? -1;
         this.commentCounts.set(pr.headRefName, count);
+        this.commentThreads.set(
+          pr.headRefName,
+          fetched.map((f) => f.thread),
+        );
 
         if (count !== prev) {
           this.emit("commentCountUpdate", pr.headRefName, count);
         }
       } catch (err) {
-        logger.debug(`Failed to count comments for ${pr.headRefName}: ${err}`);
+        logger.debug(`Failed to fetch comments for ${pr.headRefName}: ${err}`);
       }
     }
   }
@@ -209,19 +232,12 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    const currentBranch = this.currentBranch ?? "";
     let workDir: string;
-
-    if (branch === currentBranch && !this.cwdBranch) {
-      workDir = this.cwd;
-      this.cwdBranch = branch;
-    } else {
-      try {
-        workDir = await this.worktreeManager.create(branch);
-      } catch (err) {
-        logger.error(`Failed to create worktree for ${branch}: ${err}`);
-        return;
-      }
+    try {
+      workDir = await this.worktreeManager.create(branch);
+    } catch (err) {
+      logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      return;
     }
 
     const controller = new SessionController(branch, this.config, workDir);
@@ -231,12 +247,10 @@ export class Daemon extends EventEmitter {
       this.emit("sessionUpdate", b, controller.getState());
     });
 
-    controller.on("iterationComplete", (b: string, summary: unknown) => {
-      logger.info(
-        `Iteration complete: ${JSON.stringify(summary)}`,
-        b,
-      );
-      this.emit("sessionUpdate", b, controller.getState());
+    controller.on("pushed", (b: string) => {
+      this.syncMainRepo(b).catch((err) => {
+        logger.debug(`Main repo sync failed for ${b}: ${err}`);
+      });
     });
 
     controller.on("done", (b: string) => {
@@ -261,18 +275,43 @@ export class Daemon extends EventEmitter {
   }
 
   private async cleanupSession(branch: string): Promise<void> {
-    this.sessions.delete(branch);
-
-    if (branch === this.cwdBranch) {
-      this.cwdBranch = null;
-    } else {
-      await this.worktreeManager.remove(branch);
+    const session = this.sessions.get(branch);
+    if (session) {
+      this.lastStates.set(branch, session.controller.getState());
     }
+    this.sessions.delete(branch);
+    await this.worktreeManager.remove(branch);
 
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     } else {
       this.emit("prRemoved", branch);
     }
+  }
+
+  /** Fetch the pushed branch into the main repo and fast-forward if clean. */
+  private async syncMainRepo(branch: string): Promise<void> {
+    // Update origin/<branch> in the main repo
+    await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
+
+    // Only fast-forward if the user is actually on this branch
+    const { stdout: currentBranch } = await exec(
+      "git", ["branch", "--show-current"], { cwd: this.cwd },
+    );
+    if (currentBranch.trim() !== branch) return;
+
+    // Check for uncommitted changes
+    const { stdout: status } = await exec(
+      "git", ["status", "--porcelain"], { cwd: this.cwd },
+    );
+    if (status.trim().length > 0) {
+      logger.info("Main repo has local changes — run `git pull --rebase` to sync", branch);
+      this.emit("syncNeeded", branch);
+      return;
+    }
+
+    // Clean working tree — fast-forward
+    await exec("git", ["merge", "--ff-only", `origin/${branch}`], { cwd: this.cwd });
+    logger.info("Auto-synced main repo with pushed changes", branch);
   }
 }

@@ -7,6 +7,7 @@ interface LogPaneProps {
   focused: boolean;
   scrollOffset: number;
   visibleLines: number;
+  label?: string;
 }
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -16,7 +17,14 @@ const LEVEL_COLORS: Record<string, string> = {
   error: "red",
 };
 
-export function LogPane({ entries, focused, scrollOffset, visibleLines }: LogPaneProps) {
+const LEVEL_SYMBOLS: Record<string, string> = {
+  debug: "·",
+  info: "│",
+  warn: "▪",
+  error: "✗",
+};
+
+export function LogPane({ entries, focused, scrollOffset, visibleLines, label = "Logs" }: LogPaneProps) {
   const maxOffset = Math.max(0, entries.length - visibleLines);
   const offset = Math.min(scrollOffset, maxOffset);
   const visible = entries.slice(
@@ -27,26 +35,30 @@ export function LogPane({ entries, focused, scrollOffset, visibleLines }: LogPan
   return (
     <Box
       flexDirection="column"
-      borderStyle="single"
+      borderStyle="round"
+      borderColor="green"
       borderTop={false}
       borderBottom={false}
     >
       <Box paddingX={1}>
-        <Text bold dimColor>{focused ? "▶ " : ""}Logs</Text>
+        <Text color="green" dimColor>{"━━ "}</Text>
+        <Text color="green" bold>{focused ? "▸ " : "  "}{label}</Text>
+        <Text color="green" dimColor>{" " + "─".repeat(Math.max(0, 40 - label.length))}</Text>
       </Box>
       {visible.length === 0 ? (
-        <Box paddingX={1}>
+        <Box paddingX={1} marginLeft={2}>
           <Text dimColor>No log entries yet</Text>
         </Box>
       ) : (
         visible.map((entry, i) => {
           const time = entry.timestamp.split("T")[1]?.slice(0, 8) ?? "";
-          const level = entry.level.toUpperCase().padEnd(5);
-          const prefix = entry.branch ? `[${entry.branch}]` : "";
+          const sym = LEVEL_SYMBOLS[entry.level] ?? "│";
+          const prefix = entry.branch ? `[${entry.branch}] ` : "";
           return (
-            <Box key={i} paddingX={1}>
+            <Box key={i} paddingX={1} marginLeft={2}>
+              <Text dimColor>{time} </Text>
               <Text color={LEVEL_COLORS[entry.level] ?? "white"}>
-                {time} {level} {prefix} {entry.message}
+                {sym} {prefix}{entry.message}
               </Text>
             </Box>
           );

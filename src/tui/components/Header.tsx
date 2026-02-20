@@ -12,7 +12,7 @@ function formatUptime(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSec / 60);
   const hours = Math.floor(minutes / 60);
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (hours > 0) return `${hours}h${minutes % 60}m`;
   return `${minutes}m`;
 }
 
@@ -30,16 +30,23 @@ export function Header({ entries, startTime, lastCheck }: HeaderProps) {
   const uptime = formatUptime(Date.now() - startTime);
 
   return (
-    <Box borderStyle="single" borderBottom={false} paddingX={1} justifyContent="space-between">
-      <Text bold color="cyan">Orc</Text>
+    <Box
+      borderStyle="round"
+      borderColor="green"
+      borderBottom={false}
+      paddingX={1}
+      justifyContent="space-between"
+    >
+      <Text backgroundColor="green" color="black" bold>{" "}orc{" "}</Text>
       <Text>
-        <Text dimColor>{running}/{total} active</Text>
-        {"   "}
-        <Text dimColor>${totalCost.toFixed(2)} total</Text>
-        {"   "}
-        <Text dimColor>up {uptime}</Text>
-        {"   "}
-        <Text dimColor>last check {lastCheck ? formatCheckTime(lastCheck) : "—"}</Text>
+        <Text color={running > 0 ? "green" : "gray"}>{running}</Text>
+        <Text dimColor>/{total} active</Text>
+        <Text color="green"> · </Text>
+        <Text dimColor>${totalCost.toFixed(2)}</Text>
+        <Text color="green"> · </Text>
+        <Text dimColor>{uptime}</Text>
+        <Text color="green"> · </Text>
+        <Text dimColor>{lastCheck ? formatCheckTime(lastCheck) : "—"}</Text>
       </Text>
     </Box>
   );

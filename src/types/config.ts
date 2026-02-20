@@ -1,11 +1,10 @@
 import { z } from "zod";
 
 export const ConfigSchema = z.object({
-  maxLoops: z.number().int().positive().default(10),
   pollInterval: z.number().int().positive().default(30),
   confidence: z.number().min(0).max(1).default(0.75),
   model: z.string().default("sonnet"),
-  maxTurns: z.number().int().positive().default(30),
+  sessionTimeout: z.number().positive().default(1),
   claudeTimeout: z.number().int().positive().default(900),
   dryRun: z.boolean().default(false),
   verbose: z.boolean().default(false),

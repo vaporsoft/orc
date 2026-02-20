@@ -59,47 +59,33 @@ export interface RepoPilotConfig {
 export type BranchStatus =
   | "stopped"
   | "initializing"
-  | "awaiting"
+  | "listening"
   | "categorizing"
   | "fixing"
   | "verifying"
   | "pushing"
   | "replying"
-  | "paused"
   | "done"
   | "error";
-
-export interface IterationSummary {
-  iteration: number;
-  startedAt: string;
-  completedAt: string;
-  eventsDetected: number;
-  eventsFixed: number;
-  eventsSkipped: number;
-  costUsd: number;
-  durationMs: number;
-  changes: string[];
-  errors: string[];
-}
 
 export interface BranchState {
   branch: string;
   prNumber: number | null;
   prUrl: string | null;
   status: BranchStatus;
-  currentIteration: number;
-  maxIterations: number;
-  iterations: IterationSummary[];
+  commentsAddressed: number;
   totalCostUsd: number;
   error: string | null;
   unresolvedCount: number;
   commentSummary: CommentSummary | null;
   lastPushAt: string | null;
+  claudeActivity: string[];
+  lastSessionId: string | null;
+  workDir: string | null;
 }
 
 export interface SessionControllerEvents {
   statusChange: (branch: string, status: BranchStatus) => void;
-  iterationComplete: (branch: string, summary: IterationSummary) => void;
   error: (branch: string, error: string) => void;
   done: (branch: string, state: BranchState) => void;
 }

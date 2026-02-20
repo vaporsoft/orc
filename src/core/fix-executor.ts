@@ -47,6 +47,7 @@ export class FixExecutor {
     comments: CategorizedComment[],
     pilotConfig: RepoPilotConfig,
     abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
   ): Promise<FixResult> {
     const prompt = this.buildPrompt(comments, pilotConfig);
     logger.info("Invoking Claude Code to fix feedback", undefined, {
@@ -56,6 +57,11 @@ export class FixExecutor {
 
     const startTime = Date.now();
     const abortController = new AbortController();
+    const timeoutMs = this.config.claudeTimeout * 1000;
+    const timeout = setTimeout(() => {
+      logger.info("Claude session timed out, aborting");
+      abortController.abort();
+    }, timeoutMs);
 
     if (abortSignal) {
       abortSignal.addEventListener("abort", () => abortController.abort());
@@ -80,11 +86,12 @@ Do not push — the orchestrator handles that.`;
       systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
     }
 
+    let sessionId = "unknown";
+
     try {
       const stream = query({
         prompt,
         options: {
-          maxTurns: this.config.maxTurns,
           allowedTools: [...ALLOWED_TOOLS],
           permissionMode: "bypassPermissions",
           cwd: this.cwd,
@@ -94,7 +101,6 @@ Do not push — the orchestrator handles that.`;
       });
 
       let resultMessage: SDKResultMessage | null = null;
-      let sessionId = "unknown";
 
       for await (const message of stream) {
         if (message.session_id) {
@@ -105,12 +111,33 @@ Do not push — the orchestrator handles that.`;
           resultMessage = message as SDKResultMessage;
         }
 
+        if (message.type === "assistant" && onActivity) {
+          const msg = message as SDKMessage;
+          const content = (msg as Record<string, unknown>).message as
+            | { content?: Array<{ type: string; name?: string; text?: string; input?: Record<string, unknown> }> }
+            | undefined;
+          if (content?.content) {
+            for (const block of content.content) {
+              if (block.type === "tool_use" && block.name) {
+                onActivity(this.summarizeTool(block.name, block.input));
+              } else if (block.type === "text" && block.text) {
+                const lastLine = block.text.trim().split("\n").pop()?.trim();
+                if (lastLine && lastLine.length > 0) {
+                  const truncated = lastLine.length > 120 ? lastLine.slice(0, 119) + "…" : lastLine;
+                  onActivity(truncated);
+                }
+              }
+            }
+          }
+        }
+
         if (this.config?.verbose && message.type === "assistant") {
           const msg = message as SDKMessage;
           logger.debug(`Claude: ${JSON.stringify(msg).slice(0, 200)}`);
         }
       }
 
+      clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
       const verifyResults = await this.readVerifyResults(comments);
 
@@ -142,17 +169,19 @@ Do not push — the orchestrator handles that.`;
         verifyResults,
       };
     } catch (err) {
+      clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
+      const verifyResults = await this.readVerifyResults(comments);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Claude Code session failed: ${message}`);
       return {
-        sessionId: "error",
+        sessionId,
         costUsd: 0,
         durationMs,
-        isError: true,
+        isError: false,
         changedFiles: [],
         errors: [message],
-        verifyResults: new Map(),
+        verifyResults,
       };
     }
   }
@@ -242,6 +271,30 @@ The thread IDs are:\n`,
     }
 
     return sections.join("\n");
+  }
+
+  private summarizeTool(name: string, input?: Record<string, unknown>): string {
+    const path = input?.file_path ?? input?.path ?? "";
+    const pathStr = typeof path === "string" ? path.replace(/^.*\//, "") : "";
+    switch (name) {
+      case "Read": return `Reading ${pathStr || "file"}`;
+      case "Edit": return `Editing ${pathStr || "file"}`;
+      case "Write": return `Writing ${pathStr || "file"}`;
+      case "Bash": {
+        const cmd = typeof input?.command === "string" ? input.command : "";
+        const short = cmd.length > 80 ? cmd.slice(0, 79) + "…" : cmd;
+        return `Running: ${short || "command"}`;
+      }
+      case "Grep": {
+        const pattern = typeof input?.pattern === "string" ? input.pattern : "";
+        return `Searching: ${pattern || "pattern"}`;
+      }
+      case "Glob": {
+        const pattern = typeof input?.pattern === "string" ? input.pattern : "";
+        return `Finding: ${pattern || "files"}`;
+      }
+      default: return `Using ${name}`;
+    }
   }
 
   private async readVerifyResults(
