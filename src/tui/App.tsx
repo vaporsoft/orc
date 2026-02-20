@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
-import { execFile } from "node:child_process";
 import type { Daemon } from "../core/daemon.js";
+import { openTerminal } from "../utils/open-terminal.js";
 import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
@@ -171,15 +171,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.lastSessionId && st.workDir) {
-        const script = `cd '${st.workDir}' && claude --resume ${st.lastSessionId}`;
-        execFile("osascript", [
-          "-e", `tell application "Terminal"`,
-          "-e", `activate`,
-          "-e", `do script "${script.replace(/"/g, '\\"')}"`,
-          "-e", `end tell`,
-        ], (err) => {
-          if (err) logger.error(`Failed to open Claude session: ${err.message}`);
-        });
+        openTerminal(`cd '${st.workDir}' && claude --resume ${st.lastSessionId}`);
         logger.info(`Resuming Claude session ${st.lastSessionId}`, branch);
       } else {
         logger.warn("No Claude session to resume for this branch", branch);
@@ -193,15 +185,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.workDir) {
-        const script = `cd '${st.workDir}'`;
-        execFile("osascript", [
-          "-e", `tell application "Terminal"`,
-          "-e", `activate`,
-          "-e", `do script "${script.replace(/"/g, '\\"')}"`,
-          "-e", `end tell`,
-        ], (err) => {
-          if (err) logger.error(`Failed to open terminal: ${err.message}`);
-        });
+        openTerminal(`cd '${st.workDir}'`);
         logger.info(`Opening shell at ${st.workDir}`, branch);
       } else {
         logger.warn("No worktree directory for this branch", branch);
