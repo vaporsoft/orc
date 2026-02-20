@@ -74,16 +74,53 @@ export class WorktreeManager {
 
     if (!fs.existsSync(WORKTREE_BASE)) return;
 
+    // Get list of worktrees that git knows about for this repo
+    let knownWorktrees: Set<string> = new Set();
+    try {
+      const result = await exec("git", ["worktree", "list", "--porcelain"], {
+        cwd: this.cwd,
+      });
+      const worktreeLines = result.stdout.split("\n");
+      for (const line of worktreeLines) {
+        if (line.startsWith("worktree ")) {
+          knownWorktrees.add(line.substring(9));
+        }
+      }
+    } catch {
+      // If we can't get worktree list, be conservative and don't delete anything
+      logger.warn("Could not get worktree list, skipping purge for safety");
+      return;
+    }
+
     const entries = fs.readdirSync(WORKTREE_BASE);
     for (const entry of entries) {
       const fullPath = path.join(WORKTREE_BASE, entry);
-      try {
-        await exec("git", ["worktree", "remove", fullPath, "--force"], {
-          cwd: this.cwd,
-        });
-      } catch {
-        // If git doesn't know about it, just rm it
-        fs.rmSync(fullPath, { recursive: true, force: true });
+
+      // Only try to remove if git knows about this worktree
+      if (knownWorktrees.has(fullPath)) {
+        try {
+          await exec("git", ["worktree", "remove", fullPath, "--force"], {
+            cwd: this.cwd,
+          });
+        } catch (err) {
+          logger.warn(`Could not remove known worktree ${fullPath}: ${err}`);
+        }
+      } else {
+        // Verify this is actually a git worktree directory before deleting
+        const gitDirPath = path.join(fullPath, ".git");
+        if (fs.existsSync(gitDirPath)) {
+          try {
+            // Check if this is a worktree by reading .git file
+            const gitContent = fs.readFileSync(gitDirPath, "utf8");
+            if (gitContent.startsWith("gitdir:")) {
+              // This looks like a worktree, but git doesn't know about it
+              logger.info(`Removing orphaned worktree: ${fullPath}`);
+              fs.rmSync(fullPath, { recursive: true, force: true });
+            }
+          } catch (err) {
+            logger.warn(`Could not verify worktree ${fullPath}: ${err}`);
+          }
+        }
       }
     }
 
