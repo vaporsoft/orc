@@ -31,7 +31,7 @@ export function Header({ entries, startTime, lastCheck }: HeaderProps) {
 
   return (
     <Box borderStyle="single" borderBottom={false} paddingX={1} justifyContent="space-between">
-      <Text bold color="cyan">PR Pilot</Text>
+      <Text bold color="cyan">Orc</Text>
       <Text>
         <Text dimColor>{running}/{total} active</Text>
         {"   "}

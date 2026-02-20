@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 
 export const cli = new Command()
-  .name("pr-pilot")
+  .name("orc")
   .description(
     "Automate PR feedback loops — fetch review comments, fix with Claude Code, push, repeat.",
   )

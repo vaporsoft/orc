@@ -162,7 +162,7 @@ export class GitManager {
     if (!dirty) return false;
 
     logger.info("Stashing uncommitted changes", this.branch);
-    await this.git(["stash", "push", "--include-untracked", "-m", "pr-pilot: auto-stash"]);
+    await this.git(["stash", "push", "--include-untracked", "-m", "orc: auto-stash"]);
     return true;
   }
 

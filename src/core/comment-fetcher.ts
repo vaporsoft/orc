@@ -3,9 +3,9 @@
  * and top-level PR conversation comments.
  * Filters out resolved, outdated, and already-replied-to comments.
  *
- * Since PR Pilot runs under the user's own GitHub account, we can't
+ * Since Orc runs under the user's own GitHub account, we can't
  * detect bot replies by author login. Instead we detect them by the
- * "PR Pilot" signature in the comment body.
+ * "Orc" signature in the comment body.
  */
 
 import { GHClient } from "../github/gh-client.js";
@@ -13,8 +13,8 @@ import type { GHReviewThread } from "../github/types.js";
 import type { ReviewThread } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
-/** Signature PR Pilot leaves in every reply. */
-const BOT_SIGNATURE = "PR Pilot";
+/** Signature Orc leaves in every reply. */
+const BOT_SIGNATURE = "Orc";
 
 function isPilotReply(body: string): boolean {
   return body.includes(BOT_SIGNATURE);
@@ -71,7 +71,7 @@ export class CommentFetcher {
       const firstComment = thread.comments.nodes[0];
       if (!firstComment) continue;
 
-      // Skip threads where PR Pilot has already replied
+      // Skip threads where Orc has already replied
       const alreadyReplied = thread.comments.nodes.some(
         (c) => isPilotReply(c.body),
       );
@@ -105,10 +105,10 @@ export class CommentFetcher {
     const results: FetchedComment[] = [];
 
     for (const comment of comments) {
-      // Skip PR Pilot's own replies
+      // Skip Orc's own replies
       if (isPilotReply(comment.body)) continue;
 
-      // Check if a later PR Pilot reply addresses this comment
+      // Check if a later Orc reply addresses this comment
       const alreadyReplied = comments.some(
         (c) =>
           isPilotReply(c.body) &&

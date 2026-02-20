@@ -1,8 +1,8 @@
 /**
- * Parses a PR-PILOT.md config file from the repo root.
+ * Parses an ORC.md config file from the repo root.
  *
  * Format:
- *   # PR Pilot
+ *   # Orc
  *   ## Instructions
  *   Free-form text passed to Claude Code as context.
  *   ## Verify
@@ -30,16 +30,16 @@ const DEFAULT_CONFIG: RepoPilotConfig = {
 };
 
 export async function loadPilotConfig(cwd: string): Promise<RepoPilotConfig> {
-  const filePath = join(cwd, "PR-PILOT.md");
+  const filePath = join(cwd, "ORC.md");
   let content: string;
   try {
     content = await readFile(filePath, "utf-8");
   } catch {
-    logger.debug("No PR-PILOT.md found, using defaults");
+    logger.debug("No ORC.md found, using defaults");
     return { ...DEFAULT_CONFIG, autoFix: { ...DEFAULT_CONFIG.autoFix } };
   }
 
-  logger.info("Loaded PR-PILOT.md config");
+  logger.info("Loaded ORC.md config");
 
   const sections = new Map<string, string>();
   let currentHeading = "";

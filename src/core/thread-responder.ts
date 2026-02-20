@@ -80,7 +80,7 @@ export class ThreadResponder {
     }
 
     parts.push("");
-    parts.push(`*PR Pilot — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
 
     return parts.join("\n");
   }
@@ -103,7 +103,7 @@ export class ThreadResponder {
     }
 
     parts.push("");
-    parts.push(`*PR Pilot — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
 
     return parts.join("\n");
   }

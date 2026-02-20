@@ -1,4 +1,4 @@
-/** Core domain types for PR Pilot. */
+/** Core domain types for Orc. */
 
 export interface ReviewThread {
   id: string;

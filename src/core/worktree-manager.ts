@@ -1,6 +1,6 @@
 /**
  * Manages git worktrees for multi-branch support.
- * Each additional branch gets its own worktree at /tmp/pr-pilot/<branch-safe>.
+ * Each additional branch gets its own worktree at /tmp/orc/<branch-safe>.
  */
 
 import * as fs from "node:fs";

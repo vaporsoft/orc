@@ -114,7 +114,7 @@ export class SessionController extends EventEmitter {
       if (this.state.currentIteration >= this.state.maxIterations) {
         this.setStatus("paused");
         notify(
-          "PR Pilot",
+          "Orc",
           `${this.branch}: reached max loops (${this.state.maxIterations}). Review needed.`,
         );
         logger.info(

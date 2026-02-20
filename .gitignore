@@ -14,7 +14,7 @@ dist/
 *.tsbuildinfo
 
 # Runtime / config
-.pr-pilot.json
+.orc.json
 .env
 .env.*
 

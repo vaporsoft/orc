@@ -19,7 +19,7 @@ export const DEFAULT_MAX_TURNS = 30;
 export const RETRY_BACKOFF_MS = [2000, 4000, 8000, 16000];
 
 /** Worktree base directory. */
-export const WORKTREE_BASE = "/tmp/pr-pilot";
+export const WORKTREE_BASE = "/tmp/orc";
 
 /** Tools allowed in Claude Code sessions. */
 export const ALLOWED_TOOLS = [
