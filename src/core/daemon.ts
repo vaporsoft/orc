@@ -1,15 +1,16 @@
 /**
  * Always-on daemon that discovers open PRs authored by the current user.
  * PRs are discovered but not auto-started — the TUI controls which to run.
+ * Also fetches unresolved comment counts for the TUI badge.
  */
 
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
+import { CommentFetcher } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
 import type { GHPullRequest } from "../github/types.js";
-import type { BranchState } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 
@@ -25,11 +26,12 @@ export class Daemon extends EventEmitter {
   private worktreeManager: WorktreeManager;
   private sessions = new Map<string, ActiveSession>();
   private discoveredPRs = new Map<string, GHPullRequest>();
+  private commentCounts = new Map<string, number>();
   private running = false;
-  /** Branch currently checked out in cwd — used instead of a worktree. */
   private cwdBranch: string | null = null;
   private currentBranch: string | null = null;
   private abortController = new AbortController();
+  private botLogin: string | null = null;
 
   constructor(config: Config, cwd: string) {
     super();
@@ -51,6 +53,10 @@ export class Daemon extends EventEmitter {
     return new Map(this.discoveredPRs);
   }
 
+  getCommentCounts(): Map<string, number> {
+    return new Map(this.commentCounts);
+  }
+
   isRunning(branch: string): boolean {
     return this.sessions.has(branch);
   }
@@ -60,12 +66,12 @@ export class Daemon extends EventEmitter {
     await this.ghClient.validateAuth();
 
     const user = await this.ghClient.getCurrentUser();
+    this.botLogin = user;
     const { owner, repo } = await this.ghClient.getRepoInfo();
     logger.info(
       `Watching ${owner}/${repo} for open PRs by ${user}`,
     );
 
-    // Detect the branch checked out in cwd so we can reuse it
     const { stdout } = await exec("git", ["branch", "--show-current"], {
       cwd: this.cwd,
     });
@@ -83,7 +89,6 @@ export class Daemon extends EventEmitter {
     await this.discover();
   }
 
-  /** Start iterating on a specific branch. */
   async startBranch(branch: string): Promise<void> {
     if (this.sessions.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
@@ -91,16 +96,13 @@ export class Daemon extends EventEmitter {
     await this.launchSession(pr);
   }
 
-  /** Stop iterating on a specific branch. */
   async stopBranch(branch: string): Promise<void> {
     await this.teardownSession(branch);
-    // Re-emit as stopped (still discovered)
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     }
   }
 
-  /** Start all discovered PRs. */
   async startAll(): Promise<void> {
     for (const [branch] of this.discoveredPRs) {
       if (!this.sessions.has(branch)) {
@@ -109,7 +111,6 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  /** Stop all running sessions. */
   async stopAll(): Promise<void> {
     for (const branch of [...this.sessions.keys()]) {
       await this.stopBranch(branch);
@@ -153,7 +154,6 @@ export class Daemon extends EventEmitter {
       logger.info("No open PRs found, waiting...");
     }
 
-    // Track newly discovered PRs
     for (const pr of prs) {
       if (!this.discoveredPRs.has(pr.headRefName)) {
         logger.info(`Discovered PR #${pr.number}: ${pr.title}`, pr.headRefName);
@@ -162,13 +162,38 @@ export class Daemon extends EventEmitter {
       }
     }
 
+    // Fetch comment counts for all discovered PRs
+    await this.updateCommentCounts(prs);
+
     // Remove PRs that were closed/merged
     for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
         logger.info(`PR closed/merged, removing`, branch);
         this.discoveredPRs.delete(branch);
+        this.commentCounts.delete(branch);
         await this.teardownSession(branch);
         this.emit("prRemoved", branch);
+      }
+    }
+  }
+
+  private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
+    if (!this.botLogin) return;
+
+    for (const pr of prs) {
+      try {
+        const fetcher = new CommentFetcher(
+          this.ghClient, pr.number, this.botLogin, pr.headRefName,
+        );
+        const count = await fetcher.countUnresolved();
+        const prev = this.commentCounts.get(pr.headRefName) ?? -1;
+        this.commentCounts.set(pr.headRefName, count);
+
+        if (count !== prev) {
+          this.emit("commentCountUpdate", pr.headRefName, count);
+        }
+      } catch (err) {
+        logger.debug(`Failed to count comments for ${pr.headRefName}: ${err}`);
       }
     }
   }
@@ -187,7 +212,6 @@ export class Daemon extends EventEmitter {
     const currentBranch = this.currentBranch ?? "";
     let workDir: string;
 
-    // Reuse cwd if the PR branch matches what's checked out
     if (branch === currentBranch && !this.cwdBranch) {
       workDir = this.cwd;
       this.cwdBranch = branch;
@@ -245,7 +269,6 @@ export class Daemon extends EventEmitter {
       await this.worktreeManager.remove(branch);
     }
 
-    // If still discovered, emit update so TUI shows it as stopped
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     } else {

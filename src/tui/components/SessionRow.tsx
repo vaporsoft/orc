@@ -9,7 +9,7 @@ interface SessionRowProps {
 }
 
 export function SessionRow({ entry, selected }: SessionRowProps) {
-  const { pr, state } = entry;
+  const { pr, state, commentCount } = entry;
   const branch = entry.branch.length > 20
     ? entry.branch.slice(0, 19) + "…"
     : entry.branch;
@@ -35,6 +35,11 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
       </Box>
       <Box width={18}>
         <StatusBadge status={status} />
+      </Box>
+      <Box width={10}>
+        <Text color={commentCount > 0 ? "yellow" : undefined}>
+          {commentCount > 0 ? commentCount : "—"}
+        </Text>
       </Box>
       <Box width={8}>
         <Text>{iter}</Text>

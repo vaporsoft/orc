@@ -56,3 +56,39 @@ export interface GHCheckRunsResponse {
   total_count: number;
   check_runs: GHCheckRun[];
 }
+
+/** A top-level PR conversation comment (not inline on code). */
+export interface GHPRComment {
+  id: string;
+  databaseId: number;
+  body: string;
+  author: { login: string };
+  createdAt: string;
+}
+
+export interface GHPRCommentsResponse {
+  data: {
+    repository: {
+      pullRequest: {
+        comments: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nodes: GHPRComment[];
+        };
+      };
+    };
+  };
+}
+
+export type GHReviewState =
+  | "APPROVED"
+  | "CHANGES_REQUESTED"
+  | "COMMENTED"
+  | "DISMISSED"
+  | "PENDING";
+
+export interface GHReview {
+  id: string;
+  state: GHReviewState;
+  author: { login: string };
+  submittedAt: string;
+}

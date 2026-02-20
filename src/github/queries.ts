@@ -92,6 +92,30 @@ query MyOpenPRs($searchQuery: String!) {
 }
 `;
 
+export const PR_COMMENTS_QUERY = `
+query PRComments($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      comments(first: 100, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          databaseId
+          body
+          author {
+            login
+          }
+          createdAt
+        }
+      }
+    }
+  }
+}
+`;
+
 export const PR_FOR_BRANCH_QUERY = `
 query PRForBranch($owner: String!, $repo: String!, $branch: String!) {
   repository(owner: $owner, name: $repo) {

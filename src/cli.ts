@@ -8,12 +8,11 @@ import { startCommand } from "./commands/start.js";
 export const cli = new Command()
   .name("pr-pilot")
   .description(
-    "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
+    "Automate PR feedback loops — fetch review comments, fix with Claude Code, push, repeat.",
   )
   .version("0.1.0")
   .option("--max-loops <n>", "Max fix iterations per branch", parseInt)
   .option("--poll-interval <n>", "Seconds between polls", parseInt)
-  .option("--debounce <n>", "Seconds to wait after last event", parseInt)
   .option(
     "--confidence <n>",
     "Min confidence to act on a comment (0-1)",

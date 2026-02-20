@@ -27,22 +27,33 @@ export function DetailPanel({ entries, selectedIndex }: DetailPanelProps) {
     );
   }
 
-  const { pr, state } = entry;
+  const { pr, state, commentCount } = entry;
   const label = `#${pr.number} ${pr.title}`;
 
   if (!state) {
     return (
       <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
         <Text bold> {label}</Text>
-        <Text dimColor>  Stopped — press Enter to start iterating</Text>
+        {commentCount > 0 ? (
+          <Text dimColor>  {commentCount} unresolved comment{commentCount !== 1 ? "s" : ""} — press Enter to start</Text>
+        ) : (
+          <Text dimColor>  Stopped — press Enter to start iterating</Text>
+        )}
       </Box>
     );
   }
 
+  const summary = state.commentSummary;
+
   return (
     <Box borderStyle="single" borderTop={false} borderBottom={false} paddingX={1} flexDirection="column">
       <Text bold> {label}</Text>
-      {state.iterations.length === 0 ? (
+      {summary && (
+        <Text dimColor>
+          {"  "}Comments: {summary.total} total — {summary.mustFix} must_fix, {summary.shouldFix} should_fix, {summary.niceToHave} nice_to_have, {summary.falsePositive} false_positive
+        </Text>
+      )}
+      {state.iterations.length === 0 && !summary ? (
         <Text dimColor>  No iterations yet</Text>
       ) : (
         state.iterations.map((iter) => {
@@ -60,7 +71,7 @@ export function DetailPanel({ entries, selectedIndex }: DetailPanelProps) {
           );
         })
       )}
-      {state.status === "fixing" && (
+      {["fixing", "fetching", "categorizing", "verifying", "pushing", "replying"].includes(state.status) && (
         <Text dimColor>  Iter {state.currentIteration}  ...running ({state.status})</Text>
       )}
       {state.error && (

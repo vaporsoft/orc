@@ -1,13 +1,11 @@
 /**
  * Uses the Anthropic API (Haiku) for fast, cheap classification of
- * PR review comments. Determines whether each comment is actionable,
- * what category it falls into, and how confident we are.
- *
- * CI failures bypass analysis entirely — they're always must-fix.
+ * PR review comments. Determines category and confidence for each.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { PREvent, CommentAnalysis } from "../types/index.js";
+import type { CategorizedComment } from "../types/index.js";
+import type { FetchedComment } from "./comment-fetcher.js";
 import { logger } from "../utils/logger.js";
 
 const ANALYSIS_PROMPT = `You are a code review comment analyzer. Given a PR review comment and its surrounding diff context, determine whether the comment is actionable and should be fixed.
@@ -26,52 +24,42 @@ Respond with JSON only (no markdown fences):
   "suggestedAction": "<what the fix should do>"
 }`;
 
-export class CommentAnalyzer {
+export class CommentCategorizer {
   private client: Anthropic;
 
   constructor() {
     this.client = new Anthropic();
   }
 
-  /**
-   * Analyze a batch of PR events, classifying review comments.
-   * CI failures are returned as must_fix without API calls.
-   */
-  async analyze(events: PREvent[]): Promise<CommentAnalysis[]> {
-    const results: CommentAnalysis[] = [];
+  async categorize(comments: FetchedComment[]): Promise<CategorizedComment[]> {
+    const results: CategorizedComment[] = [];
 
-    for (const event of events) {
-      if (event.type === "ci_failure") {
+    for (const { thread } of comments) {
+      try {
+        const analysis = await this.classifyComment(thread);
         results.push({
-          threadId: event.key,
-          confidence: 1.0,
-          category: "must_fix",
-          reasoning: `CI check "${event.ciCheck?.name}" failed`,
-          suggestedAction: "Fix the CI failure based on the error logs",
+          threadId: thread.threadId,
+          path: thread.path,
+          line: thread.line,
+          body: thread.body,
+          author: thread.author,
+          diffHunk: thread.diffHunk,
+          ...analysis,
         });
-        continue;
-      }
-
-      if (event.type === "review_comment" && event.thread) {
-        try {
-          const analysis = await this.classifyComment(event);
-          results.push({
-            threadId: event.thread.threadId,
-            ...analysis,
-          });
-        } catch (err) {
-          logger.warn(
-            `Failed to analyze comment ${event.thread.id}: ${err}`,
-          );
-          // Default to should_fix on analysis failure
-          results.push({
-            threadId: event.thread.threadId,
-            confidence: 0.5,
-            category: "should_fix",
-            reasoning: "Analysis failed, defaulting to should_fix",
-            suggestedAction: event.thread.body,
-          });
-        }
+      } catch (err) {
+        logger.warn(`Failed to categorize comment ${thread.id}: ${err}`);
+        results.push({
+          threadId: thread.threadId,
+          path: thread.path,
+          line: thread.line,
+          body: thread.body,
+          author: thread.author,
+          diffHunk: thread.diffHunk,
+          confidence: 0.5,
+          category: "should_fix",
+          reasoning: "Analysis failed, defaulting to should_fix",
+          suggestedAction: thread.body,
+        });
       }
     }
 
@@ -79,9 +67,8 @@ export class CommentAnalyzer {
   }
 
   private async classifyComment(
-    event: PREvent,
-  ): Promise<Omit<CommentAnalysis, "threadId">> {
-    const thread = event.thread!;
+    thread: FetchedComment["thread"],
+  ): Promise<Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction">> {
     const userMessage = `## File: ${thread.path}${thread.line ? ` (line ${thread.line})` : ""}
 
 ### Diff Context:

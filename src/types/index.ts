@@ -15,58 +15,54 @@ export interface ReviewThread {
   createdAt: string;
 }
 
-export interface CICheck {
-  id: string;
-  name: string;
-  status: "completed" | "in_progress" | "queued";
-  conclusion:
-    | "success"
-    | "failure"
-    | "neutral"
-    | "cancelled"
-    | "skipped"
-    | "timed_out"
-    | "action_required"
-    | null;
-  detailsUrl: string;
-  /** Run ID for fetching logs. */
-  runId: number | null;
-}
-
-export type PREventType = "review_comment" | "ci_failure";
-
-export interface PREvent {
-  type: PREventType;
-  /** Unique key for deduplication (thread id or check id). */
-  key: string;
-  thread?: ReviewThread;
-  ciCheck?: CICheck;
-  /** Failed CI log output, if available. */
-  ciLog?: string;
-}
-
 export type CommentCategory =
   | "must_fix"
   | "should_fix"
   | "nice_to_have"
   | "false_positive";
 
-export interface CommentAnalysis {
+export interface CategorizedComment {
   threadId: string;
-  confidence: number;
+  path: string;
+  line: number | null;
+  body: string;
+  author: string;
+  diffHunk: string;
   category: CommentCategory;
+  confidence: number;
   reasoning: string;
   suggestedAction: string;
+}
+
+export interface CommentSummary {
+  total: number;
+  mustFix: number;
+  shouldFix: number;
+  niceToHave: number;
+  falsePositive: number;
+  comments: CategorizedComment[];
+}
+
+export interface RepoPilotConfig {
+  instructions: string;
+  verifyCommands: string[];
+  autoFix: {
+    must_fix: boolean;
+    should_fix: boolean;
+    nice_to_have: boolean;
+  };
 }
 
 export type BranchStatus =
   | "stopped"
   | "initializing"
-  | "polling"
-  | "debouncing"
-  | "analyzing"
+  | "checking"
+  | "fetching"
+  | "categorizing"
   | "fixing"
+  | "verifying"
   | "pushing"
+  | "replying"
   | "paused"
   | "done"
   | "error";
@@ -94,10 +90,8 @@ export interface BranchState {
   iterations: IterationSummary[];
   totalCostUsd: number;
   error: string | null;
-  /** Thread IDs we've already processed. */
-  seenThreadIds: Set<string>;
-  /** CI check IDs we've already processed. */
-  seenCheckIds: Set<string>;
+  unresolvedCount: number;
+  commentSummary: CommentSummary | null;
 }
 
 export interface SessionControllerEvents {

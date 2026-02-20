@@ -13,7 +13,6 @@ import { App } from "../tui/App.js";
 export interface StartOptions {
   maxLoops?: number;
   pollInterval?: number;
-  debounce?: number;
   confidence?: number;
   model?: string;
   maxTurns?: number;
@@ -26,7 +25,6 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const config: Config = ConfigSchema.parse({
     maxLoops: options.maxLoops,
     pollInterval: options.pollInterval,
-    debounce: options.debounce,
     confidence: options.confidence,
     model: options.model,
     maxTurns: options.maxTurns,
@@ -54,7 +52,6 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const daemon = new Daemon(config, cwd);
 
   if (!isTTY) {
-    // Non-interactive: fall back to plain console output
     const cleanup = async () => {
       await daemon.stop();
       logger.close();
@@ -70,10 +67,8 @@ export async function startCommand(options: StartOptions): Promise<void> {
     return;
   }
 
-  // Interactive terminal: render the TUI
   const startTime = Date.now();
 
-  // Start daemon in background (don't await — Ink controls the lifecycle)
   const daemonPromise = daemon.run().catch((err) => {
     logger.error(`Daemon error: ${err}`);
   });
@@ -85,7 +80,6 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
   await instance.waitUntilExit();
 
-  // User quit the TUI — shut down daemon gracefully, but don't hang
   const shutdown = async () => {
     await daemon.stop();
     await daemonPromise;

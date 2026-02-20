@@ -1,103 +1,69 @@
 /**
- * Replies to addressed review threads via the GitHub GraphQL API.
- * Marks threads as resolved after replying.
+ * Replies to review threads and PR conversation comments via GitHub API.
+ * Does NOT auto-resolve threads — lets reviewers decide.
  */
 
 import { GHClient } from "../github/gh-client.js";
-import type { PREvent, CommentAnalysis } from "../types/index.js";
+import type { CategorizedComment } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
 export class ThreadResponder {
   private ghClient: GHClient;
   private branch: string;
+  private prNumber: number;
 
-  constructor(ghClient: GHClient, branch: string) {
+  constructor(ghClient: GHClient, branch: string, prNumber: number) {
     this.ghClient = ghClient;
     this.branch = branch;
+    this.prNumber = prNumber;
   }
 
-  /**
-   * Reply to all addressed review threads, indicating they've been
-   * fixed. Optionally resolve the threads.
-   */
-  async replyToAddressed(
-    events: PREvent[],
-    analyses: CommentAnalysis[],
-    resolveThreads = true,
-  ): Promise<void> {
-    const reviewEvents = events.filter(
-      (e) => e.type === "review_comment" && e.thread,
-    );
-
-    for (const event of reviewEvents) {
-      const thread = event.thread!;
-      const analysis = analyses.find((a) => a.threadId === thread.threadId);
-
-      if (!analysis || analysis.category === "false_positive") {
-        continue;
-      }
-
+  /** Reply to threads/comments that were addressed by fixes. */
+  async replyToAddressed(comments: CategorizedComment[]): Promise<void> {
+    for (const comment of comments) {
+      const body = `Addressed by PR Pilot (${comment.category}, confidence: ${comment.confidence.toFixed(2)}).`;
       try {
-        // Reply to the thread
-        await this.ghClient.addThreadReply(
-          thread.threadId,
-          `Addressed by PR Pilot (${analysis.category}, confidence: ${analysis.confidence.toFixed(2)}).`,
-        );
-
-        // Resolve the thread
-        if (resolveThreads) {
-          await this.ghClient.resolveThread(thread.threadId);
-        }
-
+        await this.reply(comment, body);
         logger.info(
-          `Replied to thread on ${thread.path} and resolved`,
+          `Replied to addressed comment on ${comment.path}`,
           this.branch,
         );
       } catch (err) {
         logger.warn(
-          `Failed to reply/resolve thread ${thread.threadId}: ${err}`,
+          `Failed to reply to comment ${comment.threadId}: ${err}`,
           this.branch,
         );
       }
     }
   }
 
-  /**
-   * Reply to skipped threads explaining why they were skipped.
-   */
-  async replyToSkipped(
-    events: PREvent[],
-    analyses: CommentAnalysis[],
-    confidenceThreshold: number,
-  ): Promise<void> {
-    for (const event of events) {
-      if (event.type !== "review_comment" || !event.thread) continue;
-
-      const analysis = analyses.find(
-        (a) => a.threadId === event.thread!.threadId,
-      );
-      if (!analysis) continue;
-
-      if (
-        analysis.confidence < confidenceThreshold ||
-        analysis.category === "false_positive"
-      ) {
-        try {
-          await this.ghClient.addThreadReply(
-            event.thread.threadId,
-            `PR Pilot skipped this comment (${analysis.category}, confidence: ${analysis.confidence.toFixed(2)}): ${analysis.reasoning}`,
-          );
-          logger.debug(
-            `Replied to skipped thread on ${event.thread.path}`,
-            this.branch,
-          );
-        } catch (err) {
-          logger.warn(
-            `Failed to reply to skipped thread: ${err}`,
-            this.branch,
-          );
-        }
+  /** Reply to threads/comments that were skipped, explaining why. */
+  async replyToSkipped(comments: CategorizedComment[]): Promise<void> {
+    for (const comment of comments) {
+      const body = `PR Pilot skipped this comment (${comment.category}, confidence: ${comment.confidence.toFixed(2)}): ${comment.reasoning}`;
+      try {
+        await this.reply(comment, body);
+        logger.debug(
+          `Replied to skipped comment on ${comment.path}`,
+          this.branch,
+        );
+      } catch (err) {
+        logger.warn(
+          `Failed to reply to skipped comment: ${err}`,
+          this.branch,
+        );
       }
+    }
+  }
+
+  /** Route reply to the correct API based on comment type. */
+  private async reply(comment: CategorizedComment, body: string): Promise<void> {
+    if (comment.path === "(conversation)") {
+      // PR conversation comment — reply as a new top-level comment
+      await this.ghClient.addPRComment(this.prNumber, body);
+    } else {
+      // Inline review thread — reply in the thread
+      await this.ghClient.addThreadReply(comment.threadId, body);
     }
   }
 }

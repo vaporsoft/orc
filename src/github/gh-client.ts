@@ -9,12 +9,15 @@ import { logger } from "../utils/logger.js";
 import {
   REVIEW_THREADS_QUERY,
   RESOLVE_THREAD_MUTATION,
+  PR_COMMENTS_QUERY,
   PR_FOR_BRANCH_QUERY,
   MY_OPEN_PRS_QUERY,
 } from "./queries.js";
 import type {
   GHReviewThreadsResponse,
   GHReviewThread,
+  GHPRComment,
+  GHPRCommentsResponse,
   GHCheckRun,
   GHCheckRunsResponse,
   GHPullRequest,
@@ -75,7 +78,6 @@ export class GHClient {
       };
     }>(MY_OPEN_PRS_QUERY, { searchQuery });
 
-    // Filter out empty nodes (non-PR results from the union type)
     return result.data.search.nodes.filter((node) => node.number !== undefined);
   }
 
@@ -136,6 +138,46 @@ export class GHClient {
     return allThreads;
   }
 
+  /** Fetch all top-level PR conversation comments (paginated). */
+  async getPRComments(prNumber: number): Promise<GHPRComment[]> {
+    const { owner, repo } = await this.getRepoInfo();
+    const allComments: GHPRComment[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const variables: Record<string, unknown> = { owner, repo, prNumber };
+      if (cursor) variables.cursor = cursor;
+
+      const result = await this.graphql<GHPRCommentsResponse>(
+        PR_COMMENTS_QUERY,
+        variables,
+      );
+
+      const connection = result.data.repository.pullRequest.comments;
+      allComments.push(...connection.nodes);
+      cursor = connection.pageInfo.hasNextPage
+        ? connection.pageInfo.endCursor
+        : null;
+    } while (cursor);
+
+    return allComments;
+  }
+
+  /** Add a top-level comment to a PR conversation. */
+  async addPRComment(prNumber: number, body: string): Promise<void> {
+    const { owner, repo } = await this.getRepoInfo();
+    await withRetry(
+      () =>
+        exec("gh", [
+          "api",
+          "--method", "POST",
+          `repos/${owner}/${repo}/issues/${prNumber}/comments`,
+          "-f", `body=${body}`,
+        ], { cwd: this.cwd }),
+      "add-pr-comment",
+    );
+  }
+
   /** Fetch CI check runs for the latest commit on a PR. */
   async getCheckRuns(prNumber: number): Promise<GHCheckRun[]> {
     const { owner, repo } = await this.getRepoInfo();
@@ -173,7 +215,6 @@ export class GHClient {
         ["run", "view", String(runId), "--log-failed"],
         { cwd: this.cwd },
       );
-      // Truncate to avoid overwhelming Claude
       return stdout.slice(0, 15000);
     } catch {
       logger.warn(`Failed to fetch logs for run ${runId}`);
@@ -191,8 +232,6 @@ export class GHClient {
     threadNodeId: string,
     body: string,
   ): Promise<void> {
-    // Use REST API to reply to a pull request review thread
-    // threadNodeId here is the GraphQL ID of the thread
     await withRetry(
       () =>
         exec("gh", [
@@ -203,6 +242,23 @@ export class GHClient {
         ], { cwd: this.cwd }),
       "reply-to-thread",
     );
+  }
+
+  /** Re-request review from the given reviewers. */
+  async requestReviewers(prNumber: number, reviewers: string[]): Promise<void> {
+    if (reviewers.length === 0) return;
+    const { owner, repo } = await this.getRepoInfo();
+    try {
+      await exec("gh", [
+        "api",
+        "--method", "POST",
+        `repos/${owner}/${repo}/pulls/${prNumber}/requested_reviewers`,
+        "-f", `reviewers=${JSON.stringify(reviewers)}`,
+      ], { cwd: this.cwd });
+      logger.info(`Re-requested review from: ${reviewers.join(", ")}`);
+    } catch (err) {
+      logger.warn(`Failed to re-request reviewers: ${err}`);
+    }
   }
 
   /** Validate that `gh` is authenticated and can reach the repo. */

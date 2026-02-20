@@ -24,6 +24,9 @@ export function SessionList({ entries, selectedIndex, focused }: SessionListProp
         <Box width={18}>
           <Text bold dimColor>Status</Text>
         </Box>
+        <Box width={10}>
+          <Text bold dimColor>Comments</Text>
+        </Box>
         <Box width={8}>
           <Text bold dimColor>Iter</Text>
         </Box>
