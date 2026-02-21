@@ -695,5 +695,12 @@ export class Daemon extends EventEmitter {
     });
 
     logger.info("Synced local branch ref with remote", branch);
+
+    // Push implies conflicts are resolved — clear stale status immediately
+    const prev = this.conflictStatuses.get(branch);
+    if (prev && prev.length > 0) {
+      this.conflictStatuses.set(branch, []);
+      this.emit("conflictStatusUpdate", branch, []);
+    }
   }
 }
