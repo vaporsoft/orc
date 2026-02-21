@@ -58,15 +58,17 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       }
     }
 
+    // Active sessions own their CI/conflict state; idle branches use daemon-polled data
+    const isActive = session != null;
     entries.set(branch, {
       branch,
       pr,
       state,
       commentCount: counts.get(branch) ?? 0,
       commentThreads: threads.get(branch) ?? [],
-      ciStatus: (state?.ciStatus && state.ciStatus !== "unknown") ? state.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
-      failedChecks: (state?.ciStatus && state.ciStatus !== "unknown") ? (state.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
-      conflicted: state?.conflicted ?? conflictStatuses.get(branch) ?? [],
+      ciStatus: isActive && state!.ciStatus !== "unknown" ? state!.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
+      failedChecks: isActive && state!.ciStatus !== "unknown" ? (state!.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
+      conflicted: isActive ? (state!.conflicted ?? []) : (conflictStatuses.get(branch) ?? []),
     });
   }
   // Include merged PRs (but skip if there's already an open PR for the same branch)
@@ -78,6 +80,9 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
         state: lastStates.get(branch) ?? null,
         commentCount: 0,
         commentThreads: [],
+        ciStatus: "unknown" as const,
+        failedChecks: [],
+        conflicted: [],
         mergedAt,
       });
     }
