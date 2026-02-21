@@ -240,7 +240,7 @@ export class Daemon extends EventEmitter {
       });
     });
 
-    controller.on("done", (b: string) => {
+    controller.on("ready", (b: string) => {
       this.cleanupSession(b).catch((err) => {
         logger.warn(`Cleanup failed for ${b}: ${err}`);
       });
@@ -511,7 +511,7 @@ export class Daemon extends EventEmitter {
       });
     });
 
-    controller.on("done", (b: string) => {
+    controller.on("ready", (b: string) => {
       logger.info("Session finished.", b);
       const state = controller.getState();
       if (state.status === "error") {

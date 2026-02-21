@@ -132,7 +132,7 @@ export class SessionController extends EventEmitter {
       if (this.mode === "once") {
         await this.runCycle(pr.baseRefName);
         if (this.running) {
-          this.setStatus("done");
+          this.setStatus("ready");
           this.running = false;
         }
       } else {
@@ -146,7 +146,7 @@ export class SessionController extends EventEmitter {
       this.setStatus("error");
       logger.error(message, this.branch);
     } finally {
-      this.emit("done", this.branch, this.state);
+      this.emit("ready", this.branch, this.state);
     }
   }
 
@@ -328,7 +328,7 @@ export class SessionController extends EventEmitter {
 
       if (this.mode === "once") {
         logger.info("No comments to address", this.branch);
-        this.setStatus("done");
+        this.setStatus("ready");
         this.running = false;
         return;
       }
@@ -343,7 +343,7 @@ export class SessionController extends EventEmitter {
           `PR is no longer open (${pr?.state ?? "not found"})`,
           this.branch,
         );
-        this.setStatus("done");
+        this.setStatus("ready");
         this.running = false;
         return;
       }
@@ -355,7 +355,7 @@ export class SessionController extends EventEmitter {
           `Session timeout reached (${this.config.sessionTimeout}h)`,
           this.branch,
         );
-        this.setStatus("done");
+        this.setStatus("ready");
         this.running = false;
         return;
       }
@@ -578,7 +578,7 @@ export class SessionController extends EventEmitter {
         `Session timeout reached (${this.config.sessionTimeout}h)`,
         this.branch,
       );
-      this.setStatus("done");
+      this.setStatus("ready");
       this.running = false;
       return;
     }

@@ -61,7 +61,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
   // Tick to keep "time left" column updated — every 60s normally, every 1s in the final minute
   const activeExpiries = [...entries.values()]
     .filter((e) => e.state?.mode === "watch" && e.state.sessionExpiresAt
-      && !["stopped", "done", "error"].includes(e.state.status) && !e.mergedAt)
+      && !["stopped", "ready", "error"].includes(e.state.status) && !e.mergedAt)
     .map((e) => e.state!.sessionExpiresAt!);
   const soonestExpiry = activeExpiries.length > 0 ? Math.min(...activeExpiries) : null;
 

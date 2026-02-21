@@ -49,7 +49,7 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
 
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
-  const doneStatuses = ["stopped", "done", "error", "merged"];
+  const doneStatuses = ["stopped", "ready", "error", "merged"];
   const showTimeLeft = isWatch && expiresAt && !doneStatuses.includes(status);
   const timeLeft = showTimeLeft ? formatTimeLeft(expiresAt) : null;
   const remainMs = expiresAt ? expiresAt - Date.now() : null;

@@ -27,7 +27,7 @@ const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> =
   verifying:       { role: "info",         label: "verify" },
   pushing:         { role: "accentBright", label: "pushing" },
   replying:        { role: "info",         label: "replying" },
-  done:            { role: "accent",       label: "done" },
+  ready:           { role: "accent",       label: "ready" },
   conflict_prompt: { role: "warning",      label: "conflict" },
   error:           { role: "error",        label: "error" },
   merged:          { role: "merged",       label: "merged" },
@@ -36,7 +36,7 @@ const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> =
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
   stopped:         "○",
   listening:       "●",
-  done:            "✓",
+  ready:           "✓",
   conflict_prompt: "!",
   error:           "✗",
   merged:          "◆",
