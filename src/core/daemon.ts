@@ -11,7 +11,7 @@ import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
-import type { BranchState, ReviewThread, SessionMode } from "../types/index.js";
+import type { BranchState, CIStatus, FailedCheck, ReviewThread, SessionMode } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
@@ -33,6 +33,9 @@ export class Daemon extends EventEmitter {
   private commentThreads = new Map<string, ReviewThread[]>();
   private lastStates = new Map<string, BranchState>();
   private mergedPRs = new Map<string, { pr: GHPullRequest; mergedAt: number }>();
+  private ciStatuses = new Map<string, CIStatus>();
+  private ciFailedChecks = new Map<string, FailedCheck[]>();
+  private conflictStatuses = new Map<string, string[]>();
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
@@ -81,6 +84,19 @@ export class Daemon extends EventEmitter {
   clearMergedPRs(): void {
     this.mergedPRs.clear();
     this.emit("prUpdate", "__merged__");
+  }
+
+  getCIStatuses(): Map<string, CIStatus> {
+    return new Map(this.ciStatuses);
+  }
+
+  getCIFailedChecks(): Map<string, FailedCheck[]> {
+    return new Map(this.ciFailedChecks);
+  }
+
+  getConflictStatuses(): Map<string, string[]> {
+    return new Map(this.conflictStatuses);
+
   }
 
   isRunning(branch: string): boolean {
@@ -144,6 +160,10 @@ export class Daemon extends EventEmitter {
         workDir: null,
         sessionExpiresAt: null,
         ...lifetime,
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
       });
       this.emit("prUpdate", branch);
       return;
@@ -239,6 +259,10 @@ export class Daemon extends EventEmitter {
     // Fetch comment counts for all discovered PRs
     await this.updateCommentCounts(prs);
 
+    // Fetch CI statuses and conflict statuses
+    await this.updateCIStatuses(prs);
+    await this.updateConflictStatuses(prs);
+
     // Handle PRs that are no longer open (closed or merged)
     for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
@@ -262,6 +286,9 @@ export class Daemon extends EventEmitter {
         this.discoveredPRs.delete(branch);
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
+        this.ciStatuses.delete(branch);
+        this.ciFailedChecks.delete(branch);
+        this.conflictStatuses.delete(branch);
         try {
           await this.teardownSession(branch);
         } catch (err) {
@@ -343,6 +370,10 @@ export class Daemon extends EventEmitter {
         workDir: null,
         sessionExpiresAt: null,
         ...lifetime,
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
       });
       this.emit("prUpdate", branch);
       return;
@@ -411,6 +442,99 @@ export class Daemon extends EventEmitter {
       return stdout.trim() || null;
     } catch {
       return null;
+    }
+  }
+
+  /** Poll CI check statuses for all discovered PRs not actively running. */
+  private async updateCIStatuses(prs: GHPullRequest[]): Promise<void> {
+    for (const pr of prs) {
+      if (this.sessions.has(pr.headRefName)) continue;
+
+      try {
+        const checks = await this.ghClient.getCheckRuns(pr.number);
+        if (checks.length === 0) {
+          this.updateCIStatus(pr.headRefName, "unknown", []);
+          continue;
+        }
+
+        const allCompleted = checks.every((c) => c.status === "completed");
+        if (!allCompleted) {
+          this.updateCIStatus(pr.headRefName, "pending", []);
+          continue;
+        }
+
+        const failed = checks.filter((c) => c.conclusion === "failure");
+        if (failed.length === 0) {
+          this.updateCIStatus(pr.headRefName, "passing", []);
+        } else {
+          const failedChecks: FailedCheck[] = failed.map((c) => ({
+            id: c.id,
+            name: c.name,
+            htmlUrl: c.html_url,
+            logSnippet: null,
+          }));
+          this.updateCIStatus(pr.headRefName, "failing", failedChecks);
+        }
+      } catch (err) {
+        logger.debug(`Failed to fetch CI status for ${pr.headRefName}: ${err}`);
+      }
+    }
+  }
+
+  private updateCIStatus(branch: string, status: CIStatus, failedChecks: FailedCheck[]): void {
+    const prev = this.ciStatuses.get(branch);
+
+    // First poll for this branch and result is "passing" — suppress it.
+    // The API often returns stale passing checks before new CI runs appear.
+    if (status === "passing" && prev === undefined) {
+      this.ciStatuses.set(branch, "unknown");
+      return;
+    }
+
+    this.ciStatuses.set(branch, status);
+    this.ciFailedChecks.set(branch, failedChecks);
+    if (status !== prev) {
+      this.emit("ciStatusUpdate", branch, status, failedChecks);
+    }
+  }
+
+  /** Detect merge conflicts with base branch for all discovered PRs not actively running. */
+  private async updateConflictStatuses(prs: GHPullRequest[]): Promise<void> {
+    for (const pr of prs) {
+      if (this.sessions.has(pr.headRefName)) continue;
+
+      try {
+        await exec("git", ["fetch", "origin", pr.baseRefName, pr.headRefName], {
+          cwd: this.cwd,
+          allowFailure: true,
+        });
+        const { stdout, exitCode } = await exec("git", [
+          "merge-tree", "--write-tree", `origin/${pr.headRefName}`, `origin/${pr.baseRefName}`,
+        ], { cwd: this.cwd, allowFailure: true });
+
+        const conflictPaths: string[] = [];
+        if (exitCode !== 0) {
+          for (const line of stdout.split("\n")) {
+            const match = line.match(/^CONFLICT \([^)]+\): Merge conflict in (.+)$/);
+            if (match) {
+              conflictPaths.push(match[1]);
+            }
+          }
+          if (conflictPaths.length === 0) {
+            conflictPaths.push("(unknown)");
+          }
+        }
+
+        const prev = this.conflictStatuses.get(pr.headRefName);
+        this.conflictStatuses.set(pr.headRefName, conflictPaths);
+        const changed = !prev || prev.length !== conflictPaths.length ||
+          prev.some((p, i) => p !== conflictPaths[i]);
+        if (changed) {
+          this.emit("conflictStatusUpdate", pr.headRefName, conflictPaths);
+        }
+      } catch (err) {
+        logger.debug(`Failed to check conflicts for ${pr.headRefName}: ${err}`);
+      }
     }
   }
 

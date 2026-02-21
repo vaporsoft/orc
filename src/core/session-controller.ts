@@ -17,7 +17,9 @@ import type { ProgressStore } from "./progress-store.js";
 import type {
   BranchState,
   BranchStatus,
+  CIStatus,
   CommentSummary,
+  FailedCheck,
   RepoConfig,
   SessionMode,
 } from "../types/index.js";
@@ -25,6 +27,7 @@ import type { Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/retry.js";
 import { exec } from "../utils/process.js";
+import { MAX_CI_FIX_ATTEMPTS } from "../constants.js";
 
 export class SessionController extends EventEmitter {
   private config: Config;
@@ -79,6 +82,10 @@ export class SessionController extends EventEmitter {
       workDir: cwd,
       sessionExpiresAt: null,
       ...lifetime,
+      ciStatus: "unknown",
+      failedChecks: [],
+      ciFixAttempts: 0,
+      conflicted: [],
     };
   }
 
@@ -147,6 +154,21 @@ export class SessionController extends EventEmitter {
   }
 
   private async runCycle(baseBranch: string): Promise<void> {
+
+    // 0. REBASE — proactively rebase onto base branch before starting
+    logger.info("Rebasing onto base branch before cycle", this.branch);
+    const rebasedOntoBase = await this.gitManager.pullRebase(baseBranch);
+    if (!rebasedOntoBase) {
+      this.state.conflicted = ["rebase conflict"];
+      this.state.error = "Rebase conflict with base branch — manual intervention needed";
+      this.setStatus("error");
+      this.running = false;
+      return;
+    }
+    this.state.conflicted = [];
+
+    // Reset CI fix attempts at the start of each cycle
+    this.state.ciFixAttempts = 0;
 
     // 1. FETCH — poll until comments appear
     this.setStatus("listening");
@@ -345,6 +367,9 @@ export class SessionController extends EventEmitter {
       if (pushed) {
         this.state.lastPushAt = new Date().toISOString();
         this.emit("pushed", this.branch);
+
+        // 6b. CI CHECK — poll checks after push, auto-fix on failure
+        await this.checkAndFixCI(baseBranch);
       } else {
         logger.error("Push failed", this.branch);
       }
@@ -421,6 +446,194 @@ export class SessionController extends EventEmitter {
     this.state.lifetimeSeen = stats.lifetimeSeen;
     this.state.cycleCount = stats.cycleCount;
     this.state.cycleHistory = stats.cycleHistory;
+  }
+
+  /** Poll CI status after push and automatically attempt to fix failures. */
+  private async checkAndFixCI(baseBranch: string): Promise<void> {
+    if (!this.state.prNumber) return;
+
+    // Keep retrying CI fixes up to MAX_CI_FIX_ATTEMPTS per cycle
+    while (this.state.ciFixAttempts < MAX_CI_FIX_ATTEMPTS && this.running) {
+      const ciResult = await this.pollCIStatus();
+      this.state.ciStatus = ciResult.status;
+      this.state.failedChecks = ciResult.failedChecks;
+      this.emit("sessionUpdate", this.branch, this.getState());
+
+      // Check if session was stopped during polling
+      if (!this.running) return;
+
+      // If CI is not failing, we're done
+      if (ciResult.status !== "failing") return;
+
+      this.state.ciFixAttempts++;
+      logger.info(
+        `CI failing, attempting auto-fix (attempt ${this.state.ciFixAttempts}/${MAX_CI_FIX_ATTEMPTS})`,
+        this.branch,
+      );
+
+      const ciContext = await this.buildCIContext(
+        ciResult.failedChecks
+      );
+
+      this.setStatus("fixing");
+      this.state.claudeActivity = [];
+      const headBeforeCIFix = await this.gitManager.getHeadSha();
+
+      const MAX_ACTIVITY_LINES = 10;
+      const ciFixResult = await this.executor.executeCIFix(
+        ciContext,
+        this.repoConfig,
+        this.abortController.signal,
+        (line: string) => {
+          this.state.claudeActivity.push(line);
+          if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
+            this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
+          }
+          this.emit("sessionUpdate", this.branch, this.getState());
+        },
+      );
+
+      this.state.lastSessionId = ciFixResult.sessionId;
+      this.state.totalCostUsd += ciFixResult.costUsd;
+
+      // Clean uncommitted files left by Claude
+      const postCIDirty = await this.gitManager.hasUncommittedChanges();
+      if (postCIDirty) {
+        await this.gitManager.discardChanges();
+      }
+
+      const headAfterCIFix = await this.gitManager.getHeadSha();
+      let pushSucceeded = true; // Track if push succeeded
+
+      if (!ciFixResult.isError && headAfterCIFix !== headBeforeCIFix) {
+        this.setStatus("pushing");
+        const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+        if (rebased) {
+          const pushed = await this.gitManager.forcePushWithLease();
+          if (pushed) {
+            this.state.lastPushAt = new Date().toISOString();
+            this.emit("pushed", this.branch);
+          } else {
+            pushSucceeded = false;
+          }
+        } else {
+          pushSucceeded = false;
+        }
+      }
+
+      this.state.claudeActivity = [];
+
+      // If there was an error in the fix attempt, no changes were made, or push failed, break the loop
+      if (ciFixResult.isError || headAfterCIFix === headBeforeCIFix || !pushSucceeded) {
+        break;
+      }
+    }
+
+    // Log if we've exhausted all attempts
+    if (this.state.ciFixAttempts >= MAX_CI_FIX_ATTEMPTS && this.running) {
+      logger.warn(
+        `CI still failing after ${MAX_CI_FIX_ATTEMPTS} fix attempts, giving up`,
+        this.branch,
+      );
+    }
+  }
+
+  /** Wait for CI checks to complete, then return aggregated status. */
+  private async pollCIStatus(): Promise<{ status: CIStatus; failedChecks: FailedCheck[] }> {
+    if (!this.state.prNumber) return { status: "unknown", failedChecks: [] };
+
+    // Wait for checks to start (GitHub needs time after push)
+    this.state.ciStatus = "pending";
+    this.emit("sessionUpdate", this.branch, this.getState());
+    await sleep(15_000);
+
+    const maxWait = 10 * 60 * 1000; // 10 min max wait
+    const pollInterval = 30_000;
+    const start = Date.now();
+
+    while (Date.now() - start < maxWait && this.running) {
+      try {
+        const checks = await this.ghClient.getCheckRuns(this.state.prNumber);
+        if (checks.length === 0) {
+          this.state.ciStatus = "pending";
+          this.emit("sessionUpdate", this.branch, this.getState());
+          await sleep(pollInterval);
+          continue;
+        }
+
+        const allCompleted = checks.every((c) => c.status === "completed");
+        if (allCompleted) {
+          const failed = checks.filter((c) => c.conclusion === "failure");
+          if (failed.length === 0) {
+            return { status: "passing", failedChecks: [] };
+          }
+
+          const failedChecks: FailedCheck[] = failed.map((c) => ({
+            id: c.id,
+            name: c.name,
+            htmlUrl: c.html_url,
+            logSnippet: null,
+          }));
+          return { status: "failing", failedChecks };
+        }
+      } catch (err) {
+        logger.debug(`CI poll error: ${err}`, this.branch);
+      }
+
+      this.state.ciStatus = "pending";
+      this.emit("sessionUpdate", this.branch, this.getState());
+      await sleep(pollInterval);
+    }
+
+    return { status: "unknown", failedChecks: [] };
+  }
+
+  /** Build context string describing CI failures for the fix executor. */
+  private async buildCIContext(failedChecks: FailedCheck[]): Promise<string> {
+    if (!this.state.prNumber) return "";
+
+    const sections: string[] = [];
+    sections.push(`## Failing Checks (${failedChecks.length})\n`);
+
+    // Get all failed workflow run logs for this commit
+    let failedRunLogs: Array<{ name: string; log: string }> = [];
+    try {
+      const runs = await this.ghClient.getWorkflowRuns(this.state.prNumber);
+      for (const run of runs) {
+        if (run.conclusion === "failure") {
+          try {
+            const log = await this.ghClient.getFailedRunLog(run.databaseId);
+            if (log && log !== "(logs unavailable)") {
+              failedRunLogs.push({ name: run.name, log });
+            }
+          } catch (err) {
+            logger.debug(`Failed to get logs for run ${run.databaseId}: ${err}`, this.branch);
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug(`Failed to get workflow runs: ${err}`, this.branch);
+    }
+
+    for (const check of failedChecks) {
+      sections.push(`### ${check.name}`);
+      sections.push(`URL: ${check.htmlUrl}\n`);
+    }
+
+    // Add all failed workflow logs
+    if (failedRunLogs.length > 0) {
+      sections.push("## Failed Workflow Logs\n");
+      for (const { name, log } of failedRunLogs) {
+        sections.push(`### ${name}`);
+        sections.push("```\n" + log + "\n```\n");
+        // Set logSnippet on the first failed check for compatibility
+        if (failedChecks.length > 0 && !failedChecks[0].logSnippet) {
+          failedChecks[0].logSnippet = log.slice(0, 500);
+        }
+      }
+    }
+
+    return sections.join("\n");
   }
 
   private setStatus(status: BranchStatus): void {

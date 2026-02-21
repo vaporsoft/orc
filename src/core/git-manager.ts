@@ -146,17 +146,19 @@ export class GitManager {
   }
 
   /** Fetch and rebase onto remote branch (works with detached HEAD). */
-  async pullRebase(): Promise<boolean> {
+  async pullRebase(targetBranch?: string): Promise<boolean> {
+    const branch = targetBranch || this.branch;
     try {
-      await this.git(["fetch", "origin", this.branch]);
-      await this.git(["rebase", `origin/${this.branch}`]);
+      await this.git(["fetch", "origin", branch]);
+      await this.git(["rebase", `origin/${branch}`]);
       return true;
     } catch {
-      logger.error(`Rebase onto origin/${this.branch} failed`, this.branch);
+      logger.error(`Rebase onto origin/${branch} failed`, this.branch);
       await this.git(["rebase", "--abort"]).catch(() => {});
       return false;
     }
   }
+
 
   /** Checkout the branch (ensuring we're on it). */
   async checkout(): Promise<void> {

@@ -4,6 +4,7 @@ import type { PREntry } from "../hooks/useDaemonState.js";
 import { StatusBadge } from "./StatusBadge.js";
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
+import type { CIStatus } from "../../types/index.js";
 
 interface SessionRowProps {
   entry: PREntry;
@@ -26,9 +27,16 @@ function formatTimeLeft(expiresAt: number): string {
   return m > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${h}h`;
 }
 
+const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
+  passing: { symbol: "✓", color: "green" },
+  failing: { symbol: "✗", color: "red" },
+  pending: { symbol: "●", color: "yellow" },
+  unknown: { symbol: "—", color: "gray" },
+};
+
 export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRowProps) {
   const theme = useTheme();
-  const { pr, state, commentCount } = entry;
+  const { pr, state, commentCount, ciStatus, conflicted } = entry;
   const branch = entry.branch.length > 26
     ? entry.branch.slice(0, 25) + "…"
     : entry.branch;
@@ -37,6 +45,10 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
   const status = entry.mergedAt ? "merged" as const : (state?.status ?? "stopped");
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
+  // Conflict trumps CI — can't pass CI with merge conflicts
+  const ci = conflicted.length > 0
+    ? { symbol: "!", color: "red" }
+    : CI_INDICATORS[ciStatus];
 
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
@@ -69,6 +81,9 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
         ) : (
           <Text color={theme.muted}>{"—"}</Text>
         )}
+      </Box>
+      <Box width={4}>
+        <Text color={ci.color}>{ci.symbol}</Text>
       </Box>
       <Box width={10}>
         <Text color={commentCount > 0 ? theme.warning : theme.muted} dimColor={dimmed}>

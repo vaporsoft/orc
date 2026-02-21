@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Daemon } from "../../core/daemon.js";
-import type { BranchState, ReviewThread } from "../../types/index.js";
+import type { CIStatus, FailedCheck, ReviewThread } from "../../types/index.js";
 import type { GHPullRequest } from "../../github/types.js";
 
 export interface PREntry {
   branch: string;
   pr: GHPullRequest;
-  state: BranchState | null; // null = discovered but not running
+  state: import("../../types/index.js").BranchState | null; // null = discovered but not running
   commentCount: number;
   commentThreads: ReviewThread[];
+  ciStatus: CIStatus;
+  failedChecks: FailedCheck[];
+  conflicted: string[];
   /** Timestamp (ms) when the PR was detected as merged. Undefined for open PRs. */
   mergedAt?: number;
 }
@@ -19,6 +22,9 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const threads = daemon.getCommentThreads();
   const lastStates = daemon.getLastStates();
   const progressStore = daemon.getProgressStore();
+  const ciStatuses = daemon.getCIStatuses();
+  const ciFailedChecks = daemon.getCIFailedChecks();
+  const conflictStatuses = daemon.getConflictStatuses();
   for (const [branch, pr] of daemon.getDiscoveredPRs()) {
     const session = daemon.getSessions().get(branch);
     let state = session ? session.getState() : (lastStates.get(branch) ?? null);
@@ -44,6 +50,10 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
           lastSessionId: null,
           workDir: null,
           ...lifetime,
+          ciStatus: "unknown",
+          failedChecks: [],
+          ciFixAttempts: 0,
+          conflicted: [],
         };
       }
     }
@@ -54,6 +64,9 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       state,
       commentCount: counts.get(branch) ?? 0,
       commentThreads: threads.get(branch) ?? [],
+      ciStatus: (state?.ciStatus && state.ciStatus !== "unknown") ? state.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
+      failedChecks: (state?.ciStatus && state.ciStatus !== "unknown") ? (state.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
+      conflicted: state?.conflicted ?? conflictStatuses.get(branch) ?? [],
     });
   }
   // Include merged PRs (but skip if there's already an open PR for the same branch)
@@ -127,6 +140,8 @@ export function useDaemonState(daemon: Daemon, paused = false): Map<string, PREn
     daemon.on("prMerged", rebuild);
     daemon.on("sessionUpdate", rebuild);
     daemon.on("commentCountUpdate", rebuild);
+    daemon.on("ciStatusUpdate", rebuild);
+    daemon.on("conflictStatusUpdate", rebuild);
 
     return () => {
       daemon.off("prDiscovered", rebuild);
@@ -135,6 +150,8 @@ export function useDaemonState(daemon: Daemon, paused = false): Map<string, PREn
       daemon.off("prMerged", rebuild);
       daemon.off("sessionUpdate", rebuild);
       daemon.off("commentCountUpdate", rebuild);
+      daemon.off("ciStatusUpdate", rebuild);
+      daemon.off("conflictStatusUpdate", rebuild);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;

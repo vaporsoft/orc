@@ -64,6 +64,15 @@ export interface RepoConfig {
   };
 }
 
+export type CIStatus = "pending" | "passing" | "failing" | "unknown";
+
+export interface FailedCheck {
+  id: number;
+  name: string;
+  htmlUrl: string;
+  logSnippet: string | null;
+}
+
 export type SessionMode = "once" | "watch";
 
 export type BranchStatus =
@@ -101,6 +110,10 @@ export interface BranchState {
   lifetimeSeen: number;
   cycleCount: number;
   cycleHistory: CycleRecord[];
+  ciStatus: CIStatus;
+  failedChecks: FailedCheck[];
+  ciFixAttempts: number;
+  conflicted: string[];
 }
 
 export interface SessionControllerEvents {

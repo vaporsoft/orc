@@ -46,6 +46,8 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("run: git checkout main");
   } else if (lower.includes("rebase") || lower.includes("conflict")) {
     hints.push("w to open worktree and resolve conflicts");
+  } else if (lower.includes("ci") || lower.includes("check")) {
+    hints.push("CI is failing — orc will auto-fix on next cycle");
   } else if (lower.includes("push")) {
     hints.push("check remote branch state");
   } else if (lower.includes("no open pr")) {
@@ -141,7 +143,7 @@ export function DetailPanel({
     );
   }
 
-  const { pr, state, commentCount, commentThreads } = entry;
+  const { pr, state, commentCount, commentThreads, ciStatus, failedChecks, conflicted } = entry;
   const title = pr.title.length > 50 ? pr.title.slice(0, 49) + "…" : pr.title;
   const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
@@ -162,6 +164,10 @@ export function DetailPanel({
         <Box>
           <Text dimColor>#{pr.number} </Text>
           <Text bold>{title}</Text>
+          {conflicted.length > 0 && <Text color="red"> !conflicts</Text>}
+          {conflicted.length === 0 && ciStatus === "failing" && <Text color="red"> ✗ CI</Text>}
+          {conflicted.length === 0 && ciStatus === "passing" && <Text color="green"> ✓ CI</Text>}
+          {conflicted.length === 0 && ciStatus === "pending" && <Text color="yellow"> ● CI</Text>}
         </Box>
         {!state ? (
           <Text dimColor>
@@ -245,6 +251,64 @@ export function DetailPanel({
           totalSeen={state.lifetimeSeen}
           accentColor={theme.accentBright}
         />
+      )}
+
+      {/* Conflict indicator */}
+      {conflicted.length > 0 && (
+        <>
+          <Box marginTop={1}>
+            <Text color="red" bold>{"! "}</Text>
+            <Text color="red">Branch has conflicts with base</Text>
+            {!state && (
+              <>
+                <Text dimColor> — </Text>
+                <Text color="green">s</Text>
+                <Text dimColor> to start (will auto-rebase)</Text>
+              </>
+            )}
+          </Box>
+          {conflicted.map((file, i) => (
+            <Box key={i} marginLeft={2}>
+              <Text color="red">{"· "}</Text>
+              <Text>{file}</Text>
+            </Box>
+          ))}
+        </>
+      )}
+
+      {/* CI Status section — gated on ciStatus so conditions are mutually exclusive */}
+      {ciStatus === "failing" && failedChecks.length > 0 && (
+        <>
+          <SectionHeader label={`CI (${failedChecks.length} failing)`} color={theme.accent} />
+          {failedChecks.map((check) => (
+            <Box key={check.id} marginLeft={2}>
+              <Text color="red">{"✗ "}</Text>
+              <Text color="white">{check.name}</Text>
+              {check.logSnippet && (
+                <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+              )}
+            </Box>
+          ))}
+          {state && state.ciFixAttempts > 0 && (
+            <Box marginLeft={2}>
+              <Text dimColor>
+                CI fix attempts: {state.ciFixAttempts}
+              </Text>
+            </Box>
+          )}
+        </>
+      )}
+      {ciStatus === "passing" && (
+        <Box marginTop={1}>
+          <Text color="green">{"✓ "}</Text>
+          <Text dimColor>All CI checks passing</Text>
+        </Box>
+      )}
+      {ciStatus === "pending" && (
+        <Box marginTop={1}>
+          <Text color="yellow">{"● "}</Text>
+          <Text dimColor>CI checks running...</Text>
+        </Box>
       )}
 
       {/* Categorized comments */}
