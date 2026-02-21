@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
 import { openTerminal } from "../utils/open-terminal.js";
@@ -42,10 +42,42 @@ export function App({ daemon, startTime }: AppProps) {
   const logVisibleLines = Math.max(3, termHeight - 12);
   const branchLogLines = Math.max(3, Math.floor((termHeight - 16) / 2));
 
-  const entryCount = entries.size;
   const showLogs = focusedPane === "logs";
-  const branches = [...entries.keys()].sort();
-  const selectedBranch = branches[sessionIndex] ?? null;
+
+  // Split branches into open and merged
+  const { openBranches, mergedBranches } = useMemo(() => {
+    const open: string[] = [];
+    const merged: string[] = [];
+    for (const [branch, entry] of entries) {
+      if (entry.mergedAt != null) {
+        merged.push(branch);
+      } else {
+        open.push(branch);
+      }
+    }
+    open.sort();
+    merged.sort();
+    return { openBranches: open, mergedBranches: merged };
+  }, [entries]);
+
+  const openCount = openBranches.length;
+
+  // Clamp sessionIndex inline to prevent stale index highlighting merged branches
+  const clampedSessionIndex = useMemo(() => {
+    if (openCount === 0) {
+      return -1;
+    }
+    return Math.max(0, Math.min(sessionIndex, openCount - 1));
+  }, [sessionIndex, openCount]);
+
+  // Update sessionIndex state when it gets clamped to keep state in sync
+  React.useEffect(() => {
+    if (clampedSessionIndex !== sessionIndex) {
+      setSessionIndex(clampedSessionIndex);
+    }
+  }, [clampedSessionIndex, sessionIndex]);
+
+  const selectedBranch = openBranches[clampedSessionIndex] ?? null;
 
   const branchLogs = useBranchLogs(selectedBranch);
 
@@ -63,6 +95,10 @@ export function App({ daemon, startTime }: AppProps) {
     exit();
   }, [exit]);
 
+  const onClearMerged = useCallback(() => {
+    daemon.clearMergedPRs();
+  }, [daemon]);
+
   useInput((input, key) => {
     if (input === "q") {
       onQuit();
@@ -79,9 +115,15 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // Clear merged branches
+    if (input === "d" && mergedBranches.length > 0) {
+      onClearMerged();
+      return;
+    }
+
     // Retry/restart errored or stopped session
     if (input === "r" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.startBranch(branch).catch(() => {});
       }
@@ -136,7 +178,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Start/stop selected branch (one-shot)
     if (input === "s" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       if (branch) {
         if (daemon.isRunning(branch)) {
           daemon.stopBranch(branch).catch(() => {});
@@ -149,7 +191,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Watch selected branch (continuous)
     if (input === "e" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.watchBranch(branch).catch(() => {});
       }
@@ -174,7 +216,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Resume Claude session in new terminal
     if (input === "c" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.lastSessionId && st.workDir) {
@@ -188,7 +230,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Open worktree shell in new terminal
     if (input === "w" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.workDir) {
@@ -207,7 +249,7 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
     if (input === "j" && focusedPane === "sessions") {
-      setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
+      setSessionIndex((prev) => Math.min(openCount - 1, prev + 1));
       setBranchLogOffset(0);
       return;
     }
@@ -229,7 +271,7 @@ export function App({ daemon, startTime }: AppProps) {
             setSessionIndex((prev) => prev - 1);
           }
         } else if (key.downArrow) {
-          setSessionIndex((prev) => Math.min(entryCount - 1, prev + 1));
+          setSessionIndex((prev) => Math.min(openCount - 1, prev + 1));
         }
       }
     } else {
@@ -246,12 +288,14 @@ export function App({ daemon, startTime }: AppProps) {
       <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} buttons={toolbarButtons} selectedButton={toolbarIndex} />
       <SessionList
         entries={entries}
-        selectedIndex={sessionIndex}
+        selectedIndex={clampedSessionIndex}
         focused={focusedPane === "sessions" && toolbarIndex < 0}
+        openBranches={openBranches}
+        mergedBranches={mergedBranches}
       />
       <DetailPanel
         entries={entries}
-        selectedIndex={sessionIndex}
+        selectedBranch={selectedBranch}
         showDetail={showDetail}
       />
       {activityLines.length > 0 && selectedBranch && (

@@ -7,7 +7,7 @@ import { formatTime } from "../../utils/time.js";
 
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
-  selectedIndex: number;
+  selectedBranch: string | null;
   showDetail: boolean;
 }
 
@@ -119,12 +119,11 @@ function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
 
 export function DetailPanel({
   entries,
-  selectedIndex,
+  selectedBranch,
   showDetail,
 }: DetailPanelProps) {
   const theme = useTheme();
-  const branches = [...entries.keys()].sort();
-  const branch = branches[selectedIndex];
+  const branch = selectedBranch;
   const entry = branch ? entries.get(branch) : undefined;
 
   if (!entry) {
