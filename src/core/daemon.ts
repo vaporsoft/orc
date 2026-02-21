@@ -7,11 +7,12 @@
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
 import { CommentFetcher } from "./comment-fetcher.js";
+import { GitManager } from "./git-manager.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
-import type { BranchState, CIStatus, FailedCheck, ReviewThread, SessionMode } from "../types/index.js";
+import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, SessionMode } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
@@ -137,6 +138,8 @@ export class Daemon extends EventEmitter {
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
 
+    this.setOptimisticStatus(branch, "initializing", mode);
+
     // Refuse to run on the branch that's currently checked out
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
@@ -177,6 +180,7 @@ export class Daemon extends EventEmitter {
   }
 
   async stopBranch(branch: string): Promise<void> {
+    this.setOptimisticStatus(branch, "stopped");
     await this.teardownSession(branch);
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
@@ -203,6 +207,8 @@ export class Daemon extends EventEmitter {
     if (this.sessions.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
+
+    this.setOptimisticStatus(branch, "initializing");
 
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
@@ -243,6 +249,57 @@ export class Daemon extends EventEmitter {
     const promise = controller.startRebase();
     this.sessions.set(branch, { controller, promise });
     this.emit("sessionUpdate", branch, controller.getState());
+  }
+
+  /** Plain git rebase — no Claude. Reports conflicts without resolving them. */
+  async rebaseBranchPlain(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+
+    this.setOptimisticStatus(branch, "initializing");
+
+    const currentBranch = await this.getCurrentBranch();
+    if (currentBranch === branch) {
+      logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      return;
+    }
+
+    await this.worktreeManager.remove(branch);
+
+    let workDir: string;
+    try {
+      workDir = await this.worktreeManager.create(branch);
+    } catch (err) {
+      logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      return;
+    }
+
+    try {
+      const gitManager = new GitManager(workDir, branch);
+      logger.info(`Plain rebase of ${branch} onto ${pr.baseRefName}`, branch);
+      const ok = await gitManager.pullRebase(pr.baseRefName);
+      if (!ok) {
+        logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
+        // Refresh conflict status so TUI shows them
+        await this.updateConflictStatuses([pr]);
+        this.emit("conflictStatusUpdate", branch);
+        return;
+      }
+
+      const pushed = await gitManager.forcePushWithLease();
+      if (pushed) {
+        logger.info("Rebase complete, pushed", branch);
+        this.syncMainRepo(branch).catch(() => {});
+      } else {
+        logger.error("Push failed after rebase", branch);
+      }
+    } catch (err) {
+      logger.error(`Plain rebase failed: ${err}`, branch);
+    } finally {
+      await this.worktreeManager.remove(branch).catch(() => {});
+      this.setOptimisticStatus(branch, "stopped");
+    }
   }
 
   resolveConflicts(branch: string, always: boolean): void {
@@ -496,6 +553,36 @@ export class Daemon extends EventEmitter {
     } else {
       this.emit("prRemoved", branch);
     }
+  }
+
+  private setOptimisticStatus(branch: string, status: BranchStatus, mode: SessionMode = "once"): void {
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+    const lifetime = this.progressStore.getLifetimeStats(branch);
+    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
+    const prev = this.lastStates.get(branch);
+    this.lastStates.set(branch, {
+      branch,
+      prNumber: pr.number,
+      prUrl: pr.url,
+      status,
+      mode,
+      commentsAddressed: prev?.commentsAddressed ?? 0,
+      totalCostUsd,
+      error: null,
+      unresolvedCount: prev?.unresolvedCount ?? 0,
+      commentSummary: prev?.commentSummary ?? null,
+      lastPushAt: prev?.lastPushAt ?? null,
+      claudeActivity: [],
+      lastSessionId: prev?.lastSessionId ?? null,
+      workDir: prev?.workDir ?? null,
+      ...lifetime,
+      ciStatus: prev?.ciStatus ?? "unknown",
+      failedChecks: prev?.failedChecks ?? [],
+      ciFixAttempts: prev?.ciFixAttempts ?? 0,
+      conflicted: prev?.conflicted ?? [],
+    });
+    this.emit("prUpdate", branch);
   }
 
   private async getCurrentBranch(): Promise<string | null> {
