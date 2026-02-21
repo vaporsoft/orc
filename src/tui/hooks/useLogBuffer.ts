@@ -9,7 +9,7 @@ export interface LogBufferState {
   lastTimestamp: string | null;
 }
 
-export function useLogBuffer(): LogBufferState {
+export function useLogBuffer(paused = false): LogBufferState {
   const [state, setState] = useState<LogBufferState>({
     entries: [],
     lastTimestamp: null,
@@ -17,11 +17,13 @@ export function useLogBuffer(): LogBufferState {
 
   const bufferRef = useRef<LogEntry[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
 
   useEffect(() => {
     const flush = () => {
       timerRef.current = null;
-      if (bufferRef.current.length === 0) return;
+      if (pausedRef.current || bufferRef.current.length === 0) return;
       const batch = bufferRef.current;
       bufferRef.current = [];
       setState((prev) => {
@@ -35,7 +37,10 @@ export function useLogBuffer(): LogBufferState {
 
     const onLog = (entry: LogEntry) => {
       bufferRef.current.push(entry);
-      if (!timerRef.current) {
+      if (bufferRef.current.length > MAX_ENTRIES) {
+        bufferRef.current = bufferRef.current.slice(-MAX_ENTRIES);
+      }
+      if (!pausedRef.current && !timerRef.current) {
         timerRef.current = setTimeout(flush, THROTTLE_MS);
       }
     };
@@ -49,6 +54,21 @@ export function useLogBuffer(): LogBufferState {
       }
     };
   }, []);
+
+  // Flush buffered entries when unpaused
+  useEffect(() => {
+    if (!paused && bufferRef.current.length > 0) {
+      const batch = bufferRef.current;
+      bufferRef.current = [];
+      setState((prev) => {
+        const next = [...prev.entries, ...batch];
+        return {
+          entries: next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next,
+          lastTimestamp: batch[batch.length - 1].timestamp,
+        };
+      });
+    }
+  }, [paused]);
 
   return state;
 }
