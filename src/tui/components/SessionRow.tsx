@@ -3,16 +3,13 @@ import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { StatusBadge } from "./StatusBadge.js";
 import { useTheme } from "../theme.js";
+import { formatTime } from "../../utils/time.js";
 
 interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
 
 export function SessionRow({ entry, selected }: SessionRowProps) {
   const theme = useTheme();

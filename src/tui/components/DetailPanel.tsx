@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import type { CommentCategory, CycleRecord } from "../../types/index.js";
 import { useTheme } from "../theme.js";
+import { formatTime } from "../../utils/time.js";
 
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
@@ -73,10 +74,6 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   );
 }
 
-function formatCycleTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
 
 function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
   cycles: CycleRecord[];
@@ -91,7 +88,7 @@ function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
       <SectionHeader label={`Review Progress (${totalAddressed}/${totalSeen})`} color={accentColor} />
       {cycles.map((cycle, i) => {
         const isLatest = i === cycles.length - 1;
-        const time = formatCycleTime(cycle.startedAt);
+        const time = formatTime(cycle.startedAt);
         return (
           <Box key={i} marginLeft={2}>
             <Text dimColor>{"r" + String(i + 1).padEnd(4)}</Text>
