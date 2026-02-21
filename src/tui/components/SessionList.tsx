@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { SessionRow } from "./SessionRow.js";
+import { useTheme } from "../theme.js";
 
 interface SessionListProps {
   entries: Map<string, PREntry>;
@@ -10,13 +11,14 @@ interface SessionListProps {
 }
 
 export function SessionList({ entries, selectedIndex, focused }: SessionListProps) {
+  const theme = useTheme();
   const branches = [...entries.keys()].sort();
 
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="green"
+      borderColor={theme.border}
       borderTop={false}
       borderBottom={false}
     >

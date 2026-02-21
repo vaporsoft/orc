@@ -13,6 +13,7 @@ import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
 import { ActivityPane } from "./components/ActivityPane.js";
 import { HelpBar } from "./components/HelpBar.js";
+import { useThemeContext } from "./theme.js";
 
 type Pane = "sessions" | "logs";
 
@@ -22,6 +23,7 @@ interface AppProps {
 }
 
 export function App({ daemon, startTime }: AppProps) {
+  const { theme, toggleTheme } = useThemeContext();
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
@@ -69,6 +71,11 @@ export function App({ daemon, startTime }: AppProps) {
 
     if (input === "?") {
       setShowHelp((v) => !v);
+      return;
+    }
+
+    if (input === "t") {
+      toggleTheme();
       return;
     }
 
@@ -268,11 +275,11 @@ export function App({ daemon, startTime }: AppProps) {
           label="All Logs"
         />
       )}
-      {/* Spacer fills remaining height, green borders connect the frame */}
+      {/* Spacer fills remaining height, borders connect the frame */}
       <Box
         flexGrow={1}
         borderStyle="round"
-        borderColor="green"
+        borderColor={theme.border}
         borderTop={false}
         borderBottom={false}
       />

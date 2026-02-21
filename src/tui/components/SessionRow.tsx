@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { StatusBadge } from "./StatusBadge.js";
+import { useTheme } from "../theme.js";
 
 interface SessionRowProps {
   entry: PREntry;
@@ -14,6 +15,7 @@ function formatTime(iso: string): string {
 }
 
 export function SessionRow({ entry, selected }: SessionRowProps) {
+  const theme = useTheme();
   const { pr, state, commentCount } = entry;
   const branch = entry.branch.length > 26
     ? entry.branch.slice(0, 25) + "…"
@@ -27,27 +29,27 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
   return (
     <Box paddingX={1}>
       <Box width={2}>
-        <Text color={selected ? "green" : "gray"}>
+        <Text color={selected ? theme.accent : theme.muted}>
           {selected ? "▍" : " "}
         </Text>
       </Box>
       <Box width={28}>
-        <Text color={selected ? "green" : "white"}>{branch}</Text>
+        <Text color={selected ? theme.accent : theme.text}>{branch}</Text>
       </Box>
       <Box width={8}>
         <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={16}>
         <StatusBadge status={status} />
-        {state?.mode === "watch" && <Text color="cyan"> ⟳</Text>}
+        {state?.mode === "watch" && <Text color={theme.info}> ⟳</Text>}
       </Box>
       <Box width={10}>
-        <Text color={commentCount > 0 ? "yellow" : "gray"}>
+        <Text color={commentCount > 0 ? theme.warning : theme.muted}>
           {commentCount > 0 ? String(commentCount) : "—"}
         </Text>
       </Box>
       <Box width={8}>
-        <Text color={state && state.commentsAddressed > 0 ? "greenBright" : "gray"}>
+        <Text color={state && state.commentsAddressed > 0 ? theme.accentBright : theme.muted}>
           {state && state.commentsAddressed > 0 ? String(state.commentsAddressed) : "—"}
         </Text>
       </Box>

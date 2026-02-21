@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import type { ToolbarButton } from "./Toolbar.js";
+import { useTheme } from "../theme.js";
 
 interface HeaderProps {
   entries: Map<string, PREntry>;
@@ -24,6 +25,7 @@ function formatCheckTime(iso: string): string {
 }
 
 export function Header({ entries, startTime, lastCheck, buttons, selectedButton }: HeaderProps) {
+  const theme = useTheme();
   const total = entries.size;
   const running = [...entries.values()].filter((e) => e.state !== null).length;
   let totalCost = 0;
@@ -35,18 +37,18 @@ export function Header({ entries, startTime, lastCheck, buttons, selectedButton 
   return (
     <Box
       borderStyle="round"
-      borderColor="green"
+      borderColor={theme.border}
       borderBottom={false}
       paddingX={1}
       justifyContent="space-between"
     >
       <Box gap={1}>
-        <Text backgroundColor="green" color="black" bold>{" "}orc{" "}</Text>
+        <Text backgroundColor={theme.accentBg} color={theme.textOnAccent} bold>{" "}orc{" "}</Text>
         {buttons.map((btn, i) => (
           <Text
             key={btn.label}
-            backgroundColor={i === selectedButton ? "green" : undefined}
-            color={i === selectedButton ? "black" : undefined}
+            backgroundColor={i === selectedButton ? theme.accentBg : undefined}
+            color={i === selectedButton ? theme.textOnAccent : undefined}
             dimColor={i !== selectedButton}
             bold={i === selectedButton}
           >
@@ -55,13 +57,13 @@ export function Header({ entries, startTime, lastCheck, buttons, selectedButton 
         ))}
       </Box>
       <Text>
-        <Text color={running > 0 ? "green" : "gray"}>{running}</Text>
+        <Text color={running > 0 ? theme.accent : theme.muted}>{running}</Text>
         <Text dimColor>/{total} active</Text>
-        <Text color="green"> · </Text>
+        <Text color={theme.accent}> · </Text>
         <Text dimColor>${totalCost.toFixed(2)}</Text>
-        <Text color="green"> · </Text>
+        <Text color={theme.accent}> · </Text>
         <Text dimColor>{uptime}</Text>
-        <Text color="green"> · </Text>
+        <Text color={theme.accent}> · </Text>
         <Text dimColor>{lastCheck ? formatCheckTime(lastCheck) : "—"}</Text>
       </Text>
     </Box>

@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { LogEntry } from "../../utils/logger.js";
+import { useTheme, type Theme } from "../theme.js";
 
 interface LogPaneProps {
   entries: LogEntry[];
@@ -10,12 +11,14 @@ interface LogPaneProps {
   label?: string;
 }
 
-const LEVEL_COLORS: Record<string, string> = {
-  debug: "gray",
-  info: "white",
-  warn: "yellow",
-  error: "red",
-};
+function levelColors(theme: Theme): Record<string, string> {
+  return {
+    debug: theme.muted,
+    info: theme.text,
+    warn: theme.warning,
+    error: theme.error,
+  };
+}
 
 const LEVEL_SYMBOLS: Record<string, string> = {
   debug: "·",
@@ -25,6 +28,8 @@ const LEVEL_SYMBOLS: Record<string, string> = {
 };
 
 export function LogPane({ entries, focused, scrollOffset, visibleLines, label = "Logs" }: LogPaneProps) {
+  const theme = useTheme();
+  const colors = levelColors(theme);
   const maxOffset = Math.max(0, entries.length - visibleLines);
   const offset = Math.min(scrollOffset, maxOffset);
   const visible = entries.slice(
@@ -36,14 +41,14 @@ export function LogPane({ entries, focused, scrollOffset, visibleLines, label = 
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="green"
+      borderColor={theme.border}
       borderTop={false}
       borderBottom={false}
     >
       <Box paddingX={1}>
-        <Text color="green" dimColor>{"━━ "}</Text>
-        <Text color="green" bold>{focused ? "▸ " : "  "}{label}</Text>
-        <Text color="green" dimColor>{" " + "─".repeat(Math.max(0, 40 - label.length))}</Text>
+        <Text color={theme.accent} dimColor>{"━━ "}</Text>
+        <Text color={theme.accent} bold>{focused ? "▸ " : "  "}{label}</Text>
+        <Text color={theme.accent} dimColor>{" " + "─".repeat(Math.max(0, 40 - label.length))}</Text>
       </Box>
       {visible.length === 0 ? (
         <Box paddingX={1} marginLeft={2}>
@@ -57,7 +62,7 @@ export function LogPane({ entries, focused, scrollOffset, visibleLines, label = 
           return (
             <Box key={i} paddingX={1} marginLeft={2}>
               <Text dimColor>{time} </Text>
-              <Text color={LEVEL_COLORS[entry.level] ?? "white"}>
+              <Text color={colors[entry.level] ?? theme.text}>
                 {sym} {prefix}{entry.message}
               </Text>
             </Box>
