@@ -295,6 +295,7 @@ export function App({ daemon, startTime }: AppProps) {
         focused={focusedPane === "sessions" && toolbarIndex < 0}
         openBranches={openBranches}
         mergedBranches={mergedBranches}
+        renderPaused={renderPaused}
       />
       <DetailPanel
         entries={entries}
