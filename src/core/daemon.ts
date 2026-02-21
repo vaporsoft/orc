@@ -142,6 +142,7 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
+        sessionExpiresAt: null,
         ...lifetime,
       });
       this.emit("prUpdate", branch);
@@ -340,6 +341,7 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
+        sessionExpiresAt: null,
         ...lifetime,
       });
       this.emit("prUpdate", branch);

@@ -94,6 +94,8 @@ export interface BranchState {
   claudeActivity: string[];
   lastSessionId: string | null;
   workDir: string | null;
+  /** Timestamp (ms since epoch) when the watch session will expire. null if not a watch session. */
+  sessionExpiresAt: number | null;
   /** Persistent progress — accumulated across sessions and daemon restarts. */
   lifetimeAddressed: number;
   lifetimeSeen: number;

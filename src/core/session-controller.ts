@@ -77,6 +77,7 @@ export class SessionController extends EventEmitter {
       claudeActivity: [],
       lastSessionId: null,
       workDir: cwd,
+      sessionExpiresAt: null,
       ...lifetime,
     };
   }
@@ -88,6 +89,9 @@ export class SessionController extends EventEmitter {
   async start(): Promise<void> {
     this.running = true;
     this.startedAt = Date.now();
+    if (this.mode === "watch") {
+      this.state.sessionExpiresAt = this.startedAt + this.config.sessionTimeout * 60 * 60 * 1000;
+    }
 
     try {
       this.setStatus("initializing");

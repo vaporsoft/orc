@@ -48,12 +48,34 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       <Box width={28}><Text dimColor>branch</Text></Box>
       <Box width={8}><Text dimColor>pr</Text></Box>
       <Box width={16}><Text dimColor>status</Text></Box>
+      <Box width={10}><Text dimColor>time left</Text></Box>
       <Box width={10}><Text dimColor>comments</Text></Box>
       <Box width={12}><Text dimColor>progress</Text></Box>
       <Box width={10}><Text dimColor>cost</Text></Box>
       <Box width={10}><Text dimColor>last push</Text></Box>
     </Box>
   );
+
+  // Tick to keep "time left" column updated — every 60s normally, every 1s in the final minute
+  const activeExpiries = [...entries.values()]
+    .filter((e) => e.state?.mode === "watch" && e.state.sessionExpiresAt
+      && !["stopped", "done", "error"].includes(e.state.status) && !e.mergedAt)
+    .map((e) => e.state!.sessionExpiresAt!);
+  const soonestExpiry = activeExpiries.length > 0 ? Math.min(...activeExpiries) : null;
+
+  const [, setTimeLeftTick] = useState(0);
+  useEffect(() => {
+    if (soonestExpiry === null) return;
+    const id = setInterval(() => {
+      const timeLeft = soonestExpiry - Date.now();
+      const nowInFinalMinute = timeLeft <= 60_000;
+      const shouldTick = nowInFinalMinute || (timeLeft % 60_000 < 1_000);
+      if (shouldTick) {
+        setTimeLeftTick((t) => t + 1);
+      }
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [soonestExpiry]);
 
   return (
     <Box
