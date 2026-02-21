@@ -16,12 +16,40 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const counts = daemon.getCommentCounts();
   const threads = daemon.getCommentThreads();
   const lastStates = daemon.getLastStates();
+  const progressStore = daemon.getProgressStore();
   for (const [branch, pr] of daemon.getDiscoveredPRs()) {
     const session = daemon.getSessions().get(branch);
+    let state = session ? session.getState() : (lastStates.get(branch) ?? null);
+
+    // Inject persistent lifetime stats for idle branches
+    if (!state) {
+      const lifetime = progressStore.getLifetimeStats(branch);
+      if (lifetime.cycleCount > 0) {
+        const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
+        state = {
+          branch,
+          prNumber: pr.number,
+          prUrl: pr.url,
+          status: "stopped",
+          mode: "once",
+          commentsAddressed: 0,
+          totalCostUsd,
+          error: null,
+          unresolvedCount: 0,
+          commentSummary: null,
+          lastPushAt: null,
+          claudeActivity: [],
+          lastSessionId: null,
+          workDir: null,
+          ...lifetime,
+        };
+      }
+    }
+
     entries.set(branch, {
       branch,
       pr,
-      state: session ? session.getState() : (lastStates.get(branch) ?? null),
+      state,
       commentCount: counts.get(branch) ?? 0,
       commentThreads: threads.get(branch) ?? [],
     });

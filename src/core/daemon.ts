@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
 import { CommentFetcher } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
+import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
 import type { BranchState, ReviewThread, SessionMode } from "../types/index.js";
@@ -25,6 +26,7 @@ export class Daemon extends EventEmitter {
   private cwd: string;
   private ghClient: GHClient;
   private worktreeManager: WorktreeManager;
+  private progressStore: ProgressStore;
   private sessions = new Map<string, ActiveSession>();
   private discoveredPRs = new Map<string, GHPullRequest>();
   private commentCounts = new Map<string, number>();
@@ -40,6 +42,11 @@ export class Daemon extends EventEmitter {
     this.cwd = cwd;
     this.ghClient = new GHClient(cwd);
     this.worktreeManager = new WorktreeManager(cwd);
+    this.progressStore = new ProgressStore(cwd);
+  }
+
+  getProgressStore(): ProgressStore {
+    return this.progressStore;
   }
 
   getSessions(): Map<string, SessionController> {
@@ -72,6 +79,7 @@ export class Daemon extends EventEmitter {
 
   async run(): Promise<void> {
     this.running = true;
+    await this.progressStore.load();
     await this.worktreeManager.purgeStale();
     await this.ghClient.validateAuth();
 
@@ -107,6 +115,8 @@ export class Daemon extends EventEmitter {
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
       logger.warn("Cannot start session — branch is checked out locally. Switch to main first.", branch);
+      const lifetime = this.progressStore.getLifetimeStats(branch);
+      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -114,7 +124,7 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd: 0,
+        totalCostUsd,
         error: "Branch is checked out locally — switch to main first",
         unresolvedCount: 0,
         commentSummary: null,
@@ -122,6 +132,7 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
+        ...lifetime,
       });
       this.emit("prUpdate", branch);
       return;
@@ -277,6 +288,8 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      const lifetime = this.progressStore.getLifetimeStats(branch);
+      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -284,7 +297,7 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd: 0,
+        totalCostUsd,
         error: `Failed to create worktree: ${err}`,
         unresolvedCount: 0,
         commentSummary: null,
@@ -292,12 +305,13 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
+        ...lifetime,
       });
       this.emit("prUpdate", branch);
       return;
     }
 
-    const controller = new SessionController(branch, this.config, workDir, mode);
+    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore);
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);

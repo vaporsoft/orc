@@ -3,16 +3,13 @@ import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { StatusBadge } from "./StatusBadge.js";
 import { useTheme } from "../theme.js";
+import { formatTime } from "../../utils/time.js";
 
 interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
 
 export function SessionRow({ entry, selected }: SessionRowProps) {
   const theme = useTheme();
@@ -48,10 +45,14 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
           {commentCount > 0 ? String(commentCount) : "—"}
         </Text>
       </Box>
-      <Box width={8}>
-        <Text color={state && state.commentsAddressed > 0 ? theme.accentBright : theme.muted}>
-          {state && state.commentsAddressed > 0 ? String(state.commentsAddressed) : "—"}
-        </Text>
+      <Box width={12}>
+        {state && state.lifetimeSeen > 0 ? (
+          <Text color={state.lifetimeAddressed > 0 ? theme.accentBright : theme.muted}>
+            {state.lifetimeAddressed}/{state.lifetimeSeen}
+          </Text>
+        ) : (
+          <Text color={theme.muted}>—</Text>
+        )}
       </Box>
       <Box width={10}>
         <Text dimColor>{cost}</Text>
