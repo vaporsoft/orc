@@ -244,6 +244,8 @@ export class SessionController extends EventEmitter {
 
     if (actionable.length === 0) {
       logger.info("No actionable comments after filtering", this.branch);
+      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      this.syncLifetimeStats();
       return;
     }
 
@@ -253,6 +255,8 @@ export class SessionController extends EventEmitter {
       for (const c of actionable) {
         logger.info(`  - ${c.path}:${c.line ?? "?"} (${c.category})`, this.branch);
       }
+      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      this.syncLifetimeStats();
       return;
     }
 
@@ -314,6 +318,8 @@ export class SessionController extends EventEmitter {
         if (!pulled) {
           logger.error("Could not pull --rebase, skipping push", this.branch);
           this.state.totalCostUsd += fixResult.costUsd;
+          await this.progressStore.recordCycleEnd(this.branch, 0, fixResult.costUsd);
+          this.syncLifetimeStats();
           return;
         }
       }
@@ -325,6 +331,8 @@ export class SessionController extends EventEmitter {
         this.setStatus("error");
         this.running = false;
         this.state.totalCostUsd += fixResult.costUsd;
+        await this.progressStore.recordCycleEnd(this.branch, 0, fixResult.costUsd);
+        this.syncLifetimeStats();
         return;
       }
 
