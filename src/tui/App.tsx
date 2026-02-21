@@ -12,7 +12,7 @@ import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
-import { ActivityPane } from "./components/ActivityPane.js";
+
 import { HelpBar } from "./components/HelpBar.js";
 import { useThemeContext } from "./theme.js";
 
@@ -36,6 +36,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
   const [showDetail, setShowDetail] = useState(false);
+  const [showDetailBeforeLogs, setShowDetailBeforeLogs] = useState(false);
   const [showBranchLogs, setShowBranchLogs] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
@@ -167,7 +168,18 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     if (key.tab) {
-      setFocusedPane((prev) => (prev === "sessions" ? "logs" : "sessions"));
+      setFocusedPane((prev) => {
+        if (prev === "sessions") {
+          // Switching to logs — save and hide detail views
+          setShowDetailBeforeLogs(showDetail);
+          setShowDetail(false);
+          return "logs";
+        } else {
+          // Switching back — restore detail state
+          setShowDetail(showDetailBeforeLogs);
+          return "sessions";
+        }
+      });
       return;
     }
 
@@ -334,10 +346,8 @@ export function App({ daemon, startTime }: AppProps) {
         entries={entries}
         selectedBranch={selectedBranch}
         showDetail={showDetail}
+        activityLines={activityLines}
       />
-      {activityLines.length > 0 && selectedBranch && (
-        <ActivityPane lines={activityLines} branch={selectedBranch} />
-      )}
       {showBranchLogs && (
         <LogPane
           entries={branchLogs}

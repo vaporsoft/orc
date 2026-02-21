@@ -9,6 +9,7 @@ interface DetailPanelProps {
   entries: Map<string, PREntry>;
   selectedBranch: string | null;
   showDetail: boolean;
+  activityLines?: string[];
 }
 
 const CATEGORY_COLORS: Record<CommentCategory, string> = {
@@ -123,6 +124,7 @@ export function DetailPanel({
   entries,
   selectedBranch,
   showDetail,
+  activityLines = [],
 }: DetailPanelProps) {
   const theme = useTheme();
   const branch = selectedBranch;
@@ -199,6 +201,12 @@ export function DetailPanel({
           </Text>
         )}
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
+      {activityLines.length > 0 && (
+        <Box marginLeft={2}>
+          <Text color={theme.accent} dimColor>Claude: </Text>
+          <Text dimColor>{activityLines[activityLines.length - 1]}</Text>
+        </Box>
+      )}
       </Box>
     );
   }
@@ -379,6 +387,20 @@ export function DetailPanel({
         <Box marginTop={1}>
           <Text dimColor>No comments</Text>
         </Box>
+      )}
+
+      {/* Claude activity */}
+      {activityLines.length > 0 && (
+        <>
+          <SectionHeader label={`Claude [${entry.branch}]`} color={theme.accent} />
+          {activityLines.map((line, i) => (
+            <Box key={i} marginLeft={2}>
+              <Text dimColor={i < activityLines.length - 1} color={i === activityLines.length - 1 ? theme.text : undefined}>
+                {line}
+              </Text>
+            </Box>
+          ))}
+        </>
       )}
     </Box>
   );
