@@ -60,7 +60,7 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("c to resume Claude session");
   }
 
-  hints.push("r to rebase · s to start full review");
+  hints.push("r to rebase · f to fix with Claude · s to start full review");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -131,18 +131,7 @@ export function DetailPanel({
   const entry = branch ? entries.get(branch) : undefined;
 
   if (!entry) {
-    return (
-      <Box
-        borderStyle="round"
-        borderColor={theme.border}
-        borderTop={false}
-        borderBottom={false}
-        paddingX={1}
-        flexDirection="column"
-      >
-        <Text dimColor>No PR selected</Text>
-      </Box>
-    );
+    return null;
   }
 
   const { pr, state, commentCount, commentThreads, ciStatus, failedChecks, conflicted } = entry;
@@ -161,12 +150,15 @@ export function DetailPanel({
         borderTop={false}
         borderBottom={false}
         paddingX={1}
+        paddingTop={1}
         flexDirection="column"
       >
-        <Text dimColor>
-          <Text color={theme.accent}>r</Text> rebase · <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>enter</Text> details
-          {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
-        </Text>
+        <Box marginLeft={2}>
+          <Text dimColor>
+            <Text color={theme.accent}>r</Text> rebase · <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>enter</Text> details
+            {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
+          </Text>
+        </Box>
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
         {activityLines.length > 0 && (
           <Box marginLeft={2}>
@@ -186,189 +178,219 @@ export function DetailPanel({
       borderTop={false}
       borderBottom={false}
       paddingX={1}
+      paddingTop={1}
       flexDirection="column"
     >
-      <Box justifyContent="space-between">
-        <Box>
-          <Text dimColor>#{pr.number} </Text>
-          <Text bold>{title}</Text>
-        </Box>
-        {state && (
-          <Text>
-            {state.lifetimeSeen > 0 ? (
-              <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen}</Text>
-            ) : (
-              <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
-            )}
-            <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
-            {isActive && <Text dimColor> · </Text>}
-            {isActive && <Text color={theme.accentBright}>{state.status}...</Text>}
-          </Text>
-        )}
+      {/* Commands bar — same as collapsed view */}
+      <Box marginLeft={2}>
+        <Text dimColor>
+          <Text color={theme.accent}>r</Text> rebase · <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>enter</Text> collapse
+          {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
+        </Text>
       </Box>
 
-      {!state && (
-        <Text dimColor>
-          {commentCount > 0
-            ? `${commentCount} unresolved · `
-            : ""}
-          <Text color={theme.accent}>s</Text> to start
+      {/* Window-style title bar */}
+      <Box marginLeft={3} marginTop={1}>
+        <Text backgroundColor={theme.secondaryBg} color={theme.text} bold>
+          {" "}#{pr.number} {pr.title.length > 60 ? pr.title.slice(0, 59) + "…" : pr.title}{" "}
         </Text>
-      )}
+      </Box>
 
-      {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
+      {/* Indented detail content with left border line */}
+      <Box
+        marginLeft={3}
+        borderStyle="single"
+        borderLeft={true}
+        borderRight={false}
+        borderTop={false}
+        borderBottom={false}
+        borderColor={theme.accent}
+        paddingLeft={1}
+        flexDirection="column"
+      >
+        {/* Status summary */}
+        <Box>
+          <Text dimColor>base: {pr.baseRefName}</Text>
+          {state && (
+            <>
+              <Text dimColor> · </Text>
+              {state.lifetimeSeen > 0 ? (
+                <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen} addressed</Text>
+              ) : (
+                <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
+              )}
+              <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
+              {state.lastPushAt && <Text dimColor> · pushed {formatTime(state.lastPushAt)}</Text>}
+            </>
+          )}
+          {!state && commentCount > 0 && (
+            <Text dimColor> · <Text color={theme.warning}>{commentCount} unresolved</Text></Text>
+          )}
+        </Box>
 
-      {/* Cycle history */}
-      {state && state.cycleHistory.length > 0 && (
-        <CycleHistory
-          cycles={state.cycleHistory}
-          totalAddressed={state.lifetimeAddressed}
-          totalSeen={state.lifetimeSeen}
-          accentColor={theme.accentBright}
-        />
-      )}
+        {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
 
-      {/* Conflict prompt — waiting for user action */}
-      {state?.status === "conflict_prompt" && conflicted.length > 0 && (
-        <>
-          <Box marginTop={1}>
-            <Text color="yellow" bold>{"! "}</Text>
-            <Text color="yellow">Branch has conflicts with base</Text>
-          </Box>
-          {conflicted.map((file, i) => (
-            <Box key={i} marginLeft={2}>
-              <Text color="yellow">{"· "}</Text>
-              <Text>{file}</Text>
+        {/* Cycle history */}
+        {state && state.cycleHistory.length > 0 && (
+          <CycleHistory
+            cycles={state.cycleHistory}
+            totalAddressed={state.lifetimeAddressed}
+            totalSeen={state.lifetimeSeen}
+            accentColor={theme.accentBright}
+          />
+        )}
+
+        {/* Conflicts section — always show */}
+        {state?.status === "conflict_prompt" && conflicted.length > 0 ? (
+          <>
+            <SectionHeader label={`Conflicts (${conflicted.length} files)`} color={theme.warning} />
+            {conflicted.map((file, i) => (
+              <Box key={i} marginLeft={2}>
+                <Text color="yellow">{"· "}</Text>
+                <Text>{file}</Text>
+              </Box>
+            ))}
+            <Box marginTop={1} marginLeft={2}>
+              <Text color="green" bold>[R]</Text>
+              <Text> Resolve with Claude  </Text>
+              <Text color="cyan" bold>[A]</Text>
+              <Text> Always resolve with Claude  </Text>
+              <Text dimColor bold>[Esc]</Text>
+              <Text dimColor> Dismiss</Text>
             </Box>
-          ))}
-          <Box marginTop={1} marginLeft={2}>
-            <Text color="green" bold>[R]</Text>
-            <Text> Resolve with Claude  </Text>
-            <Text color="cyan" bold>[A]</Text>
-            <Text> Always resolve with Claude  </Text>
-            <Text dimColor bold>[Esc]</Text>
-            <Text dimColor> Dismiss</Text>
-          </Box>
-        </>
-      )}
-
-      {/* Conflict indicator (idle / not in prompt) */}
-      {state?.status !== "conflict_prompt" && conflicted.length > 0 && (
-        <>
-          <Box marginTop={1}>
-            <Text color="red" bold>{"! "}</Text>
-            <Text color="red">Branch has conflicts with base</Text>
+          </>
+        ) : conflicted.length > 0 ? (
+          <>
+            <SectionHeader label={`Conflicts (${conflicted.length} files)`} color={theme.error} />
+            {conflicted.map((file, i) => (
+              <Box key={i} marginLeft={2}>
+                <Text color="red">{"· "}</Text>
+                <Text>{file}</Text>
+              </Box>
+            ))}
             {!state && (
               <>
-                <Text dimColor> — </Text>
-                <Text color="green">s</Text>
-                <Text dimColor> to start (will auto-rebase)</Text>
+                <Box marginLeft={2}>
+                  <Text dimColor>
+                    <Text color={theme.accent}>r</Text> to rebase
+                  </Text>
+                </Box>
+                <Box marginLeft={2}>
+                  <Text dimColor>
+                    <Text color={theme.accent}>f</Text> to fix with Claude
+                  </Text>
+                </Box>
               </>
             )}
-          </Box>
-          {conflicted.map((file, i) => (
-            <Box key={i} marginLeft={2}>
-              <Text color="red">{"· "}</Text>
-              <Text>{file}</Text>
-            </Box>
-          ))}
-        </>
-      )}
+          </>
+        ) : (
+          <>
+            <SectionHeader label="Conflicts" color={theme.accent} />
+            <Box marginLeft={2}><Text dimColor>None</Text></Box>
+          </>
+        )}
 
-      {/* CI Status section — gated on ciStatus so conditions are mutually exclusive */}
-      {ciStatus === "failing" && failedChecks.length > 0 && (
-        <>
-          <SectionHeader label={`CI (${failedChecks.length} failing)`} color={theme.accent} />
-          {failedChecks.map((check) => (
-            <Box key={check.id} marginLeft={2}>
-              <Text color="red">{"✗ "}</Text>
-              <Text color="white">{check.name}</Text>
-              {check.logSnippet && (
-                <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+        {/* CI section — always show */}
+        {ciStatus === "failing" && failedChecks.length > 0 ? (
+          <>
+            <SectionHeader label={`CI (${failedChecks.length} failing)`} color={theme.error} />
+            {failedChecks.map((check) => (
+              <Box key={check.id} marginLeft={2}>
+                <Text color="red">{"✗ "}</Text>
+                <Text color="white">{check.name}</Text>
+                {check.logSnippet && (
+                  <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+                )}
+              </Box>
+            ))}
+            {state && state.ciFixAttempts > 0 && (
+              <Box marginLeft={2}>
+                <Text dimColor>
+                  fix attempts: {state.ciFixAttempts}
+                </Text>
+              </Box>
+            )}
+          </>
+        ) : (
+          <>
+            <SectionHeader label="CI" color={theme.accent} />
+            <Box marginLeft={2}>
+              {ciStatus === "passing" && (
+                <Text color="green">{"✓ "}<Text dimColor>All checks passing</Text></Text>
+              )}
+              {ciStatus === "pending" && (
+                <Text color="yellow">{"● "}<Text dimColor>Checks running...</Text></Text>
+              )}
+              {ciStatus === "unknown" && (
+                <Text dimColor>No data</Text>
               )}
             </Box>
-          ))}
-          {state && state.ciFixAttempts > 0 && (
-            <Box marginLeft={2}>
-              <Text dimColor>
-                CI fix attempts: {state.ciFixAttempts}
-              </Text>
-            </Box>
-          )}
-        </>
-      )}
-      {ciStatus === "passing" && (
-        <Box marginTop={1}>
-          <Text color="green">{"✓ "}</Text>
-          <Text dimColor>All CI checks passing</Text>
-        </Box>
-      )}
-      {ciStatus === "pending" && (
-        <Box marginTop={1}>
-          <Text color="yellow">{"● "}</Text>
-          <Text dimColor>CI checks running...</Text>
-        </Box>
-      )}
+          </>
+        )}
 
-      {/* Categorized comments */}
-      {summary && summary.comments.length > 0 ? (
-        <>
-          <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} />
-          {summary.comments.map((c) => {
-            const loc = c.line ? `${c.path}:${c.line}` : c.path;
-            const body = c.body.replace(/\n/g, " ");
-            const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
-            return (
-              <Box key={c.threadId} marginLeft={2} flexDirection="column">
-                <Text>
-                  <Text color={CATEGORY_COLORS[c.category]} bold>
-                    {CATEGORY_LABELS[c.category].padEnd(11)}
+        {/* Comments section — always show */}
+        {summary && summary.comments.length > 0 ? (
+          <>
+            <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} />
+            {summary.comments.map((c) => {
+              const loc = c.line ? `${c.path}:${c.line}` : c.path;
+              const body = c.body.replace(/\n/g, " ");
+              const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+              return (
+                <Box key={c.threadId} marginLeft={2} flexDirection="column">
+                  <Text>
+                    <Text color={CATEGORY_COLORS[c.category]} bold>
+                      {CATEGORY_LABELS[c.category].padEnd(11)}
+                    </Text>
+                    <Text color={theme.text}>{loc}</Text>
+                    <Text dimColor>  @{c.author}</Text>
                   </Text>
-                  <Text color={theme.text}>{loc}</Text>
-                  <Text dimColor>  @{c.author}</Text>
-                </Text>
-                <Text dimColor>{"           "}{truncated}</Text>
-              </Box>
-            );
-          })}
-        </>
-      ) : commentThreads.length > 0 ? (
-        <>
-          <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} />
-          {commentThreads.map((t) => {
-            const loc = t.line ? `${t.path}:${t.line}` : t.path;
-            const body = t.body.replace(/\n/g, " ");
-            const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
-            return (
-              <Box key={t.threadId} marginLeft={2} flexDirection="column">
-                <Text>
-                  <Text color={theme.text}>{loc}</Text>
-                  <Text dimColor>  @{t.author}</Text>
-                </Text>
-                <Text dimColor>  {truncated}</Text>
-              </Box>
-            );
-          })}
-        </>
-      ) : (
-        <Box marginTop={1}>
-          <Text dimColor>No comments</Text>
-        </Box>
-      )}
+                  <Text dimColor>{"           "}{truncated}</Text>
+                </Box>
+              );
+            })}
+          </>
+        ) : commentThreads.length > 0 ? (
+          <>
+            <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} />
+            {commentThreads.map((t) => {
+              const loc = t.line ? `${t.path}:${t.line}` : t.path;
+              const body = t.body.replace(/\n/g, " ");
+              const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+              return (
+                <Box key={t.threadId} marginLeft={2} flexDirection="column">
+                  <Text>
+                    <Text color={theme.text}>{loc}</Text>
+                    <Text dimColor>  @{t.author}</Text>
+                  </Text>
+                  <Text dimColor>  {truncated}</Text>
+                </Box>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <SectionHeader label="Comments" color={theme.accent} />
+            <Box marginLeft={2}><Text dimColor>None</Text></Box>
+          </>
+        )}
 
-      {/* Claude activity */}
-      {activityLines.length > 0 && (
-        <>
-          <SectionHeader label={`Claude [${entry.branch}]`} color={theme.accent} />
-          {activityLines.map((line, i) => (
+        {/* Claude section — always show */}
+        <SectionHeader label="Claude" color={theme.accent} />
+        {activityLines.length > 0 ? (
+          activityLines.map((line, i) => (
             <Box key={i} marginLeft={2}>
               <Text dimColor={i < activityLines.length - 1} color={i === activityLines.length - 1 ? theme.text : undefined}>
                 {line}
               </Text>
             </Box>
-          ))}
-        </>
-      )}
+          ))
+        ) : (
+          <Box marginLeft={2}>
+            <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

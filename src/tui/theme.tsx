@@ -6,6 +6,7 @@ export interface Theme {
   accent: string;
   accentBright: string;
   accentBg: string;
+  secondaryBg: string;
   textOnAccent: string;
   text: string;
   muted: string;
@@ -20,6 +21,7 @@ const darkTheme: Theme = {
   accent: "green",
   accentBright: "greenBright",
   accentBg: "green",
+  secondaryBg: "#2d4a2d",
   textOnAccent: "black",
   text: "white",
   muted: "gray",
@@ -34,6 +36,7 @@ const lightTheme: Theme = {
   accent: "blue",
   accentBright: "cyan",
   accentBg: "blue",
+  secondaryBg: "#cce0ff",
   textOnAccent: "white",
   text: "black",
   muted: "gray",
