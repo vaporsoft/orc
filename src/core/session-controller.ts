@@ -536,9 +536,15 @@ export class SessionController extends EventEmitter {
     const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
     const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-    // Only reply to regular comments if fixes were successfully applied
-    if (regularComments.length > 0 && !fixResult.isError && madeCommits) {
-      await this.responder.replyToAddressed(regularComments, currentSha);
+    // Reply to regular comments based on fix outcome
+    if (regularComments.length > 0) {
+      if (!fixResult.isError && madeCommits) {
+        await this.responder.replyToAddressed(regularComments, currentSha);
+      } else if (fixResult.isError) {
+        await this.responder.replyToFailed(regularComments, "fix session encountered an error.");
+      } else {
+        await this.responder.replyToFailed(regularComments, "fix session produced no changes.");
+      }
     }
     if (verifyComments.length > 0) {
       await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
