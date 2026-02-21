@@ -129,14 +129,14 @@ yarn test:watch  # Run tests in watch mode
 
 ### Does this violate Anthropic's Terms of Service?
 
-No. orc is a CI/CD automation tool that invokes Claude Code as a subprocess — it does not access the Anthropic API directly or tamper with Claude Code's authentication. Specifically:
+No. `orc` is a CI/CD automation tool that invokes Claude Code as a subprocess — it does not access the Anthropic API directly or tamper with Claude Code's authentication. Specifically:
 
-- **No direct API calls.** orc never makes HTTP requests to `api.anthropic.com` or any Anthropic endpoint. All Claude interactions go through the official [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) (`@anthropic-ai/claude-code`), which spawns Claude Code as a subprocess.
-- **No token extraction.** orc never reads, stores, or forwards OAuth tokens, session tokens, or any credentials from Claude Code's internal state or config files.
-- **No header spoofing.** orc never sets `Authorization`, `User-Agent`, `X-Api-Key`, or any other HTTP header to impersonate Claude Code.
-- **No credential parsing.** orc never accesses `~/.claude`, Claude Code's authentication files, or any credential storage. Authentication is handled entirely by Claude Code itself.
+- **No direct API calls.** `orc` never makes HTTP requests to `api.anthropic.com` or any Anthropic endpoint. All Claude interactions go through the official [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) (`@anthropic-ai/claude-code`), which spawns Claude Code as a subprocess.
+- **No token extraction.** `orc` never reads, stores, or forwards OAuth tokens, session tokens, or any credentials from Claude Code's internal state or config files.
+- **No header spoofing.** `orc` never sets `Authorization`, `User-Agent`, `X-Api-Key`, or any other HTTP header to impersonate Claude Code.
+- **No credential parsing.** `orc` never accesses `~/.claude`, Claude Code's authentication files, or any credential storage. Authentication is handled entirely by Claude Code itself.
 
-orc is architecturally equivalent to a shell script that runs `claude` commands in a loop — it just adds a TUI dashboard and PR-aware orchestration on top.
+`orc` is architecturally equivalent to a shell script that runs `claude` commands in a loop — it just adds a TUI dashboard and PR-aware orchestration on top.
 
 ## License
 
