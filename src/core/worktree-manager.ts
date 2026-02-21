@@ -33,9 +33,17 @@ export class WorktreeManager {
 
     fs.mkdirSync(WORKTREE_BASE, { recursive: true });
 
+    // Fetch the branch from origin so the ref exists locally
+    // (needed for branches created remotely, e.g. by Claude web agent)
+    try {
+      await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
+    } catch {
+      // Branch may already exist locally; continue and let worktree add fail if truly missing
+    }
+
     logger.info(`Creating worktree at ${worktreePath}`, branch);
 
-    await exec("git", ["worktree", "add", "--detach", worktreePath, branch], {
+    await exec("git", ["worktree", "add", "--detach", worktreePath, `origin/${branch}`], {
       cwd: this.cwd,
     });
 
