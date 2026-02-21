@@ -69,11 +69,23 @@ export class CommentFetcher {
       const firstComment = thread.comments.nodes[0];
       if (!firstComment) continue;
 
-      // Skip threads where Orc has already replied
-      const alreadyReplied = thread.comments.nodes.some(
-        (c) => isPilotReply(c.body),
-      );
-      if (alreadyReplied) {
+      // Skip threads where Orc has replied AND no new reviewer
+      // comments appeared after that reply.  If a reviewer responds
+      // after Orc's last reply (keeping the thread unresolved), the
+      // thread should be picked up again.
+      const lastOrcReplyAt = thread.comments.nodes
+        .filter((c) => isPilotReply(c.body))
+        .reduce<string | null>(
+          (latest, c) => (!latest || c.createdAt > latest ? c.createdAt : latest),
+          null,
+        );
+
+      if (
+        lastOrcReplyAt !== null &&
+        !thread.comments.nodes.some(
+          (c) => !isPilotReply(c.body) && c.createdAt > lastOrcReplyAt,
+        )
+      ) {
         logger.debug(`Skipping thread ${thread.id} — already replied`, this.branch);
         continue;
       }
