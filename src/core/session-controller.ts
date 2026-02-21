@@ -24,6 +24,7 @@ import type {
   SessionMode,
 } from "../types/index.js";
 import type { Config } from "../types/config.js";
+import { loadSettings, saveSettings } from "../utils/settings.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/retry.js";
 import { exec } from "../utils/process.js";
@@ -47,6 +48,8 @@ export class SessionController extends EventEmitter {
   private abortController: AbortController;
   private running = false;
   private startedAt = 0;
+  private conflictResolve: ((action: "resolve" | "dismiss") => void) | null = null;
+  private pendingBaseBranch: string | null = null;
 
   constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore) {
     super();
@@ -147,6 +150,101 @@ export class SessionController extends EventEmitter {
     }
   }
 
+  /** Rebase-only mode: rebase onto base, resolve conflicts if needed, push, then done. */
+  async startRebase(): Promise<void> {
+    this.running = true;
+    this.startedAt = Date.now();
+
+    try {
+      this.setStatus("initializing");
+      await this.ghClient.validateAuth();
+
+      const pr = await this.ghClient.findPRForBranch(this.branch);
+      if (!pr) {
+        throw new Error(`No open PR found for branch "${this.branch}"`);
+      }
+      if (pr.state !== "OPEN") {
+        throw new Error(`PR #${pr.number} is ${pr.state}, not OPEN`);
+      }
+
+      this.state.prNumber = pr.number;
+      this.state.prUrl = pr.url;
+      this.repoConfig = await loadRepoConfig(this.cwd);
+
+      logger.info(`Rebasing PR #${pr.number} onto ${pr.baseRefName}`, this.branch);
+
+      // Rebase onto base branch
+      const baseBranch = pr.baseRefName;
+      logger.info("Rebasing onto base branch", this.branch);
+      const rebasedOntoBase = await this.gitManager.pullRebase(baseBranch);
+      if (!rebasedOntoBase) {
+        const settings = loadSettings();
+        if (settings?.autoResolveConflicts) {
+          logger.info("Auto-resolving merge conflicts with Claude", this.branch);
+          const resolved = await this.resolveConflicts(baseBranch);
+          if (!resolved) {
+            this.state.error = "Conflict resolution failed — manual intervention needed";
+            this.setStatus("error");
+            this.running = false;
+            return;
+          }
+        } else {
+          // Pause and prompt user
+          this.pendingBaseBranch = baseBranch;
+          this.state.conflicted = await this.getConflictFiles(baseBranch);
+          if (this.state.conflicted.length === 0) {
+            this.state.conflicted = ["rebase conflict"];
+          }
+          this.setStatus("conflict_prompt");
+
+          const action = await new Promise<"resolve" | "dismiss">((resolve) => {
+            this.conflictResolve = resolve;
+          });
+          this.conflictResolve = null;
+          this.pendingBaseBranch = null;
+
+          if (action === "dismiss") {
+            this.state.error = "Conflict resolution dismissed";
+            this.setStatus("error");
+            this.running = false;
+            return;
+          }
+
+          const resolved = await this.resolveConflicts(baseBranch);
+          if (!resolved) {
+            this.state.error = "Conflict resolution failed — manual intervention needed";
+            this.setStatus("error");
+            this.running = false;
+            return;
+          }
+        }
+      }
+      this.state.conflicted = [];
+
+      // Push the rebased branch
+      this.setStatus("pushing");
+      const pushed = await this.gitManager.forcePushWithLease();
+      if (pushed) {
+        logger.info("Pushed rebased branch", this.branch);
+        this.state.lastPushAt = new Date().toISOString();
+        this.emit("pushed", this.branch);
+      } else {
+        logger.error("Push failed after rebase", this.branch);
+      }
+
+      this.setStatus("ready");
+      this.running = false;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.state.error = message;
+      this.setStatus("error");
+      logger.error(message, this.branch);
+    } finally {
+      this.emit("ready", this.branch, this.state);
+>>>>>>> f071afe (fixup! feat: add merge conflict resolution and terminal settings)
+    }
+  }
+
   stop(): void {
     this.running = false;
     this.abortController.abort();
@@ -156,16 +254,68 @@ export class SessionController extends EventEmitter {
   private async runCycle(baseBranch: string): Promise<void> {
 
     // 0. REBASE — proactively rebase onto base branch before starting
+    let conflictsResolved = false;
     logger.info("Rebasing onto base branch before cycle", this.branch);
     const rebasedOntoBase = await this.gitManager.pullRebase(baseBranch);
     if (!rebasedOntoBase) {
-      this.state.conflicted = ["rebase conflict"];
-      this.state.error = "Rebase conflict with base branch — manual intervention needed";
-      this.setStatus("error");
-      this.running = false;
-      return;
+      const settings = loadSettings();
+      if (settings?.autoResolveConflicts) {
+        logger.info("Auto-resolving merge conflicts with Claude", this.branch);
+        const resolved = await this.resolveConflicts(baseBranch);
+        if (!resolved) {
+          this.state.error = "Auto-resolve failed — manual intervention needed";
+          this.setStatus("error");
+          this.running = false;
+          return;
+        }
+        conflictsResolved = true;
+      } else {
+        // Pause and wait for user decision via TUI prompt
+        this.pendingBaseBranch = baseBranch;
+        this.state.conflicted = await this.getConflictFiles(baseBranch);
+        if (this.state.conflicted.length === 0) {
+          this.state.conflicted = ["rebase conflict"];
+        }
+        this.setStatus("conflict_prompt");
+
+        const action = await new Promise<"resolve" | "dismiss">((resolve) => {
+          this.conflictResolve = resolve;
+        });
+        this.conflictResolve = null;
+        this.pendingBaseBranch = null;
+
+        if (action === "dismiss") {
+          this.state.error = "Rebase conflict with base branch — manual intervention needed";
+          this.setStatus("error");
+          this.running = false;
+          return;
+        }
+
+        // User chose to resolve
+        const resolved = await this.resolveConflicts(baseBranch);
+        if (!resolved) {
+          this.state.error = "Conflict resolution failed — manual intervention needed";
+          this.setStatus("error");
+          this.running = false;
+          return;
+        }
+        conflictsResolved = true;
+      }
     }
     this.state.conflicted = [];
+
+    // Push the rebased branch so the resolution persists on the remote
+    if (conflictsResolved) {
+      this.setStatus("pushing");
+      const pushed = await this.gitManager.forcePushWithLease();
+      if (pushed) {
+        logger.info("Pushed rebased branch after conflict resolution", this.branch);
+        this.state.lastPushAt = new Date().toISOString();
+        this.emit("pushed", this.branch);
+      } else {
+        logger.error("Failed to push after conflict resolution", this.branch);
+      }
+    }
 
     // Reset CI fix attempts at the start of each cycle
     this.state.ciFixAttempts = 0;
@@ -436,6 +586,147 @@ export class SessionController extends EventEmitter {
     // Wait before next cycle to let GitHub propagate replies (only in watch mode)
     if (this.mode === "watch") {
       await sleep(this.config.pollInterval * 1000);
+    }
+  }
+
+  /** Called by the daemon when the TUI user presses R or A on a conflict prompt. */
+  acceptConflictResolution(always: boolean): void {
+    if (always) {
+      saveSettings({ autoResolveConflicts: true });
+      logger.info("Saved autoResolveConflicts=true to settings", this.branch);
+    }
+    if (this.conflictResolve) {
+      this.conflictResolve("resolve");
+    }
+  }
+
+  /** Called by the daemon when the TUI user presses Esc on a conflict prompt. */
+  dismissConflictResolution(): void {
+    if (this.conflictResolve) {
+      this.conflictResolve("dismiss");
+    }
+  }
+
+  /** Attempt to resolve conflicts by having Claude reconcile divergent changes. */
+  private async resolveConflicts(baseBranch: string): Promise<boolean> {
+    this.setStatus("fixing");
+    this.state.claudeActivity = [];
+
+    const conflictContext = await this.buildConflictContext(baseBranch);
+
+    const MAX_ACTIVITY_LINES = 10;
+    const fixResult = await this.executor.executeConflictFix(
+      conflictContext,
+      this.repoConfig,
+      this.abortController.signal,
+      (line: string) => {
+        this.state.claudeActivity.push(line);
+        if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
+          this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
+        }
+        this.emit("sessionUpdate", this.branch, this.getState());
+      },
+    );
+
+    this.state.lastSessionId = fixResult.sessionId;
+    this.state.totalCostUsd += fixResult.costUsd;
+    this.state.claudeActivity = [];
+
+    if (fixResult.isError) {
+      logger.error("Conflict resolution session failed", this.branch);
+      return false;
+    }
+
+    // Clean uncommitted files left by Claude
+    const postFixDirty = await this.gitManager.hasUncommittedChanges();
+    if (postFixDirty) {
+      await this.gitManager.discardChanges();
+    }
+
+    // Retry the rebase — Claude's edits should have pre-resolved the conflicts
+    logger.info("Retrying rebase after conflict resolution", this.branch);
+    const retryRebase = await this.gitManager.pullRebase(baseBranch);
+    if (!retryRebase) {
+      logger.error("Rebase still fails after conflict resolution", this.branch);
+      return false;
+    }
+
+    logger.info("Conflicts resolved successfully", this.branch);
+    return true;
+  }
+
+  /** Build context string describing merge conflicts for the fix executor. */
+  private async buildConflictContext(baseBranch: string): Promise<string> {
+    const sections: string[] = [];
+
+    const conflictFiles = await this.getConflictFiles(baseBranch);
+    if (conflictFiles.length > 0) {
+      sections.push(`## Conflicting Files\n`);
+      for (const file of conflictFiles) {
+        sections.push(`- ${file}`);
+      }
+      sections.push("");
+    }
+
+    // Get the diff showing divergence
+    try {
+      const { stdout: diffOutput } = await exec("git", [
+        "diff", `origin/${baseBranch}...HEAD`,
+      ], { cwd: this.cwd });
+      if (diffOutput.trim()) {
+        sections.push("## Branch Divergence (diff)\n");
+        const maxLen = 20000;
+        const diff = diffOutput.length > maxLen
+          ? diffOutput.slice(0, maxLen) + "\n... (truncated)"
+          : diffOutput;
+        sections.push("```diff\n" + diff + "\n```\n");
+      }
+    } catch (err) {
+      logger.debug(`Failed to get divergence diff: ${err}`, this.branch);
+    }
+
+    // Get base branch versions of conflicting files for context
+    for (const file of conflictFiles.slice(0, 10)) {
+      if (file === "(unknown)") continue;
+      try {
+        const { stdout: baseVersion } = await exec("git", [
+          "show", `origin/${baseBranch}:${file}`,
+        ], { cwd: this.cwd, allowFailure: true });
+        if (baseVersion.trim()) {
+          sections.push(`## Base branch version: ${file}\n`);
+          const maxLen = 5000;
+          const content = baseVersion.length > maxLen
+            ? baseVersion.slice(0, maxLen) + "\n... (truncated)"
+            : baseVersion;
+          sections.push("```\n" + content + "\n```\n");
+        }
+      } catch {
+        // File may not exist on base branch
+      }
+    }
+
+    return sections.join("\n");
+  }
+
+  /** Get list of files that would conflict in a merge with the base branch. */
+  private async getConflictFiles(baseBranch: string): Promise<string[]> {
+    try {
+      const { stdout, exitCode } = await exec("git", [
+        "merge-tree", "--write-tree", "HEAD", `origin/${baseBranch}`,
+      ], { cwd: this.cwd, allowFailure: true });
+
+      if (exitCode === 0) return [];
+
+      const conflictPaths: string[] = [];
+      for (const line of stdout.split("\n")) {
+        const match = line.match(/^CONFLICT \([^)]+\): Merge conflict in (.+)$/);
+        if (match) {
+          conflictPaths.push(match[1]);
+        }
+      }
+      return conflictPaths;
+    } catch {
+      return [];
     }
   }
 

@@ -253,8 +253,32 @@ export function DetailPanel({
         />
       )}
 
-      {/* Conflict indicator */}
-      {conflicted.length > 0 && (
+      {/* Conflict prompt — waiting for user action */}
+      {state?.status === "conflict_prompt" && conflicted.length > 0 && (
+        <>
+          <Box marginTop={1}>
+            <Text color="yellow" bold>{"! "}</Text>
+            <Text color="yellow">Branch has conflicts with base</Text>
+          </Box>
+          {conflicted.map((file, i) => (
+            <Box key={i} marginLeft={2}>
+              <Text color="yellow">{"· "}</Text>
+              <Text>{file}</Text>
+            </Box>
+          ))}
+          <Box marginTop={1} marginLeft={2}>
+            <Text color="green" bold>[R]</Text>
+            <Text> Resolve with Claude  </Text>
+            <Text color="cyan" bold>[A]</Text>
+            <Text> Always resolve with Claude  </Text>
+            <Text dimColor bold>[Esc]</Text>
+            <Text dimColor> Dismiss</Text>
+          </Box>
+        </>
+      )}
+
+      {/* Conflict indicator (idle / not in prompt) */}
+      {state?.status !== "conflict_prompt" && conflicted.length > 0 && (
         <>
           <Box marginTop={1}>
             <Text color="red" bold>{"! "}</Text>

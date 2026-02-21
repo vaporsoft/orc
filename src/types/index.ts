@@ -85,6 +85,7 @@ export type BranchStatus =
   | "pushing"
   | "replying"
   | "done"
+  | "conflict_prompt"
   | "error"
   | "merged";
 

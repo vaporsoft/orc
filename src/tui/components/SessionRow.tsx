@@ -45,10 +45,7 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
   const status = entry.mergedAt ? "merged" as const : (state?.status ?? "stopped");
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
-  // Conflict trumps CI — can't pass CI with merge conflicts
-  const ci = conflicted.length > 0
-    ? { symbol: "!", color: "red" }
-    : CI_INDICATORS[ciStatus];
+  const ci = CI_INDICATORS[ciStatus];
 
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
@@ -85,6 +82,11 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
       <Box width={4}>
         <Text color={ci.color}>{ci.symbol}</Text>
       </Box>
+      <Box width={12}>
+        <Text color={conflicted.length > 0 ? "red" : "gray"}>
+          {conflicted.length > 0 ? `${conflicted.length} file${conflicted.length > 1 ? "s" : ""}` : "—"}
+        </Text>
+      </Box>
       <Box width={10}>
         <Text color={commentCount > 0 ? theme.warning : theme.muted} dimColor={dimmed}>
           {commentCount > 0 ? String(commentCount) : "—"}
@@ -105,11 +107,6 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
       <Box width={10}>
         <Text dimColor>{lastPush}</Text>
       </Box>
-      {state?.error && (
-        <Box>
-          <Text color="red"> !</Text>
-        </Box>
-      )}
     </Box>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
 import { openTerminal } from "../utils/open-terminal.js";
@@ -87,6 +87,19 @@ export function App({ daemon, startTime }: AppProps) {
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
 
+  // Auto-focus a session that enters conflict_prompt
+  useEffect(() => {
+    const conflictIndex = openBranches.findIndex((b) => {
+      const e = entries.get(b);
+      return e?.state?.status === "conflict_prompt";
+    });
+    if (conflictIndex >= 0) {
+      setSessionIndex(conflictIndex);
+      setShowDetail(true);
+      setFocusedPane("sessions");
+    }
+  }, [entries]);
+
   const toolbarButtons: ToolbarButton[] = [
     { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
@@ -122,6 +135,26 @@ export function App({ daemon, startTime }: AppProps) {
     if (input === "d" && mergedBranches.length > 0) {
       onClearMerged();
       return;
+    }
+
+    // Conflict resolution: R to resolve once, A to always auto-resolve
+    if (focusedPane === "sessions") {
+      const branch = openBranches[sessionIndex];
+      const entry = branch ? entries.get(branch) : undefined;
+      if (entry?.state?.status === "conflict_prompt") {
+        if (input === "r" || input === "R") {
+          daemon.resolveConflicts(branch, false);
+          return;
+        }
+        if (input === "a" || input === "A") {
+          daemon.resolveConflicts(branch, true);
+          return;
+        }
+        if (key.escape) {
+          daemon.dismissConflictResolution(branch);
+          return;
+        }
+      }
     }
 
     // Retry/restart errored or stopped session

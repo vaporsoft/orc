@@ -55,7 +55,7 @@ export class FixExecutor {
     });
     logger.debug("Fix prompt:\n" + prompt);
 
-    const systemSuffix = this.buildSystemSuffix(pilotConfig, "review");
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "review");
     const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session");
 
     // Add verify results for review feedback
@@ -63,9 +63,28 @@ export class FixExecutor {
     return result;
   }
 
+  /** Execute a conflict resolution fix, given context about the merge conflicts. */
+  async executeConflictFix(
+    conflictContext: string,
+    repoConfig: RepoConfig,
+    abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
+  ): Promise<FixResult> {
+    const prompt = this.buildConflictPrompt(conflictContext);
+    logger.info("Invoking Claude Code to resolve merge conflicts");
+    logger.debug("Conflict fix prompt:\n" + prompt);
+
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "conflict");
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude conflict resolution session");
+  }
+
   /** Build system suffix based on execution mode and pilot config. */
-  private buildSystemSuffix(pilotConfig: RepoPilotConfig, mode: "review" | "ci"): string {
-    let systemSuffix = mode === "review"
+  private buildSystemSuffix(repoConfig: RepoConfig, mode: "review" | "ci" | "conflict"): string {
+    let systemSuffix = mode === "conflict"
+      ? `You are resolving merge conflicts between this branch and the base branch. Examine the conflicting files, understand both sides of the changes, and make edits that correctly incorporate both sets of changes. After resolving, commit with a message prefixed with "fix(conflict): ".
+
+Do not push — the orchestrator handles that.`
+      : mode === "review"
       ? `You are fixing PR review feedback. Make targeted, minimal changes.
 
 After making changes, commit them. Prefer fixup commits when you can confidently identify the parent commit that introduced the code being fixed: git commit --fixup=<sha>
@@ -79,12 +98,12 @@ After making changes, commit them with a descriptive message prefixed with "fix(
 
 Do not push — the orchestrator handles that.`;
 
-    if (pilotConfig.instructions) {
-      systemSuffix += `\n\n## Repo-Specific Instructions\n${pilotConfig.instructions}`;
+    if (repoConfig.instructions) {
+      systemSuffix += `\n\n## Repo-Specific Instructions\n${repoConfig.instructions}`;
     }
 
-    if (pilotConfig.verifyCommands.length > 0 && mode !== "conflict") {
-      systemSuffix += `\n\nAfter making changes, run these verification commands:\n${pilotConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
+    if (repoConfig.verifyCommands.length > 0 && mode !== "conflict") {
+      systemSuffix += `\n\nAfter making changes, run these verification commands:\n${repoConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
     } else if (mode === "review") {
       systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
     }
@@ -213,7 +232,7 @@ Do not push — the orchestrator handles that.`;
   /** Execute a CI-specific fix cycle, given context about the failures. */
   async executeCIFix(
     ciContext: string,
-    pilotConfig: RepoPilotConfig,
+    repoConfig: RepoConfig,
     abortSignal?: AbortSignal,
     onActivity?: (line: string) => void,
   ): Promise<FixResult> {
@@ -221,8 +240,22 @@ Do not push — the orchestrator handles that.`;
     logger.info("Invoking Claude Code to fix CI failures");
     logger.debug("CI fix prompt:\n" + prompt);
 
-    const systemSuffix = this.buildSystemSuffix(pilotConfig, "ci");
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "ci");
     return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session");
+  }
+
+  private buildConflictPrompt(conflictContext: string): string {
+    const sections: string[] = [];
+
+    sections.push(
+      "# Merge Conflict Resolution\n\nThis branch has conflicts with the base branch. The rebase was aborted. Resolve the conflicts by examining both sides and making edits that correctly incorporate all changes.\n",
+    );
+
+    sections.push(conflictContext);
+
+    sections.push("\nMake targeted edits to resolve the conflicts and create a commit.\n");
+
+    return sections.join("\n");
   }
 
   private buildCIPrompt(ciContext: string, pilotConfig: RepoPilotConfig): string {

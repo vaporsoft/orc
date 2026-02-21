@@ -40,4 +40,8 @@ export const ALLOWED_TOOLS = [
   "Bash(yarn lint *)",
   "Bash(yarn typecheck *)",
   "Bash(yarn test *)",
+  "Bash(git merge-tree *)",
+  "Bash(git rebase *)",
+  "Bash(git show *)",
+  "Bash(git checkout *)",
 ] as const;
