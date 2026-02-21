@@ -9,6 +9,23 @@ export interface GHPullRequest {
   baseRefName: string;
   headRefOid: string;
   author: { login: string };
+  commits?: {
+    nodes: Array<{
+      commit: {
+        statusCheckRollup: {
+          contexts: {
+            nodes: Array<{
+              databaseId?: number;
+              name?: string;
+              status?: string;
+              conclusion?: string | null;
+              detailsUrl?: string;
+            }>;
+          };
+        } | null;
+      };
+    }>;
+  };
 }
 
 export interface GHReviewComment {

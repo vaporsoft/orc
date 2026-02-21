@@ -199,6 +199,20 @@ export class Daemon extends EventEmitter {
     await this.startAll("watch");
   }
 
+  resolveConflicts(branch: string, always: boolean): void {
+    const session = this.sessions.get(branch);
+    if (session) {
+      session.controller.acceptConflictResolution(always);
+    }
+  }
+
+  dismissConflictResolution(branch: string): void {
+    const session = this.sessions.get(branch);
+    if (session) {
+      session.controller.dismissConflictResolution();
+    }
+  }
+
   async stopAll(): Promise<void> {
     for (const branch of [...this.sessions.keys()]) {
       await this.stopBranch(branch);
@@ -256,12 +270,14 @@ export class Daemon extends EventEmitter {
       }
     }
 
-    // Fetch comment counts for all discovered PRs
-    await this.updateCommentCounts(prs);
+    // Extract CI statuses from PR data (no extra API calls)
+    this.updateCIStatusesFromPRs(prs);
 
-    // Fetch CI statuses and conflict statuses
-    await this.updateCIStatuses(prs);
-    await this.updateConflictStatuses(prs);
+    // Fetch comment counts and conflict statuses in parallel
+    await Promise.all([
+      this.updateCommentCounts(prs),
+      this.updateConflictStatuses(prs),
+    ]);
 
     // Handle PRs that are no longer open (closed or merged)
     for (const branch of [...this.discoveredPRs.keys()]) {
@@ -309,13 +325,13 @@ export class Daemon extends EventEmitter {
   private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
     if (!this.botLogin) return;
 
-    for (const pr of prs) {
+    await Promise.all(prs.map(async (pr) => {
       // Skip branches with active sessions — they manage their own comment state
-      if (this.sessions.has(pr.headRefName)) continue;
+      if (this.sessions.has(pr.headRefName)) return;
 
       try {
         const fetcher = new CommentFetcher(
-          this.ghClient, pr.number, this.botLogin, pr.headRefName,
+          this.ghClient, pr.number, this.botLogin!, pr.headRefName,
         );
         const fetched = await fetcher.fetch();
         const count = fetched.length;
@@ -332,7 +348,7 @@ export class Daemon extends EventEmitter {
       } catch (err) {
         logger.debug(`Failed to fetch comments for ${pr.headRefName}: ${err}`);
       }
-    }
+    }));
   }
 
   private async launchSession(pr: GHPullRequest, mode: SessionMode = "once"): Promise<void> {
@@ -445,51 +461,47 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  /** Poll CI check statuses for all discovered PRs not actively running. */
-  private async updateCIStatuses(prs: GHPullRequest[]): Promise<void> {
+  /** Extract CI check statuses from PR data (embedded in the discovery query). */
+  private updateCIStatusesFromPRs(prs: GHPullRequest[]): void {
     for (const pr of prs) {
       if (this.sessions.has(pr.headRefName)) continue;
 
-      try {
-        const checks = await this.ghClient.getCheckRuns(pr.number);
-        if (checks.length === 0) {
-          this.updateCIStatus(pr.headRefName, "unknown", []);
-          continue;
-        }
+      const commitNode = pr.commits?.nodes?.[0];
+      const rollup = commitNode?.commit?.statusCheckRollup;
+      if (!rollup) {
+        this.updateCIStatus(pr.headRefName, "unknown", []);
+        continue;
+      }
 
-        const allCompleted = checks.every((c) => c.status === "completed");
-        if (!allCompleted) {
-          this.updateCIStatus(pr.headRefName, "pending", []);
-          continue;
-        }
+      const checks = rollup.contexts.nodes.filter((n) => n.name);
+      if (checks.length === 0) {
+        this.updateCIStatus(pr.headRefName, "unknown", []);
+        continue;
+      }
 
-        const failed = checks.filter((c) => c.conclusion === "failure");
-        if (failed.length === 0) {
-          this.updateCIStatus(pr.headRefName, "passing", []);
-        } else {
-          const failedChecks: FailedCheck[] = failed.map((c) => ({
-            id: c.id,
-            name: c.name,
-            htmlUrl: c.html_url,
-            logSnippet: null,
-          }));
-          this.updateCIStatus(pr.headRefName, "failing", failedChecks);
-        }
-      } catch (err) {
-        logger.debug(`Failed to fetch CI status for ${pr.headRefName}: ${err}`);
+      const allCompleted = checks.every((c) => c.status?.toUpperCase() === "COMPLETED");
+      if (!allCompleted) {
+        this.updateCIStatus(pr.headRefName, "pending", []);
+        continue;
+      }
+
+      const failed = checks.filter((c) => c.conclusion?.toUpperCase() === "FAILURE");
+      if (failed.length === 0) {
+        this.updateCIStatus(pr.headRefName, "passing", []);
+      } else {
+        const failedChecks: FailedCheck[] = failed.map((c) => ({
+          id: c.databaseId ?? 0,
+          name: c.name!,
+          htmlUrl: c.detailsUrl ?? "",
+          logSnippet: null,
+        }));
+        this.updateCIStatus(pr.headRefName, "failing", failedChecks);
       }
     }
   }
 
   private updateCIStatus(branch: string, status: CIStatus, failedChecks: FailedCheck[]): void {
     const prev = this.ciStatuses.get(branch);
-
-    // First poll for this branch and result is "passing" — suppress it.
-    // The API often returns stale passing checks before new CI runs appear.
-    if (status === "passing" && prev === undefined) {
-      this.ciStatuses.set(branch, "unknown");
-      return;
-    }
 
     this.ciStatuses.set(branch, status);
     this.ciFailedChecks.set(branch, failedChecks);
@@ -500,8 +512,8 @@ export class Daemon extends EventEmitter {
 
   /** Detect merge conflicts with base branch for all discovered PRs not actively running. */
   private async updateConflictStatuses(prs: GHPullRequest[]): Promise<void> {
-    for (const pr of prs) {
-      if (this.sessions.has(pr.headRefName)) continue;
+    await Promise.all(prs.map(async (pr) => {
+      if (this.sessions.has(pr.headRefName)) return;
 
       try {
         await exec("git", ["fetch", "origin", pr.baseRefName, pr.headRefName], {
@@ -535,7 +547,7 @@ export class Daemon extends EventEmitter {
       } catch (err) {
         logger.debug(`Failed to check conflicts for ${pr.headRefName}: ${err}`);
       }
-    }
+    }));
   }
 
   /** Fetch the pushed branch and update the local ref so git log stays current. */

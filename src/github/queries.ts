@@ -88,6 +88,25 @@ query MyOpenPRs($searchQuery: String!) {
         baseRefName
         headRefOid
         author { login }
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 50) {
+                  nodes {
+                    ... on CheckRun {
+                      databaseId
+                      name
+                      status
+                      conclusion
+                      detailsUrl
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
