@@ -517,6 +517,7 @@ export class SessionController extends EventEmitter {
       if (pushed) {
         this.state.lastPushAt = new Date().toISOString();
         this.emit("pushed", this.branch);
+        this.setStatus("listening");
 
         // 6b. CI CHECK — poll checks after push, auto-fix on failure
         await this.checkAndFixCI(baseBranch);
