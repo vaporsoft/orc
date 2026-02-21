@@ -116,6 +116,7 @@ export class Daemon extends EventEmitter {
     if (currentBranch === branch) {
       logger.warn("Cannot start session — branch is checked out locally. Switch to main first.", branch);
       const lifetime = this.progressStore.getLifetimeStats(branch);
+      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -123,7 +124,7 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd: 0,
+        totalCostUsd,
         error: "Branch is checked out locally — switch to main first",
         unresolvedCount: 0,
         commentSummary: null,
@@ -288,6 +289,7 @@ export class Daemon extends EventEmitter {
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       const lifetime = this.progressStore.getLifetimeStats(branch);
+      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -295,7 +297,7 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd: 0,
+        totalCostUsd,
         error: `Failed to create worktree: ${err}`,
         unresolvedCount: 0,
         commentSummary: null,

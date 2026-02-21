@@ -60,6 +60,7 @@ export class SessionController extends EventEmitter {
     this.abortController = new AbortController();
 
     const lifetime = progressStore.getLifetimeStats(branch);
+    const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
 
     this.state = {
       branch,
@@ -68,7 +69,7 @@ export class SessionController extends EventEmitter {
       status: "initializing",
       mode,
       commentsAddressed: 0,
-      totalCostUsd: 0,
+      totalCostUsd,
       error: null,
       unresolvedCount: 0,
       commentSummary: null,

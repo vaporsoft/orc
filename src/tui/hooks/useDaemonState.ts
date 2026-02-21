@@ -25,6 +25,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
     if (!state) {
       const lifetime = progressStore.getLifetimeStats(branch);
       if (lifetime.cycleCount > 0) {
+        const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
         state = {
           branch,
           prNumber: pr.number,
@@ -32,7 +33,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
           status: "stopped",
           mode: "once",
           commentsAddressed: 0,
-          totalCostUsd: 0,
+          totalCostUsd,
           error: null,
           unresolvedCount: 0,
           commentSummary: null,
