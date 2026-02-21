@@ -12,13 +12,13 @@ import { CommentCategorizer } from "./comment-categorizer.js";
 import { FixExecutor } from "./fix-executor.js";
 import { GitManager } from "./git-manager.js";
 import { ThreadResponder } from "./thread-responder.js";
-import { loadPilotConfig } from "./pilot-config.js";
+import { loadRepoConfig } from "./repo-config.js";
 import type { ProgressStore } from "./progress-store.js";
 import type {
   BranchState,
   BranchStatus,
   CommentSummary,
-  RepoPilotConfig,
+  RepoConfig,
   SessionMode,
 } from "../types/index.js";
 import type { Config } from "../types/config.js";
@@ -36,7 +36,7 @@ export class SessionController extends EventEmitter {
   private executor: FixExecutor;
   private gitManager: GitManager;
   private responder!: ThreadResponder;
-  private pilotConfig!: RepoPilotConfig;
+  private repoConfig!: RepoConfig;
   private mode: SessionMode;
   private state: BranchState;
   private progressStore: ProgressStore;
@@ -108,7 +108,7 @@ export class SessionController extends EventEmitter {
       const botLogin = await this.ghClient.getCurrentUser();
       this.fetcher = new CommentFetcher(this.ghClient, pr.number, botLogin, this.branch);
       this.responder = new ThreadResponder(this.ghClient, this.branch, pr.number);
-      this.pilotConfig = await loadPilotConfig(this.cwd);
+      this.repoConfig = await loadRepoConfig(this.cwd);
 
       logger.info(
         `Starting session for PR #${pr.number} (${pr.title})`,
@@ -221,13 +221,13 @@ export class SessionController extends EventEmitter {
       this.branch,
     );
 
-    // 3. FILTER by pilotConfig.autoFix settings
+    // 3. FILTER by repoConfig.autoFix settings
     const actionable = categorized.filter((c) => {
-      if (c.category === "verify_and_fix") return this.pilotConfig.autoFix.verify_and_fix;
+      if (c.category === "verify_and_fix") return this.repoConfig.autoFix.verify_and_fix;
       if (c.category === "false_positive") return false;
-      if (c.category === "must_fix") return this.pilotConfig.autoFix.must_fix;
-      if (c.category === "should_fix") return this.pilotConfig.autoFix.should_fix;
-      if (c.category === "nice_to_have") return this.pilotConfig.autoFix.nice_to_have;
+      if (c.category === "must_fix") return this.repoConfig.autoFix.must_fix;
+      if (c.category === "should_fix") return this.repoConfig.autoFix.should_fix;
+      if (c.category === "nice_to_have") return this.repoConfig.autoFix.nice_to_have;
       return false;
     });
 
@@ -268,7 +268,7 @@ export class SessionController extends EventEmitter {
     const MAX_ACTIVITY_LINES = 10;
     const fixResult = await this.executor.execute(
       actionable,
-      this.pilotConfig,
+      this.repoConfig,
       this.abortController.signal,
       (line: string) => {
         this.state.claudeActivity.push(line);
@@ -297,9 +297,9 @@ export class SessionController extends EventEmitter {
       logger.warn("Fix session had errors, skipping push", this.branch);
     } else if (madeCommits) {
       // 5. VERIFY
-      if (this.pilotConfig.verifyCommands.length > 0) {
+      if (this.repoConfig.verifyCommands.length > 0) {
         this.setStatus("verifying");
-        for (const cmd of this.pilotConfig.verifyCommands) {
+        for (const cmd of this.repoConfig.verifyCommands) {
           try {
             const parts = cmd.split(/\s+/);
             await exec(parts[0], parts.slice(1), { cwd: this.cwd });

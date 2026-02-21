@@ -53,7 +53,7 @@ export interface CycleRecord {
   costUsd: number;
 }
 
-export interface RepoPilotConfig {
+export interface RepoConfig {
   instructions: string;
   verifyCommands: string[];
   autoFix: {

@@ -16,7 +16,7 @@ import { logger } from "../utils/logger.js";
 /** Signature Orc leaves in every reply. */
 const BOT_SIGNATURE = "Orc";
 
-function isPilotReply(body: string): boolean {
+function isOrcReply(body: string): boolean {
   return body.includes(BOT_SIGNATURE);
 }
 
@@ -74,7 +74,7 @@ export class CommentFetcher {
       // after Orc's last reply (keeping the thread unresolved), the
       // thread should be picked up again.
       const lastOrcReplyAt = thread.comments.nodes
-        .filter((c) => isPilotReply(c.body))
+        .filter((c) => isOrcReply(c.body))
         .reduce<string | null>(
           (latest, c) => (!latest || c.createdAt > latest ? c.createdAt : latest),
           null,
@@ -83,14 +83,17 @@ export class CommentFetcher {
       if (
         lastOrcReplyAt !== null &&
         !thread.comments.nodes.some(
-          (c) => !isPilotReply(c.body) && c.createdAt > lastOrcReplyAt,
+          (c) => !isOrcReply(c.body) && c.createdAt > lastOrcReplyAt,
         )
       ) {
         logger.debug(`Skipping thread ${thread.id} — already replied`, this.branch);
         continue;
       }
 
-      const body = thread.comments.nodes.map((c) => c.body).join("\n\n---\n\n");
+      const body = thread.comments.nodes
+        .filter((c) => !isOrcReply(c.body))
+        .map((c) => c.body)
+        .join("\n\n---\n\n");
       results.push({
         thread: {
           id: firstComment.id,
@@ -116,7 +119,7 @@ export class CommentFetcher {
 
     for (const comment of comments) {
       // Skip Orc's own replies
-      if (isPilotReply(comment.body)) continue;
+      if (isOrcReply(comment.body)) continue;
 
       // Skip bot commands like "@cursor review" — not review feedback
       if (isBotCommand(comment.body)) {
@@ -127,7 +130,7 @@ export class CommentFetcher {
       // Check if a later Orc reply addresses this comment
       const alreadyReplied = comments.some(
         (c) =>
-          isPilotReply(c.body) &&
+          isOrcReply(c.body) &&
           c.createdAt > comment.createdAt,
       );
       if (alreadyReplied) {
