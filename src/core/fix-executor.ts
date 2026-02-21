@@ -81,9 +81,9 @@ export class FixExecutor {
   /** Build system suffix based on execution mode and pilot config. */
   private buildSystemSuffix(repoConfig: RepoConfig, mode: "review" | "ci" | "conflict"): string {
     let systemSuffix = mode === "conflict"
-      ? `You are resolving merge conflicts between this branch and the base branch. Examine the conflicting files, understand both sides of the changes, and make edits that correctly incorporate both sets of changes. After resolving, commit with a message prefixed with "fix(conflict): ".
+      ? `You are resolving merge conflicts during a git rebase. The rebase is paused with conflict markers (<<<<<<< / ======= / >>>>>>>) in the listed files. Read each conflicting file, understand both sides, and edit them to produce the correct merged result with all conflict markers removed.
 
-Do not push — the orchestrator handles that.`
+Do NOT run git commands (no git add, commit, rebase --continue, etc). Just edit the files. The orchestrator handles staging and continuing the rebase.`
       : mode === "review"
       ? `You are fixing PR review feedback. Make targeted, minimal changes.
 
@@ -248,12 +248,12 @@ Do not push — the orchestrator handles that.`;
     const sections: string[] = [];
 
     sections.push(
-      "# Merge Conflict Resolution\n\nThis branch has conflicts with the base branch. The rebase was aborted. Resolve the conflicts by examining both sides and making edits that correctly incorporate all changes.\n",
+      "# Merge Conflict Resolution\n\nA git rebase is in progress and has paused due to conflicts. The conflicting files contain <<<<<<< / ======= / >>>>>>> markers. Read each file, understand both sides, and edit to produce the correct merged result.\n",
     );
 
     sections.push(conflictContext);
 
-    sections.push("\nMake targeted edits to resolve the conflicts and create a commit.\n");
+    sections.push("\nEdit the files to remove all conflict markers. Do not run any git commands.\n");
 
     return sections.join("\n");
   }

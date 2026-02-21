@@ -608,105 +608,90 @@ export class SessionController extends EventEmitter {
     }
   }
 
-  /** Attempt to resolve conflicts by having Claude reconcile divergent changes. */
+  /** Attempt to resolve conflicts by starting the rebase, letting Claude fix conflict markers, then continuing. */
   private async resolveConflicts(baseBranch: string): Promise<boolean> {
     this.setStatus("fixing");
     this.state.claudeActivity = [];
 
-    const conflictContext = await this.buildConflictContext(baseBranch);
+    // Start the rebase — this will stop at the first conflict
+    logger.info("Starting rebase to expose conflict markers", this.branch);
+    const conflictFiles = await this.gitManager.startConflictingRebase(baseBranch);
 
-    const MAX_ACTIVITY_LINES = 10;
-    const fixResult = await this.executor.executeConflictFix(
-      conflictContext,
-      this.repoConfig,
-      this.abortController.signal,
-      (line: string) => {
-        this.state.claudeActivity.push(line);
-        if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
-          this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
-        }
-        this.emit("sessionUpdate", this.branch, this.getState());
-      },
-    );
+    if (conflictFiles === null) {
+      logger.info("Rebase succeeded without conflicts", this.branch);
+      return true;
+    }
 
-    this.state.lastSessionId = fixResult.sessionId;
-    this.state.totalCostUsd += fixResult.costUsd;
-    this.state.claudeActivity = [];
-
-    if (fixResult.isError) {
-      logger.error("Conflict resolution session failed", this.branch);
+    if (conflictFiles.length === 0) {
+      logger.error("Rebase failed for non-conflict reason", this.branch);
       return false;
     }
 
-    // Clean uncommitted files left by Claude
-    const postFixDirty = await this.gitManager.hasUncommittedChanges();
-    if (postFixDirty) {
-      await this.gitManager.discardChanges();
-    }
+    // Loop: resolve conflicts at each rebase step
+    const MAX_ROUNDS = 10;
+    let round = 0;
+    let currentFiles = conflictFiles;
 
-    // Retry the rebase — Claude's edits should have pre-resolved the conflicts
-    logger.info("Retrying rebase after conflict resolution", this.branch);
-    const retryRebase = await this.gitManager.pullRebase(baseBranch);
-    if (!retryRebase) {
-      logger.error("Rebase still fails after conflict resolution", this.branch);
-      return false;
-    }
+    while (round < MAX_ROUNDS) {
+      round++;
+      logger.info(`Resolving conflicts (round ${round}): ${currentFiles.join(", ")}`, this.branch);
 
-    logger.info("Conflicts resolved successfully", this.branch);
-    return true;
-  }
+      const conflictContext = [
+        "The rebase has paused with conflict markers in the following files.",
+        "Resolve them by editing the files to remove all <<<<<<< / ======= / >>>>>>> markers,",
+        "keeping the correct combined result.\n",
+        "Conflicting files:",
+        ...currentFiles.map((f) => `- ${f}`),
+      ].join("\n");
 
-  /** Build context string describing merge conflicts for the fix executor. */
-  private async buildConflictContext(baseBranch: string): Promise<string> {
-    const sections: string[] = [];
+      const MAX_ACTIVITY_LINES = 10;
+      const fixResult = await this.executor.executeConflictFix(
+        conflictContext,
+        this.repoConfig,
+        this.abortController.signal,
+        (line: string) => {
+          this.state.claudeActivity.push(line);
+          if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
+            this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
+          }
+          this.emit("sessionUpdate", this.branch, this.getState());
+        },
+      );
 
-    const conflictFiles = await this.getConflictFiles(baseBranch);
-    if (conflictFiles.length > 0) {
-      sections.push(`## Conflicting Files\n`);
-      for (const file of conflictFiles) {
-        sections.push(`- ${file}`);
+      this.state.lastSessionId = fixResult.sessionId;
+      this.state.totalCostUsd += fixResult.costUsd;
+      this.state.claudeActivity = [];
+
+      if (fixResult.isError) {
+        logger.error("Conflict resolution session failed", this.branch);
+        await this.gitManager.abortRebase();
+        return false;
       }
-      sections.push("");
-    }
 
-    // Get the diff showing divergence
-    try {
-      const { stdout: diffOutput } = await exec("git", [
-        "diff", `origin/${baseBranch}...HEAD`,
-      ], { cwd: this.cwd });
-      if (diffOutput.trim()) {
-        sections.push("## Branch Divergence (diff)\n");
-        const maxLen = 20000;
-        const diff = diffOutput.length > maxLen
-          ? diffOutput.slice(0, maxLen) + "\n... (truncated)"
-          : diffOutput;
-        sections.push("```diff\n" + diff + "\n```\n");
+      // Stage resolved files and continue the rebase
+      const continued = await this.gitManager.continueRebase();
+      if (continued) {
+        logger.info("Conflicts resolved successfully", this.branch);
+        return true;
       }
-    } catch (err) {
-      logger.debug(`Failed to get divergence diff: ${err}`, this.branch);
-    }
 
-    // Get base branch versions of conflicting files for context
-    for (const file of conflictFiles.slice(0, 10)) {
-      if (file === "(unknown)") continue;
-      try {
-        const { stdout: baseVersion } = await exec("git", [
-          "show", `origin/${baseBranch}:${file}`,
-        ], { cwd: this.cwd, allowFailure: true });
-        if (baseVersion.trim()) {
-          sections.push(`## Base branch version: ${file}\n`);
-          const maxLen = 5000;
-          const content = baseVersion.length > maxLen
-            ? baseVersion.slice(0, maxLen) + "\n... (truncated)"
-            : baseVersion;
-          sections.push("```\n" + content + "\n```\n");
-        }
-      } catch {
-        // File may not exist on base branch
+      // More conflicts in the next commit — continueRebase returned false,
+      // check if we still have unmerged files
+      const { stdout } = await exec("git", ["diff", "--name-only", "--diff-filter=U"], {
+        cwd: this.cwd,
+        allowFailure: true,
+      });
+      currentFiles = stdout.trim().split("\n").filter(Boolean);
+      if (currentFiles.length === 0) {
+        logger.error("Rebase continue failed without conflict files", this.branch);
+        await this.gitManager.abortRebase();
+        return false;
       }
     }
 
-    return sections.join("\n");
+    logger.error(`Gave up after ${MAX_ROUNDS} conflict resolution rounds`, this.branch);
+    await this.gitManager.abortRebase();
+    return false;
   }
 
   /** Get list of files that would conflict in a merge with the base branch. */
