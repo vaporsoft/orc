@@ -169,7 +169,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Rebase + Claude conflict resolution
     if (input === "f" && focusedPane === "sessions") {
-      const branch = branches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.rebaseBranch(branch).catch(() => {});
       }
@@ -247,7 +247,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Watch selected branch (continuous)
-    if (input === "e" && focusedPane === "sessions") {
+    if (input === "w" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.watchBranch(branch).catch(() => {});
@@ -286,7 +286,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Open worktree shell in new terminal
-    if (input === "w" && focusedPane === "sessions") {
+    if (input === "e" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;

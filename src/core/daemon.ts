@@ -473,9 +473,6 @@ export class Daemon extends EventEmitter {
     if (!this.botLogin) return;
 
     await Promise.all(prs.map(async (pr) => {
-      // Skip branches with active sessions — they manage their own comment state
-      if (this.sessions.has(pr.headRefName)) return;
-
       try {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin!, pr.headRefName,

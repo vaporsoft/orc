@@ -64,7 +64,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       branch,
       pr,
       state,
-      commentCount: counts.get(branch) ?? 0,
+      commentCount: counts.get(branch) ?? state?.unresolvedCount ?? 0,
       commentThreads: threads.get(branch) ?? [],
       ciStatus: isActive && state!.ciStatus !== "unknown" ? state!.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
       failedChecks: isActive && state!.ciStatus !== "unknown" ? (state!.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
