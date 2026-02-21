@@ -29,7 +29,7 @@ export function SessionList({ entries, selectedIndex, focused }: SessionListProp
         <Box width={8}><Text dimColor>pr</Text></Box>
         <Box width={16}><Text dimColor>status</Text></Box>
         <Box width={10}><Text dimColor>comments</Text></Box>
-        <Box width={8}><Text dimColor>fixed</Text></Box>
+        <Box width={12}><Text dimColor>progress</Text></Box>
         <Box width={10}><Text dimColor>cost</Text></Box>
         <Box width={10}><Text dimColor>last push</Text></Box>
       </Box>

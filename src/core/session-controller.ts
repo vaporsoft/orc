@@ -13,6 +13,7 @@ import { FixExecutor } from "./fix-executor.js";
 import { GitManager } from "./git-manager.js";
 import { ThreadResponder } from "./thread-responder.js";
 import { loadPilotConfig } from "./pilot-config.js";
+import type { ProgressStore } from "./progress-store.js";
 import type {
   BranchState,
   BranchStatus,
@@ -38,23 +39,27 @@ export class SessionController extends EventEmitter {
   private pilotConfig!: RepoPilotConfig;
   private mode: SessionMode;
   private state: BranchState;
+  private progressStore: ProgressStore;
   private prAuthor: string | null = null;
   private abortController: AbortController;
   private running = false;
   private startedAt = 0;
 
-  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once") {
+  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore) {
     super();
     this.branch = branch;
     this.config = config;
     this.cwd = cwd;
     this.mode = mode;
+    this.progressStore = progressStore;
 
     this.ghClient = new GHClient(cwd);
     this.categorizer = new CommentCategorizer(cwd, config.confidence);
     this.executor = new FixExecutor(config, cwd);
     this.gitManager = new GitManager(cwd, branch);
     this.abortController = new AbortController();
+
+    const lifetime = progressStore.getLifetimeStats(branch);
 
     this.state = {
       branch,
@@ -71,6 +76,7 @@ export class SessionController extends EventEmitter {
       claudeActivity: [],
       lastSessionId: null,
       workDir: cwd,
+      ...lifetime,
     };
   }
 
@@ -184,6 +190,15 @@ export class SessionController extends EventEmitter {
 
     this.state.unresolvedCount = fetchedComments.length;
 
+    // Record cycle start — registers thread IDs and opens a new cycle record
+    const threadIds = fetchedComments.map((c) => c.thread.threadId);
+    await this.progressStore.recordCycleStart(
+      this.branch,
+      this.state.prNumber!,
+      threadIds,
+    );
+    this.syncLifetimeStats();
+
     // 2. CATEGORIZE
     this.setStatus("categorizing");
     const categorized = await this.categorizer.categorize(fetchedComments);
@@ -272,6 +287,7 @@ export class SessionController extends EventEmitter {
     const headAfter = await this.gitManager.getHeadSha();
     const madeCommits = headAfter !== headBefore;
 
+    let pushed = false;
     if (fixResult.isError) {
       logger.warn("Fix session had errors, skipping push", this.branch);
     } else if (madeCommits) {
@@ -312,7 +328,7 @@ export class SessionController extends EventEmitter {
         return;
       }
 
-      const pushed = await this.gitManager.forcePushWithLease();
+      pushed = await this.gitManager.forcePushWithLease();
       if (pushed) {
         this.state.lastPushAt = new Date().toISOString();
         this.emit("pushed", this.branch);
@@ -349,16 +365,21 @@ export class SessionController extends EventEmitter {
       }
     }
 
-    // Update running totals
-    if (!fixResult.isError) {
-      this.state.commentsAddressed += actionable.length;
+    // Update running totals - only count comments as fixed when commits are made and pushed successfully
+    const fixedCount = (!fixResult.isError && madeCommits && pushed) ? actionable.length : 0;
+    if (fixedCount > 0) {
+      this.state.commentsAddressed += fixedCount;
     }
     this.state.totalCostUsd += fixResult.costUsd;
+
+    // Persist cycle results
+    await this.progressStore.recordCycleEnd(this.branch, fixedCount, fixResult.costUsd);
+    this.syncLifetimeStats();
     this.state.commentSummary = null;
     this.state.claudeActivity = [];
 
     logger.info(
-      `Cycle complete: ${actionable.length} fixed, ${skipped.length} skipped, $${fixResult.costUsd.toFixed(4)} cost`,
+      `Cycle complete: ${fixedCount} fixed, ${skipped.length} skipped, $${fixResult.costUsd.toFixed(4)} cost`,
       this.branch,
     );
 
@@ -378,6 +399,15 @@ export class SessionController extends EventEmitter {
     if (this.mode === "watch") {
       await sleep(this.config.pollInterval * 1000);
     }
+  }
+
+  /** Refresh in-memory lifetime stats from the persistent store. */
+  private syncLifetimeStats(): void {
+    const stats = this.progressStore.getLifetimeStats(this.branch);
+    this.state.lifetimeAddressed = stats.lifetimeAddressed;
+    this.state.lifetimeSeen = stats.lifetimeSeen;
+    this.state.cycleCount = stats.cycleCount;
+    this.state.cycleHistory = stats.cycleHistory;
   }
 
   private setStatus(status: BranchStatus): void {

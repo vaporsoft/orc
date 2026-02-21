@@ -48,10 +48,14 @@ export function SessionRow({ entry, selected }: SessionRowProps) {
           {commentCount > 0 ? String(commentCount) : "—"}
         </Text>
       </Box>
-      <Box width={8}>
-        <Text color={state && state.commentsAddressed > 0 ? theme.accentBright : theme.muted}>
-          {state && state.commentsAddressed > 0 ? String(state.commentsAddressed) : "—"}
-        </Text>
+      <Box width={12}>
+        {state && state.lifetimeSeen > 0 ? (
+          <Text color={state.lifetimeAddressed > 0 ? theme.accentBright : theme.muted}>
+            {state.lifetimeAddressed}/{state.lifetimeSeen}
+          </Text>
+        ) : (
+          <Text color={theme.muted}>—</Text>
+        )}
       </Box>
       <Box width={10}>
         <Text dimColor>{cost}</Text>

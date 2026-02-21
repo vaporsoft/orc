@@ -45,6 +45,14 @@ export interface CommentSummary {
   comments: CategorizedComment[];
 }
 
+export interface CycleRecord {
+  startedAt: string;
+  completedAt: string | null;
+  commentsSeen: number;
+  commentsFixed: number;
+  costUsd: number;
+}
+
 export interface RepoPilotConfig {
   instructions: string;
   verifyCommands: string[];
@@ -85,6 +93,11 @@ export interface BranchState {
   claudeActivity: string[];
   lastSessionId: string | null;
   workDir: string | null;
+  /** Persistent progress — accumulated across sessions and daemon restarts. */
+  lifetimeAddressed: number;
+  lifetimeSeen: number;
+  cycleCount: number;
+  cycleHistory: CycleRecord[];
 }
 
 export interface SessionControllerEvents {

@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
-import type { CommentCategory } from "../../types/index.js";
+import type { CommentCategory, CycleRecord } from "../../types/index.js";
 import { useTheme } from "../theme.js";
 
 interface DetailPanelProps {
@@ -73,6 +73,53 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   );
 }
 
+function formatCycleTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
+  cycles: CycleRecord[];
+  totalAddressed: number;
+  totalSeen: number;
+  accentColor: string;
+}) {
+  const totalCost = cycles.reduce((sum, c) => sum + c.costUsd, 0);
+
+  return (
+    <>
+      <SectionHeader label={`Review Progress (${totalAddressed}/${totalSeen})`} color={accentColor} />
+      {cycles.map((cycle, i) => {
+        const isLatest = i === cycles.length - 1;
+        const time = formatCycleTime(cycle.startedAt);
+        return (
+          <Box key={i} marginLeft={2}>
+            <Text dimColor>{"r" + String(i + 1).padEnd(4)}</Text>
+            <Text color={cycle.commentsFixed > 0 ? accentColor : "gray"}>
+              {String(cycle.commentsFixed).padStart(2)} fixed
+            </Text>
+            <Text dimColor>{"   $" + cycle.costUsd.toFixed(3).padStart(6)}</Text>
+            <Text dimColor>{"   " + time}</Text>
+            {isLatest && !cycle.completedAt && (
+              <Text color={accentColor}>{" ← now"}</Text>
+            )}
+          </Box>
+        );
+      })}
+      <Box marginLeft={2} marginTop={0}>
+        <Text dimColor>{"──────────────────────────────"}</Text>
+      </Box>
+      <Box marginLeft={2}>
+        <Text dimColor>{"tot "}</Text>
+        <Text color={accentColor} bold>
+          {String(totalAddressed).padStart(2)}/{totalSeen}
+        </Text>
+        <Text dimColor>{"    $" + totalCost.toFixed(3).padStart(6)}</Text>
+      </Box>
+    </>
+  );
+}
+
 export function DetailPanel({
   entries,
   selectedIndex,
@@ -139,7 +186,11 @@ export function DetailPanel({
                 <Text dimColor>· </Text>
               </>
             )}
-            <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
+            {state.lifetimeSeen > 0 ? (
+              <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen} addressed</Text>
+            ) : (
+              <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
+            )}
             <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
             {isActive && <Text dimColor> · </Text>}
             {isActive && <Text color={theme.accentBright}>{state.status}...</Text>}
@@ -167,7 +218,11 @@ export function DetailPanel({
         </Box>
         {state && (
           <Text>
-            <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
+            {state.lifetimeSeen > 0 ? (
+              <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen}</Text>
+            ) : (
+              <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
+            )}
             <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
             {isActive && <Text dimColor> · </Text>}
             {isActive && <Text color={theme.accentBright}>{state.status}...</Text>}
@@ -185,6 +240,16 @@ export function DetailPanel({
       )}
 
       {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
+
+      {/* Cycle history */}
+      {state && state.cycleHistory.length > 0 && (
+        <CycleHistory
+          cycles={state.cycleHistory}
+          totalAddressed={state.lifetimeAddressed}
+          totalSeen={state.lifetimeSeen}
+          accentColor={theme.accentBright}
+        />
+      )}
 
       {/* Categorized comments */}
       {summary && summary.comments.length > 0 ? (
