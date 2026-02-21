@@ -18,7 +18,7 @@ import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 
 interface ActiveSession {
-  controller: SessionController;
+  controller: SessionController | null;
   promise: Promise<void>;
 }
 
@@ -57,7 +57,9 @@ export class Daemon extends EventEmitter {
   getSessions(): Map<string, SessionController> {
     const result = new Map<string, SessionController>();
     for (const [branch, session] of this.sessions) {
-      result.set(branch, session.controller);
+      if (session.controller) {
+        result.set(branch, session.controller);
+      }
     }
     return result;
   }
@@ -213,6 +215,31 @@ export class Daemon extends EventEmitter {
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
       logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      this.lastStates.set(branch, {
+        branch,
+        prNumber: pr.number,
+        prUrl: pr.url,
+        status: "error",
+        mode: "once",
+        commentsAddressed: 0,
+        totalCostUsd: 0,
+        error: "Cannot rebase — branch is checked out locally. Switch to main first.",
+        unresolvedCount: 0,
+        commentSummary: null,
+        lastPushAt: null,
+        claudeActivity: [],
+        lastSessionId: null,
+        workDir: this.cwd,
+        lifetimeAddressed: 0,
+        lifetimeSeen: 0,
+        cycleCount: 0,
+        cycleHistory: [],
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
+      });
+      this.emit("prUpdate", branch);
       return;
     }
 
@@ -271,6 +298,7 @@ export class Daemon extends EventEmitter {
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
       logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      this.setOptimisticStatus(branch, "error");
       return;
     }
 
@@ -284,44 +312,51 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    try {
-      const gitManager = new GitManager(workDir, branch);
-      logger.info(`Plain rebase of ${branch} onto ${pr.baseRefName}`, branch);
-      const ok = await gitManager.pullRebase(pr.baseRefName);
-      if (!ok) {
-        logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
-        // Refresh conflict status so TUI shows them
-        await this.updateConflictStatuses([pr]);
-        this.emit("conflictStatusUpdate", branch);
-        return;
-      }
+    // Register a placeholder session to prevent concurrent operations
+    const placeholderPromise = (async () => {
+      try {
+        const gitManager = new GitManager(workDir, branch);
+        logger.info(`Plain rebase of ${branch} onto ${pr.baseRefName}`, branch);
+        const ok = await gitManager.pullRebase(pr.baseRefName);
+        if (!ok) {
+          logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
+          // Refresh conflict status so TUI shows them
+          await this.updateConflictStatuses([pr]);
+          this.emit("conflictStatusUpdate", branch);
+          return;
+        }
 
-      const pushed = await gitManager.forcePushWithLease();
-      if (pushed) {
-        logger.info("Rebase complete, pushed", branch);
-        this.syncMainRepo(branch).catch(() => {});
-      } else {
-        logger.error("Push failed after rebase", branch);
+        const pushed = await gitManager.forcePushWithLease();
+        if (pushed) {
+          logger.info("Rebase complete, pushed", branch);
+          this.syncMainRepo(branch).catch(() => {});
+        } else {
+          logger.error("Push failed after rebase", branch);
+        }
+      } catch (err) {
+        logger.error(`Plain rebase failed: ${err}`, branch);
+      } finally {
+        await this.worktreeManager.remove(branch).catch(() => {});
+        this.setOptimisticStatus(branch, "stopped");
+        this.sessions.delete(branch);
       }
-    } catch (err) {
-      logger.error(`Plain rebase failed: ${err}`, branch);
-    } finally {
-      await this.worktreeManager.remove(branch).catch(() => {});
-      this.setOptimisticStatus(branch, "stopped");
-    }
+    })();
+
+    this.sessions.set(branch, { controller: null, promise: placeholderPromise });
+    await placeholderPromise;
   }
 
   resolveConflicts(branch: string, always: boolean): void {
     const session = this.sessions.get(branch);
     if (session) {
-      session.controller.acceptConflictResolution(always);
+      session.controller?.acceptConflictResolution(always);
     }
   }
 
   dismissConflictResolution(branch: string): void {
     const session = this.sessions.get(branch);
     if (session) {
-      session.controller.dismissConflictResolution();
+      session.controller?.dismissConflictResolution();
     }
   }
 
@@ -544,7 +579,7 @@ export class Daemon extends EventEmitter {
     const session = this.sessions.get(branch);
     if (!session) return;
 
-    session.controller.stop();
+    session.controller?.stop();
     await session.promise.catch(() => {});
     await this.cleanupSession(branch);
   }
@@ -552,7 +587,9 @@ export class Daemon extends EventEmitter {
   private async cleanupSession(branch: string): Promise<void> {
     const session = this.sessions.get(branch);
     if (session) {
-      this.lastStates.set(branch, session.controller.getState());
+      if (session.controller) {
+        this.lastStates.set(branch, session.controller.getState());
+      }
     }
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);

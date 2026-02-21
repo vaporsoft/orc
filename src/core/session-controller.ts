@@ -247,6 +247,13 @@ export class SessionController extends EventEmitter {
   stop(): void {
     this.running = false;
     this.abortController.abort();
+
+    // Resolve any pending conflict resolution to avoid hanging
+    if (this.conflictResolve) {
+      this.conflictResolve("dismiss");
+      this.conflictResolve = null;
+    }
+
     logger.info("Stopping session", this.branch);
   }
 
