@@ -26,10 +26,11 @@ function formatCheckTime(iso: string): string {
 
 export function Header({ entries, startTime, lastCheck, buttons, selectedButton }: HeaderProps) {
   const theme = useTheme();
-  const total = entries.size;
-  const running = [...entries.values()].filter((e) => e.state !== null).length;
+  const activeEntries = [...entries.values()].filter((e) => !e.mergedAt);
+  const total = activeEntries.length;
+  const running = activeEntries.filter((e) => e.state !== null).length;
   let totalCost = 0;
-  for (const entry of entries.values()) {
+  for (const entry of activeEntries) {
     totalCost += entry.state?.totalCostUsd ?? 0;
   }
   const uptime = formatUptime(Date.now() - startTime);

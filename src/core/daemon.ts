@@ -32,6 +32,7 @@ export class Daemon extends EventEmitter {
   private commentCounts = new Map<string, number>();
   private commentThreads = new Map<string, ReviewThread[]>();
   private lastStates = new Map<string, BranchState>();
+  private mergedPRs = new Map<string, { pr: GHPullRequest; mergedAt: number }>();
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
@@ -71,6 +72,15 @@ export class Daemon extends EventEmitter {
 
   getLastStates(): Map<string, BranchState> {
     return new Map(this.lastStates);
+  }
+
+  getMergedPRs(): Map<string, { pr: GHPullRequest; mergedAt: number }> {
+    return new Map(this.mergedPRs);
+  }
+
+  clearMergedPRs(): void {
+    this.mergedPRs.clear();
+    this.emit("prUpdate", "__merged__");
   }
 
   isRunning(branch: string): boolean {
@@ -219,6 +229,8 @@ export class Daemon extends EventEmitter {
       if (!this.discoveredPRs.has(pr.headRefName)) {
         logger.info(`Discovered PR #${pr.number}: ${pr.title}`, pr.headRefName);
         this.discoveredPRs.set(pr.headRefName, pr);
+        // Remove any stale merged entry for this branch to prevent conflicts
+        this.mergedPRs.delete(pr.headRefName);
         this.emit("prDiscovered", pr.headRefName, pr);
       }
     }
@@ -226,10 +238,26 @@ export class Daemon extends EventEmitter {
     // Fetch comment counts for all discovered PRs
     await this.updateCommentCounts(prs);
 
-    // Remove PRs that were closed/merged
+    // Handle PRs that are no longer open (closed or merged)
     for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
-        logger.info(`PR closed/merged, removing`, branch);
+        const pr = this.discoveredPRs.get(branch)!;
+
+        // Check if the PR was merged first to avoid UI flicker
+        let wasMerged = false;
+        try {
+          wasMerged = await this.ghClient.isPRMerged(pr.number);
+        } catch {
+          // If we can't determine, treat as closed
+        }
+
+        if (wasMerged) {
+          // Add to merged PRs before removing from discovered to avoid flicker
+          logger.info(`PR #${pr.number} merged`, branch);
+          this.mergedPRs.set(branch, { pr, mergedAt: Date.now() });
+        }
+
+        // Now remove from discovered PRs and clean up
         this.discoveredPRs.delete(branch);
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
@@ -238,7 +266,14 @@ export class Daemon extends EventEmitter {
         } catch (err) {
           logger.warn(`Failed to teardown session for ${branch}: ${err}`);
         }
-        this.emit("prRemoved", branch);
+
+        // Emit appropriate event
+        if (wasMerged) {
+          this.emit("prMerged", branch);
+        } else {
+          logger.info(`PR closed, removing`, branch);
+          this.emit("prRemoved", branch);
+        }
       }
     }
   }

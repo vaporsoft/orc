@@ -29,6 +29,7 @@ const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> =
   replying:     { role: "info",         label: "replying" },
   done:         { role: "accent",       label: "done" },
   error:        { role: "error",        label: "error" },
+  merged:       { role: "merged",       label: "merged" },
 };
 
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
@@ -36,6 +37,7 @@ const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
   listening: "●",
   done:      "✓",
   error:     "✗",
+  merged:    "◆",
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {

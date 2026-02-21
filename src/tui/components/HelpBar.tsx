@@ -63,6 +63,8 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
       <Text dimColor>·</Text>
       <Key k="w" label="shell" accentColor={theme.accent} />
       <Text dimColor>·</Text>
+      <Key k="d" label="clear merged" accentColor={theme.accent} />
+      <Text dimColor>·</Text>
       <Key k="tab" label={showingLogs ? "hide logs" : "all logs"} accentColor={theme.accent} />
       <Text dimColor>·</Text>
       <Key k="t" label="theme" accentColor={theme.accent} />

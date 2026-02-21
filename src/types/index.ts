@@ -76,7 +76,8 @@ export type BranchStatus =
   | "pushing"
   | "replying"
   | "done"
-  | "error";
+  | "error"
+  | "merged";
 
 export interface BranchState {
   branch: string;

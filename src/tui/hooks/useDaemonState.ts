@@ -9,6 +9,8 @@ export interface PREntry {
   state: BranchState | null; // null = discovered but not running
   commentCount: number;
   commentThreads: ReviewThread[];
+  /** Timestamp (ms) when the PR was detected as merged. Undefined for open PRs. */
+  mergedAt?: number;
 }
 
 function buildEntries(daemon: Daemon): Map<string, PREntry> {
@@ -54,6 +56,19 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       commentThreads: threads.get(branch) ?? [],
     });
   }
+  // Include merged PRs (but skip if there's already an open PR for the same branch)
+  for (const [branch, { pr, mergedAt }] of daemon.getMergedPRs()) {
+    if (!entries.has(branch)) {
+      entries.set(branch, {
+        branch,
+        pr,
+        state: lastStates.get(branch) ?? null,
+        commentCount: 0,
+        commentThreads: [],
+        mergedAt,
+      });
+    }
+  }
   return entries;
 }
 
@@ -89,6 +104,7 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
     daemon.on("prDiscovered", rebuild);
     daemon.on("prRemoved", rebuild);
     daemon.on("prUpdate", rebuild);
+    daemon.on("prMerged", rebuild);
     daemon.on("sessionUpdate", rebuild);
     daemon.on("commentCountUpdate", rebuild);
 
@@ -96,6 +112,7 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
       daemon.off("prDiscovered", rebuild);
       daemon.off("prRemoved", rebuild);
       daemon.off("prUpdate", rebuild);
+      daemon.off("prMerged", rebuild);
       daemon.off("sessionUpdate", rebuild);
       daemon.off("commentCountUpdate", rebuild);
       if (timerRef.current) {

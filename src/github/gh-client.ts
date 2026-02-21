@@ -265,6 +265,21 @@ export class GHClient {
     }
   }
 
+  /** Check whether a PR was merged. */
+  async isPRMerged(prNumber: number): Promise<boolean> {
+    const { owner, repo } = await this.getRepoInfo();
+    try {
+      const { stdout } = await exec("gh", [
+        "api",
+        `repos/${owner}/${repo}/pulls/${prNumber}`,
+        "--jq", ".merged",
+      ], { cwd: this.cwd });
+      return stdout.trim() === "true";
+    } catch {
+      return false;
+    }
+  }
+
   /** Validate that `gh` is authenticated and can reach the repo. */
   async validateAuth(): Promise<void> {
     await exec("gh", ["auth", "status"], { cwd: this.cwd });

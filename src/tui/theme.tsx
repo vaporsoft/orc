@@ -12,6 +12,7 @@ export interface Theme {
   error: string;
   warning: string;
   info: string;
+  merged: string;
 }
 
 const darkTheme: Theme = {
@@ -25,6 +26,7 @@ const darkTheme: Theme = {
   error: "red",
   warning: "yellow",
   info: "cyan",
+  merged: "magenta",
 };
 
 const lightTheme: Theme = {
@@ -38,6 +40,7 @@ const lightTheme: Theme = {
   error: "red",
   warning: "yellow",
   info: "cyan",
+  merged: "magenta",
 };
 
 export const themes = { dark: darkTheme, light: lightTheme } as const;
