@@ -241,9 +241,18 @@ export class Daemon extends EventEmitter {
     });
 
     controller.on("ready", (b: string) => {
-      this.cleanupSession(b).catch((err) => {
-        logger.warn(`Cleanup failed for ${b}: ${err}`);
-      });
+      logger.info("Rebase session finished.", b);
+      const state = controller.getState();
+      if (state.status === "error") {
+        // Keep the worktree alive for manual intervention
+        this.lastStates.set(b, state);
+        this.sessions.delete(b);
+        this.emit("prUpdate", b);
+      } else {
+        this.cleanupSession(b).catch((err) => {
+          logger.warn(`Cleanup failed for ${b}: ${err}`);
+        });
+      }
     });
 
     const promise = controller.startRebase();

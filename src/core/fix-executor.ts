@@ -269,6 +269,10 @@ Do not push — the orchestrator handles that.`;
 
     sections.push("\nMake targeted fixes and create commits to resolve these CI failures.\n");
 
+    if (pilotConfig.instructions) {
+      sections.push(`## Additional Context\n\n${pilotConfig.instructions}\n`);
+    }
+
     return sections.join("\n");
   }
 

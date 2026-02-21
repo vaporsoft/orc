@@ -783,17 +783,27 @@ export class SessionController extends EventEmitter {
 
       if (!ciFixResult.isError && headAfterCIFix !== headBeforeCIFix) {
         this.setStatus("pushing");
-        const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-        if (rebased) {
-          const pushed = await this.gitManager.forcePushWithLease();
-          if (pushed) {
-            this.state.lastPushAt = new Date().toISOString();
-            this.emit("pushed", this.branch);
+        const diverged = await this.gitManager.checkDivergence();
+        if (diverged) {
+          const pulled = await this.gitManager.pullRebase();
+          if (!pulled) {
+            logger.error("Could not pull --rebase during CI fix, skipping push", this.branch);
+            pushSucceeded = false;
+          }
+        }
+        if (pushSucceeded) {
+          const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+          if (rebased) {
+            const pushed = await this.gitManager.forcePushWithLease();
+            if (pushed) {
+              this.state.lastPushAt = new Date().toISOString();
+              this.emit("pushed", this.branch);
+            } else {
+              pushSucceeded = false;
+            }
           } else {
             pushSucceeded = false;
           }
-        } else {
-          pushSucceeded = false;
         }
       }
 
@@ -803,6 +813,9 @@ export class SessionController extends EventEmitter {
       if (ciFixResult.isError || headAfterCIFix === headBeforeCIFix || !pushSucceeded) {
         break;
       }
+
+      // Reset status before continuing to next CI polling cycle
+      this.setStatus("listening");
     }
 
     // Log if we've exhausted all attempts
