@@ -199,6 +199,52 @@ export class Daemon extends EventEmitter {
     await this.startAll("watch");
   }
 
+  async rebaseBranch(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+
+    const currentBranch = await this.getCurrentBranch();
+    if (currentBranch === branch) {
+      logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      return;
+    }
+
+    await this.worktreeManager.remove(branch);
+    this.lastStates.delete(branch);
+
+    let workDir: string;
+    try {
+      workDir = await this.worktreeManager.create(branch);
+    } catch (err) {
+      logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      return;
+    }
+
+    const controller = new SessionController(branch, this.config, workDir, "once", this.progressStore);
+
+    controller.on("statusChange", (b: string, status: string) => {
+      logger.info(`Status: ${status}`, b);
+      this.emit("sessionUpdate", b, controller.getState());
+    });
+
+    controller.on("pushed", (b: string) => {
+      this.syncMainRepo(b).catch((err) => {
+        logger.debug(`Main repo sync failed for ${b}: ${err}`);
+      });
+    });
+
+    controller.on("done", (b: string) => {
+      this.cleanupSession(b).catch((err) => {
+        logger.warn(`Cleanup failed for ${b}: ${err}`);
+      });
+    });
+
+    const promise = controller.startRebase();
+    this.sessions.set(branch, { controller, promise });
+    this.emit("sessionUpdate", branch, controller.getState());
+  }
+
   resolveConflicts(branch: string, always: boolean): void {
     const session = this.sessions.get(branch);
     if (session) {

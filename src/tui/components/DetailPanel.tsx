@@ -60,7 +60,7 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("c to resume Claude session");
   }
 
-  hints.push("r to retry when ready");
+  hints.push("r to rebase · s to start full review");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -163,50 +163,17 @@ export function DetailPanel({
         paddingX={1}
         flexDirection="column"
       >
-        <Box>
-          <Text dimColor>#{pr.number} </Text>
-          <Text bold>{title}</Text>
-          {conflicted.length > 0 && <Text color="red"> !conflicts</Text>}
-          {conflicted.length === 0 && ciStatus === "failing" && <Text color="red"> ✗ CI</Text>}
-          {conflicted.length === 0 && ciStatus === "passing" && <Text color="green"> ✓ CI</Text>}
-          {conflicted.length === 0 && ciStatus === "pending" && <Text color="yellow"> ● CI</Text>}
-        </Box>
-        {!state ? (
-          <Text dimColor>
-            {commentCount > 0
-              ? `${commentCount} unresolved · `
-              : ""}
-            <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>enter</Text> details
-          </Text>
-        ) : (
-          <Text>
-            {summary && (
-              <>
-                {summary.mustFix > 0 && <Text color="red">{summary.mustFix} must </Text>}
-                {summary.shouldFix > 0 && <Text color="yellow">{summary.shouldFix} should </Text>}
-                {summary.niceToHave > 0 && <Text color="cyan">{summary.niceToHave} nice </Text>}
-                {summary.verifyAndFix > 0 && <Text color="magenta">{summary.verifyAndFix} verify </Text>}
-                {summary.falsePositive > 0 && <Text dimColor>{summary.falsePositive} fp </Text>}
-                <Text dimColor>· </Text>
-              </>
-            )}
-            {state.lifetimeSeen > 0 ? (
-              <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen} addressed</Text>
-            ) : (
-              <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
-            )}
-            <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
-            {isActive && <Text dimColor> · </Text>}
-            {isActive && <Text color={theme.accentBright}>{state.status}...</Text>}
-          </Text>
-        )}
+        <Text dimColor>
+          <Text color={theme.accent}>r</Text> rebase · <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>enter</Text> details
+          {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
+        </Text>
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
-      {activityLines.length > 0 && (
-        <Box marginLeft={2}>
-          <Text color={theme.accent} dimColor>Claude: </Text>
-          <Text dimColor>{activityLines[activityLines.length - 1]}</Text>
-        </Box>
-      )}
+        {activityLines.length > 0 && (
+          <Box marginLeft={2}>
+            <Text color={theme.accent} dimColor>Claude: </Text>
+            <Text dimColor>{activityLines[activityLines.length - 1]}</Text>
+          </Box>
+        )}
       </Box>
     );
   }

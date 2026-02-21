@@ -158,11 +158,20 @@ export function App({ daemon, startTime }: AppProps) {
       }
     }
 
-    // Retry/restart errored or stopped session
+    // Plain git rebase (no Claude)
     if (input === "r" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch).catch(() => {});
+        daemon.rebaseBranchPlain(branch).catch(() => {});
+      }
+      return;
+    }
+
+    // Rebase + Claude conflict resolution
+    if (input === "f" && focusedPane === "sessions") {
+      const branch = branches[sessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.rebaseBranch(branch).catch(() => {});
       }
       return;
     }

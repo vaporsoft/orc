@@ -241,7 +241,6 @@ export class SessionController extends EventEmitter {
       logger.error(message, this.branch);
     } finally {
       this.emit("ready", this.branch, this.state);
->>>>>>> f071afe (fixup! feat: add merge conflict resolution and terminal settings)
     }
   }
 
