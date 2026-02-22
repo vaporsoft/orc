@@ -710,6 +710,12 @@ export class Daemon extends EventEmitter {
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);
 
+    // Refresh CI status for this branch since it was skipped during active session
+    const pr = this.discoveredPRs.get(branch);
+    if (pr) {
+      this.updateCIStatusesFromPRs([pr]);
+    }
+
     // Check if this branch is now ready to merge
     this.updateReadyStatuses();
 
