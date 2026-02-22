@@ -424,6 +424,9 @@ export function DetailPanel({
                   <Box key={check.id} marginLeft={2}>
                     <Text color="red">{"✗ "}</Text>
                     <Text color="white">{check.name}</Text>
+                    {check.appSlug && check.appSlug !== "github-actions" && (
+                      <Text dimColor> [{check.appSlug}]</Text>
+                    )}
                     {check.logSnippet && (
                       <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
                     )}

@@ -862,6 +862,7 @@ export class Daemon extends EventEmitter {
           name: c.name!,
           htmlUrl: c.detailsUrl ?? "",
           logSnippet: null,
+          appSlug: null,
         }));
         this.updateCIStatus(pr.headRefName, "failing", failedChecks);
       } else if (allCompleted) {

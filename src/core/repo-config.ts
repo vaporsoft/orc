@@ -2,7 +2,7 @@
  * Loads per-repo configuration from two sources:
  *
  * - `ORC.md`          — freeform instructions/context passed to Claude Code
- * - `orc.config.json` — structured config (setup, verify, permissions, auto-fix)
+ * - `orc.config.json` — structured config (setup, verify, permissions, auto-fix, MCP servers)
  *
  * This mirrors the Claude Code pattern: markdown for context, JSON for config.
  */
@@ -10,8 +10,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { RepoConfig } from "../types/index.js";
+import type { MCPServerConfig, RepoConfig } from "../types/index.js";
 import { logger } from "../utils/logger.js";
+
+const McpServerSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+});
 
 const OrcConfigSchema = z.object({
   setup: z.array(z.string()).default([]),
@@ -26,6 +32,9 @@ const OrcConfigSchema = z.object({
       needs_clarification: z.boolean().default(true),
     })
     .default({}),
+  mcpServers: z.record(McpServerSchema).default({}),
+  /** Allowlist of env var names that can be resolved in MCP server configs. */
+  allowedEnvVars: z.array(z.string()).default([]),
 });
 
 const DEFAULT_CONFIG: RepoConfig = {
@@ -40,6 +49,8 @@ const DEFAULT_CONFIG: RepoConfig = {
     verify_and_fix: true,
     needs_clarification: true,
   },
+  mcpServers: {},
+  allowedEnvVars: [],
 };
 
 export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
@@ -58,6 +69,8 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
         verifyCommands: legacyConfig.verifyCommands,
         allowedCommands: legacyConfig.allowedCommands,
         autoFix: legacyConfig.autoFix,
+        mcpServers: legacyConfig.mcpServers,
+        allowedEnvVars: legacyConfig.allowedEnvVars,
       };
     }
   }
@@ -68,6 +81,8 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
     verifyCommands: jsonResult.config.verify,
     allowedCommands: jsonResult.config.allowedCommands,
     autoFix: jsonResult.config.autoFix,
+    mcpServers: jsonResult.config.mcpServers,
+    allowedEnvVars: jsonResult.config.allowedEnvVars,
   };
 }
 
@@ -89,6 +104,8 @@ interface LegacyOrcConfig {
   verifyCommands: string[];
   allowedCommands: string[];
   autoFix: RepoConfig["autoFix"];
+  mcpServers: Record<string, MCPServerConfig>;
+  allowedEnvVars: string[];
 }
 
 /**
@@ -116,7 +133,7 @@ function parseLegacyOrcMdSections(content: string): LegacyOrcConfig | null {
 
   // Check if any legacy sections exist
   const hasLegacySections =
-    sections.has("verify") || sections.has("auto-fix") || sections.has("setup") || sections.has("allowed commands");
+    sections.has("verify") || sections.has("auto-fix") || sections.has("setup") || sections.has("allowed commands") || sections.has("mcp servers");
 
   if (!hasLegacySections) {
     return null;
@@ -160,7 +177,51 @@ function parseLegacyOrcMdSections(content: string): LegacyOrcConfig | null {
     }
   }
 
-  return { setupCommands, verifyCommands, allowedCommands, autoFix };
+  // Parse ## MCP Servers — expects a fenced JSON block
+  const mcpServers = parseMcpServers(sections.get("mcp servers") ?? "");
+
+  // Legacy ORC.md doesn't support allowedEnvVars — always empty for security
+  return { setupCommands, verifyCommands, allowedCommands, autoFix, mcpServers, allowedEnvVars: [] };
+}
+
+/** Extract JSON from a fenced code block and validate as MCP server config. */
+function parseMcpServers(section: string): Record<string, MCPServerConfig> {
+  const jsonMatch = section.match(/```(?:json)?\s*\n([\s\S]*?)```/);
+  if (!jsonMatch) return {};
+
+  try {
+    const parsed = JSON.parse(jsonMatch[1]) as Record<string, unknown>;
+    const servers: Record<string, MCPServerConfig> = {};
+
+    for (const [name, raw] of Object.entries(parsed)) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const entry = raw as Record<string, unknown>;
+
+      if (typeof entry.command !== "string") {
+        logger.warn(`MCP server "${name}" missing required "command" field, skipping`);
+        continue;
+      }
+
+      const config: MCPServerConfig = { command: entry.command };
+      if (Array.isArray(entry.args) && entry.args.every((a: unknown) => typeof a === "string")) {
+        config.args = entry.args as string[];
+      }
+      if (typeof entry.env === "object" && entry.env !== null && Object.values(entry.env).every((v: unknown) => typeof v === "string")) {
+        config.env = entry.env as Record<string, string>;
+      }
+
+      servers[name] = config;
+    }
+
+    if (Object.keys(servers).length > 0) {
+      logger.info(`Loaded ${Object.keys(servers).length} MCP server(s) from ORC.md`);
+    }
+
+    return servers;
+  } catch (err) {
+    logger.warn(`Failed to parse MCP Servers JSON in ORC.md: ${err}`);
+    return {};
+  }
 }
 
 type JsonConfigResult =

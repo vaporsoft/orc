@@ -61,6 +61,7 @@ export class FixExecutor {
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "review");
     const extraTools = this.buildExtraTools(repoConfig);
+    // MCP servers are only used in CI mode for fetching build logs
     const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session", extraTools);
 
     // Add verify results and fix summaries for review feedback
@@ -82,6 +83,7 @@ export class FixExecutor {
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "conflict");
     const extraTools = this.buildExtraTools(repoConfig);
+    // MCP servers are only used in CI mode for fetching build logs
     return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude conflict resolution session", extraTools);
   }
 
@@ -103,7 +105,11 @@ Do not push — the orchestrator handles that.`
 
 After making changes, commit them with a descriptive message prefixed with "fix(ci): ".
 
-Do not push — the orchestrator handles that.`;
+Do not push — the orchestrator handles that.${
+  Object.keys(repoConfig.mcpServers).length > 0
+    ? `\n\nYou have access to external CI service tools via MCP. Use them to fetch detailed build logs, inspect specific build steps, and understand failures before making fixes.`
+    : ""
+}`;
 
     if (repoConfig.instructions) {
       systemSuffix += `\n\n## Repo-Specific Instructions\n${repoConfig.instructions}`;
@@ -118,6 +124,25 @@ Do not push — the orchestrator handles that.`;
     return systemSuffix;
   }
 
+  /**
+   * Resolve `${VAR_NAME}` references in env values from process.env.
+   * Only resolves variables that are in the allowlist to prevent secret exfiltration.
+   */
+  private resolveEnvVars(env: Record<string, string>, allowedEnvVars: string[]): Record<string, string> {
+    const allowedSet = new Set(allowedEnvVars);
+    const resolved: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      resolved[key] = value.replace(/\$\{([^}]+)\}/g, (_match, varName: string) => {
+        if (allowedSet.has(varName)) {
+          return process.env[varName] ?? "";
+        }
+        logger.warn(`Env var "${varName}" not in allowedEnvVars allowlist, skipping resolution`);
+        return "";
+      });
+    }
+    return resolved;
+  }
+
   /** Shared Claude SDK invocation logic. */
   private async executeClaude(
     prompt: string,
@@ -126,6 +151,7 @@ Do not push — the orchestrator handles that.`;
     onActivity?: (line: string) => void,
     sessionLabel = "Claude Code session",
     extraTools: string[] = [],
+    mcpServers?: Record<string, { command: string; args: string[]; env: Record<string, string> }>,
   ): Promise<FixResult> {
     const startTime = Date.now();
     const abortController = new AbortController();
@@ -141,6 +167,10 @@ Do not push — the orchestrator handles that.`;
 
     let sessionId = "unknown";
 
+    if (mcpServers) {
+      logger.info(`Using ${Object.keys(mcpServers).length} MCP server(s): ${Object.keys(mcpServers).join(", ")}`);
+    }
+
     try {
       const stream = query({
         prompt,
@@ -150,6 +180,7 @@ Do not push — the orchestrator handles that.`;
           cwd: this.cwd,
           abortController,
           systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: systemSuffix },
+          ...(mcpServers ? { mcpServers } : {}),
         },
       });
 
@@ -259,12 +290,29 @@ Do not push — the orchestrator handles that.`;
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "ci");
     const extraTools = this.buildExtraTools(repoConfig);
-    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session", extraTools);
+    const mcpServers = this.buildMcpServers(repoConfig);
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session", extraTools, mcpServers);
   }
 
   /** Convert repo-level allowed commands into Bash tool permissions. */
   private buildExtraTools(repoConfig: RepoConfig): string[] {
     return repoConfig.allowedCommands.map((cmd) => `Bash(${cmd})`);
+  }
+
+  /** Build resolved MCP server config from repo config, if any are configured. */
+  private buildMcpServers(repoConfig: RepoConfig): Record<string, { command: string; args: string[]; env: Record<string, string> }> | undefined {
+    if (Object.keys(repoConfig.mcpServers).length === 0) return undefined;
+
+    return Object.fromEntries(
+      Object.entries(repoConfig.mcpServers).map(([name, cfg]) => [
+        name,
+        {
+          command: cfg.command,
+          args: cfg.args ?? [],
+          env: this.resolveEnvVars(cfg.env ?? {}, repoConfig.allowedEnvVars),
+        },
+      ]),
+    );
   }
 
   private buildConflictPrompt(conflictContext: string): string {

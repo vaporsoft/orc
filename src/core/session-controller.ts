@@ -1011,6 +1011,7 @@ export class SessionController extends EventEmitter {
             name: c.name,
             htmlUrl: c.html_url,
             logSnippet: null,
+            appSlug: c.app?.slug ?? null,
           }));
           return { status: "failing", failedChecks };
         }
@@ -1063,6 +1064,9 @@ export class SessionController extends EventEmitter {
 
     for (const check of failedChecks) {
       sections.push(`### ${check.name}`);
+      if (check.appSlug && check.appSlug !== "github-actions") {
+        sections.push(`Provider: ${check.appSlug}`);
+      }
       sections.push(`URL: ${check.htmlUrl}\n`);
     }
 

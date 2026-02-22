@@ -59,6 +59,12 @@ export interface CycleRecord {
   outputTokens: number;
 }
 
+export interface MCPServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 export interface RepoConfig {
   instructions: string;
   setupCommands: string[];
@@ -71,6 +77,9 @@ export interface RepoConfig {
     verify_and_fix: boolean;
     needs_clarification: boolean;
   };
+  mcpServers: Record<string, MCPServerConfig>;
+  /** Allowlist of env var names that can be resolved in MCP server configs. */
+  allowedEnvVars: string[];
 }
 
 export type CIStatus = "pending" | "passing" | "failing" | "unknown";
@@ -80,6 +89,7 @@ export interface FailedCheck {
   name: string;
   htmlUrl: string;
   logSnippet: string | null;
+  appSlug: string | null;
 }
 
 export type SessionMode = "once" | "watch";
