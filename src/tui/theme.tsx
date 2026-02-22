@@ -74,7 +74,7 @@ export function ThemeProvider({
       const next = prev === "dark" ? "light" : "dark";
       try {
         saveSettings({ theme: next });
-      } catch (error) {
+      } catch (_error) {
         // Silently ignore save failures to prevent TUI crash
         // The theme change will still work in the current session
       }

@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import React, { useState } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
+import { render, Box, Text, useInput } from "ink";
 import { Daemon } from "../core/daemon.js";
 import { ConfigSchema, type Config } from "../types/config.js";
 import { logger } from "../utils/logger.js";
@@ -34,7 +34,7 @@ function ThemePicker({ onPick }: { onPick: (theme: "dark" | "light") => void }) 
     if (key.return) onPick(selected === 0 ? "dark" : "light");
   });
 
-  const options: Array<{ label: string; index: 0 | 1 }> = [
+  const options: { label: string; index: 0 | 1 }[] = [
     { label: "dark", index: 0 },
     { label: "light", index: 1 },
   ];

@@ -10,21 +10,21 @@ export interface GHPullRequest {
   headRefOid: string;
   author: { login: string };
   commits?: {
-    nodes: Array<{
+    nodes: {
       commit: {
         statusCheckRollup: {
           contexts: {
-            nodes: Array<{
+            nodes: {
               databaseId?: number;
               name?: string;
               status?: string;
               conclusion?: string | null;
               detailsUrl?: string;
-            }>;
+            }[];
           };
         } | null;
       };
-    }>;
+    }[];
   };
 }
 

@@ -161,7 +161,7 @@ Do not push — the orchestrator handles that.`;
         if (message.type === "assistant" && onActivity) {
           const msg = message as SDKMessage;
           const content = (msg as Record<string, unknown>).message as
-            | { content?: Array<{ type: string; name?: string; text?: string; input?: Record<string, unknown> }> }
+            | { content?: { type: string; name?: string; text?: string; input?: Record<string, unknown> }[] }
             | undefined;
           if (content?.content) {
             for (const block of content.content) {
