@@ -14,6 +14,7 @@ import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
 
 import { HelpBar } from "./components/HelpBar.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
 import { useThemeContext } from "./theme.js";
 
 type Pane = "sessions" | "logs";
@@ -40,6 +41,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
   const [toolbarIndex, setToolbarIndex] = useState(-1);
+  const [showSettings, setShowSettings] = useState(false);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -131,6 +133,9 @@ export function App({ daemon, startTime }: AppProps) {
   }, [daemon]);
 
   useInput((input, key) => {
+    // Settings panel is a modal — block all other keybindings when open
+    if (showSettings) return;
+
     if (input === "q") {
       onQuit();
       return;
@@ -138,6 +143,11 @@ export function App({ daemon, startTime }: AppProps) {
 
     if (input === "?") {
       setShowHelp((v) => !v);
+      return;
+    }
+
+    if (input === ",") {
+      setShowSettings(true);
       return;
     }
 
@@ -389,6 +399,12 @@ export function App({ daemon, startTime }: AppProps) {
           scrollOffset={logOffset}
           visibleLines={logVisibleLines}
           label="All Logs"
+        />
+      )}
+      {showSettings && (
+        <SettingsPanel
+          daemon={daemon}
+          onClose={() => setShowSettings(false)}
         />
       )}
       {/* Spacer fills remaining height, borders connect the frame */}
