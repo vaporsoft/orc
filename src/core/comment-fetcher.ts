@@ -12,6 +12,7 @@ import { GHClient } from "../github/gh-client.js";
 import type { GHReviewThread } from "../github/types.js";
 import type { ReviewThread } from "../types/index.js";
 import { logger } from "../utils/logger.js";
+import { containsQuotedComment } from "../utils/quoting.js";
 
 /** Signature Orc leaves in every reply — e.g. "*Orc — bug_fix (confidence: 0.95)*" */
 const BOT_SIGNATURE_RE = /^\*Orc — .+ \(confidence: [\d.]+\)\*$/m;
@@ -19,6 +20,7 @@ const BOT_SIGNATURE_RE = /^\*Orc — .+ \(confidence: [\d.]+\)\*$/m;
 function isOrcReply(body: string): boolean {
   return BOT_SIGNATURE_RE.test(body);
 }
+
 
 /** Comments that are just bot mentions/commands (e.g. "@cursor review"). Not review feedback. */
 function isBotCommand(body: string): boolean {
@@ -146,11 +148,15 @@ export class CommentFetcher {
         continue;
       }
 
-      // Check if a later Orc reply addresses this comment
+      // Check if a later Orc reply addresses this specific comment.
+      // Orc quotes the original comment body in its replies, so match on
+      // that rather than a blanket timestamp comparison (which would
+      // falsely shadow unrelated comments posted before any Orc reply).
       const alreadyReplied = comments.some(
         (c) =>
           isOrcReply(c.body) &&
-          c.createdAt > comment.createdAt,
+          c.createdAt > comment.createdAt &&
+          containsQuotedComment(c.body, comment.body),
       );
       if (alreadyReplied) {
         logger.debug(`Skipping PR comment ${comment.id} — already replied`, this.branch);

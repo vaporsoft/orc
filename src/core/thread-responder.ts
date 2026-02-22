@@ -7,6 +7,7 @@ import { GHClient } from "../github/gh-client.js";
 import type { CategorizedComment } from "../types/index.js";
 import type { VerifyOutcome } from "./fix-executor.js";
 import { logger } from "../utils/logger.js";
+import { quoteCommentBody } from "../utils/quoting.js";
 
 export class ThreadResponder {
   private ghClient: GHClient;
@@ -131,10 +132,7 @@ export class ThreadResponder {
 
     if (isConversation) {
       // Quote the original comment and tag the author
-      const quotedBody = comment.body
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
+      const quotedBody = quoteCommentBody(comment.body);
       parts.push(quotedBody);
       parts.push("");
       parts.push(`@${comment.author} Addressed in ${commitRef}.`);
@@ -154,10 +152,7 @@ export class ThreadResponder {
     const parts: string[] = [];
 
     if (isConversation) {
-      const quotedBody = comment.body
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
+      const quotedBody = quoteCommentBody(comment.body);
       parts.push(quotedBody);
       parts.push("");
     }
@@ -182,10 +177,7 @@ export class ThreadResponder {
     const parts: string[] = [];
 
     if (isConversation) {
-      const quotedBody = comment.body
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
+      const quotedBody = quoteCommentBody(comment.body);
       parts.push(quotedBody);
       parts.push("");
     }
@@ -208,10 +200,7 @@ export class ThreadResponder {
     const parts: string[] = [];
 
     if (isConversation) {
-      const quotedBody = comment.body
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
+      const quotedBody = quoteCommentBody(comment.body);
       parts.push(quotedBody);
       parts.push("");
     }
