@@ -186,7 +186,9 @@ export class ThreadResponder {
     }
 
     parts.push("");
-    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+    // Use [skipped] suffix to distinguish from actual clarification questions,
+    // so that hasAskedClarification detection doesn't falsely trigger on skipped replies.
+    parts.push(`*Orc — ${comment.category} [skipped] (confidence: ${comment.confidence.toFixed(2)})*`);
 
     return parts.join("\n");
   }
