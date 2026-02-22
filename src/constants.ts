@@ -9,8 +9,8 @@ export const DEFAULT_CONFIDENCE = 0.75;
 /** Default Claude Code session timeout in seconds. */
 export const DEFAULT_CLAUDE_TIMEOUT = 900;
 
-/** Default session timeout in hours. */
-export const DEFAULT_SESSION_TIMEOUT = 1;
+/** Default session timeout in hours. 0 = unlimited. */
+export const DEFAULT_SESSION_TIMEOUT = 0;
 
 /** Retry backoff intervals in milliseconds. */
 export const RETRY_BACKOFF_MS = [2000, 4000, 8000, 16000];

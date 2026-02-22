@@ -99,7 +99,7 @@ export class SessionController extends EventEmitter {
   async start(): Promise<void> {
     this.running = true;
     this.startedAt = Date.now();
-    if (this.mode === "watch") {
+    if (this.mode === "watch" && this.config.sessionTimeout > 0) {
       this.state.sessionExpiresAt = this.startedAt + this.config.sessionTimeout * 60 * 60 * 1000;
     }
 
@@ -380,16 +380,18 @@ export class SessionController extends EventEmitter {
         return;
       }
 
-      // Check session timeout even when no comments are found
-      const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
-      if (elapsedHours >= this.config.sessionTimeout) {
-        logger.info(
-          `Session timeout reached (${this.config.sessionTimeout}h)`,
-          this.branch,
-        );
-        this.setStatus("ready");
-        this.running = false;
-        return;
+      // Check session timeout even when no comments are found (0 = unlimited)
+      if (this.config.sessionTimeout > 0) {
+        const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
+        if (elapsedHours >= this.config.sessionTimeout) {
+          logger.info(
+            `Session timeout reached (${this.config.sessionTimeout}h)`,
+            this.branch,
+          );
+          this.setStatus("ready");
+          this.running = false;
+          return;
+        }
       }
 
       await this.sleep(this.config.pollInterval * 1000);
@@ -626,16 +628,18 @@ export class SessionController extends EventEmitter {
       this.branch,
     );
 
-    // Check session timeout
-    const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
-    if (elapsedHours >= this.config.sessionTimeout) {
-      logger.info(
-        `Session timeout reached (${this.config.sessionTimeout}h)`,
-        this.branch,
-      );
-      this.setStatus("ready");
-      this.running = false;
-      return;
+    // Check session timeout (0 = unlimited)
+    if (this.config.sessionTimeout > 0) {
+      const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
+      if (elapsedHours >= this.config.sessionTimeout) {
+        logger.info(
+          `Session timeout reached (${this.config.sessionTimeout}h)`,
+          this.branch,
+        );
+        this.setStatus("ready");
+        this.running = false;
+        return;
+      }
     }
 
     // Wait before next cycle to let GitHub propagate replies (only in watch mode)

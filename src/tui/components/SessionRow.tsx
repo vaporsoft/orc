@@ -53,7 +53,9 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
   const doneStatuses = ["stopped", "ready", "error", "merged"];
-  const showTimeLeft = isWatch && expiresAt && !doneStatuses.includes(status);
+  const isActive = isWatch && !doneStatuses.includes(status);
+  const isUnlimited = isWatch && !expiresAt;
+  const showTimeLeft = isActive && expiresAt;
   const timeLeft = showTimeLeft ? formatTimeLeft(expiresAt) : null;
   const remainMs = expiresAt ? expiresAt - Date.now() : null;
   const isLow = remainMs !== null && remainMs > 0 && remainMs < 10 * 60_000; // < 10 min
@@ -78,6 +80,8 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
       <Box width={10}>
         {showTimeLeft ? (
           <Text color={isLow ? theme.warning : theme.muted}>{timeLeft}</Text>
+        ) : isActive && isUnlimited ? (
+          <Text color={theme.muted}>∞</Text>
         ) : (
           <Text color={theme.muted}>{"—"}</Text>
         )}
