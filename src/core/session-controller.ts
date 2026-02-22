@@ -39,6 +39,9 @@ const LOCKFILE_NAMES = new Set([
   "bun.lock",
 ]);
 
+/** Error message used when rebase fails due to conflicts. */
+const REBASE_CONFLICT_ERROR = "Rebase conflict — manual intervention needed";
+
 export class SessionController extends EventEmitter {
   private config: Config;
   private branch: string;
@@ -592,18 +595,10 @@ export class SessionController extends EventEmitter {
         const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
         if (!rebased) {
           logger.error("Rebase failed — manual intervention needed", this.branch);
-          this.state.error = "Rebase conflict — manual intervention needed";
+          this.state.error = REBASE_CONFLICT_ERROR;
           this.setStatus("error");
           this.running = false;
-          this.state.totalCostUsd += fixResult.costUsd;
-          this.state.totalInputTokens += fixResult.inputTokens;
-          this.state.totalOutputTokens += fixResult.outputTokens;
-          const totalCycleCost = this.state.totalCostUsd - cycleStartCost;
-          const totalCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
-          const totalCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
-          await this.progressStore.recordCycleEnd(this.branch, 0, totalCycleCost, totalCycleInput, totalCycleOutput);
-          this.syncLifetimeStats();
-          return;
+          pushAborted = true;
         }
       }
 
@@ -621,32 +616,46 @@ export class SessionController extends EventEmitter {
     }
 
     // 7. REPLY — immediately after push, before CI polling
-    if (!pushAborted) {
-      this.setStatus("replying");
+    this.setStatus("replying");
 
-      // Get the current SHA after rebase/push to ensure replies link to the correct commit
-      const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
+    // Get the current SHA after rebase/push to ensure replies link to the correct commit
+    const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
 
-      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
-      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+    const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+    const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-      // Reply to regular comments based on fix outcome
-      if (regularComments.length > 0) {
-        if (!fixResult.isError && madeCommits && pushed) {
-          await this.responder.replyToAddressed(regularComments, currentSha);
-        } else if (fixResult.isError) {
-          await this.responder.replyToFailed(regularComments, "fix session encountered an error.");
-        } else if (madeCommits && !pushed) {
-          await this.responder.replyToFailed(regularComments, "commits were made but push failed.");
-        } else {
-          await this.responder.replyToFailed(regularComments, "fix session produced no changes.");
-        }
+    // Determine failure reason (if any) for reply messages
+    const getFailureReason = (): string | null => {
+      if (!fixResult.isError && madeCommits && pushed) return null;
+      if (fixResult.isError) return "fix session encountered an error.";
+      if (madeCommits && !pushed) {
+        return this.state.error === REBASE_CONFLICT_ERROR
+          ? "commits were made but a rebase conflict prevented pushing. Manual intervention needed."
+          : "commits were made but push failed.";
       }
-      if (verifyComments.length > 0) {
+      return "fix session produced no changes.";
+    };
+
+    const failureReason = getFailureReason();
+
+    // Reply to regular comments based on fix outcome
+    if (regularComments.length > 0) {
+      if (failureReason === null) {
+        await this.responder.replyToAddressed(regularComments, currentSha);
+      } else {
+        await this.responder.replyToFailed(regularComments, failureReason);
+      }
+    }
+    if (verifyComments.length > 0) {
+      if (failureReason === null) {
         await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
+      } else {
+        await this.responder.replyToFailed(verifyComments, failureReason);
       }
+    }
 
-      // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
+    // 8. RE-REQUEST review and CI check only after successful push
+    if (!pushAborted) {
       if (this.state.prNumber && madeCommits) {
         const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
           .filter((a) => a !== this.prAuthor);
