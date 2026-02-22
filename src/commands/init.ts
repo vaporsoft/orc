@@ -1,5 +1,5 @@
 /**
- * `orc init` — generates an ORC.md config file for the current repo
+ * `orc init` — generates ORC.md + orc.config.json for the current repo
  * by detecting the project ecosystem and writing sensible defaults.
  */
 
@@ -7,70 +7,67 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectProject } from "../utils/project-detector.js";
 
-function renderList(items: string[]): string {
-  if (items.length === 0) return "";
-  return items.map((item) => `- \`${item}\``).join("\n");
+function generateMarkdown(): string {
+  return `# Orc
+
+Add repo-specific instructions and context for Claude Code here.
+`;
 }
 
-function generateTemplate(cwd: string): string {
+interface OrcConfig {
+  setup: string[];
+  verify: string[];
+  allowedCommands: string[];
+  autoFix: Record<string, boolean>;
+}
+
+function generateConfig(cwd: string): { config: OrcConfig; ecosystem: string } {
   const detected = detectProject(cwd);
-  const sections: string[] = [];
 
-  sections.push("# Orc\n");
+  const config: OrcConfig = {
+    setup: detected.setupCommands,
+    verify: detected.verifyCommands,
+    allowedCommands: detected.allowedCommands,
+    autoFix: {
+      must_fix: true,
+      should_fix: true,
+      nice_to_have: false,
+      verify_and_fix: true,
+      needs_clarification: true,
+    },
+  };
 
-  sections.push("## Instructions\n");
-  sections.push("<!-- Add repo-specific context for Claude Code here. -->\n");
-
-  if (detected.setupCommands.length > 0) {
-    sections.push("## Setup\n");
-    sections.push(renderList(detected.setupCommands) + "\n");
-  }
-
-  if (detected.verifyCommands.length > 0) {
-    sections.push("## Verify\n");
-    sections.push(renderList(detected.verifyCommands) + "\n");
-  }
-
-  if (detected.allowedCommands.length > 0) {
-    sections.push("## Allowed Commands\n");
-    sections.push(renderList(detected.allowedCommands) + "\n");
-  }
-
-  sections.push("## Auto-fix\n");
-  sections.push("- must_fix: true");
-  sections.push("- should_fix: true");
-  sections.push("- nice_to_have: false");
-  sections.push("- verify_and_fix: true");
-  sections.push("- needs_clarification: true\n");
-
-  return sections.join("\n");
+  return { config, ecosystem: detected.ecosystem };
 }
 
 export async function initCommand(): Promise<void> {
   const cwd = process.cwd();
-  const filePath = path.join(cwd, "ORC.md");
+  const mdPath = path.join(cwd, "ORC.md");
+  const jsonPath = path.join(cwd, "orc.config.json");
 
-  if (fs.existsSync(filePath)) {
-    console.log("ORC.md already exists. Remove it first to re-initialize.");
+  const mdExists = fs.existsSync(mdPath);
+  const jsonExists = fs.existsSync(jsonPath);
+
+  if (mdExists && jsonExists) {
+    console.log("ORC.md and orc.config.json already exist. Remove them first to re-initialize.");
     process.exit(1);
   }
 
-  const detected = detectProject(cwd);
-  const content = generateTemplate(cwd);
+  const { config, ecosystem } = generateConfig(cwd);
 
-  fs.writeFileSync(filePath, content, "utf-8");
-
-  console.log(`Created ORC.md (detected: ${detected.ecosystem})\n`);
-
-  if (detected.setupCommands.length > 0) {
-    console.log(`  Setup:    ${detected.setupCommands.join(", ")}`);
-  }
-  if (detected.verifyCommands.length > 0) {
-    console.log(`  Verify:   ${detected.verifyCommands.join(", ")}`);
-  }
-  if (detected.allowedCommands.length > 0) {
-    console.log(`  Commands: ${detected.allowedCommands.join(", ")}`);
+  if (!mdExists) {
+    fs.writeFileSync(mdPath, generateMarkdown(), "utf-8");
+    console.log("Created ORC.md (instructions)");
   }
 
-  console.log("\nReview and customize ORC.md for your project.");
+  if (!jsonExists) {
+    fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    console.log("Created orc.config.json (config)");
+  }
+
+  console.log(`\nDetected: ${ecosystem}`);
+  if (config.setup.length > 0) console.log(`  Setup:    ${config.setup.join(", ")}`);
+  if (config.verify.length > 0) console.log(`  Verify:   ${config.verify.join(", ")}`);
+  if (config.allowedCommands.length > 0) console.log(`  Commands: ${config.allowedCommands.join(", ")}`);
+  console.log("\nReview and customize both files for your project.");
 }
