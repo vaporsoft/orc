@@ -16,6 +16,8 @@ import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, Se
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
+import { loadSettings } from "../utils/settings.js";
+import { notify } from "../utils/notify.js";
 
 interface ActiveSession {
   controller: SessionController | null;
@@ -41,6 +43,8 @@ export class Daemon extends EventEmitter {
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
+  private cachedNotificationSettings: boolean | null = null;
+  private isInitialDiscovery = true;
 
   constructor(config: Config, cwd: string) {
     super();
@@ -94,6 +98,24 @@ export class Daemon extends EventEmitter {
     this.emit("prUpdate", "__merged__");
   }
 
+  getConfig(): Config {
+    return { ...this.config };
+  }
+
+  updateConfig(partial: Partial<Config>): void {
+    this.config = { ...this.config, ...partial };
+    logger.info(`Config updated: ${JSON.stringify(partial)}`);
+
+    // Propagate config updates to existing sessions
+    for (const [, session] of this.sessions) {
+      if (session.controller) {
+        session.controller.updateConfig(this.config);
+      }
+    }
+
+    this.emit("configUpdate", this.config);
+  }
+
   getCIStatuses(): Map<string, CIStatus> {
     return new Map(this.ciStatuses);
   }
@@ -104,7 +126,20 @@ export class Daemon extends EventEmitter {
 
   getConflictStatuses(): Map<string, string[]> {
     return new Map(this.conflictStatuses);
+  }
 
+  private maybeNotify(title: string, message: string): void {
+    if (this.cachedNotificationSettings === null) {
+      const settings = loadSettings();
+      this.cachedNotificationSettings = settings?.notifications ?? true;
+    }
+    if (this.cachedNotificationSettings) {
+      notify(title, message);
+    }
+  }
+
+  refreshNotificationSettings(): void {
+    this.cachedNotificationSettings = null;
   }
 
   isRunning(branch: string): boolean {
@@ -144,6 +179,41 @@ export class Daemon extends EventEmitter {
     if (this.sessions.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
+
+    // Check concurrent session limit
+    const settings = loadSettings();
+    const maxConcurrentSessions = settings?.maxConcurrentSessions ?? 4;
+    const activeSessions = Array.from(this.sessions.values()).filter(s => s.controller !== null).length;
+
+    if (activeSessions >= maxConcurrentSessions) {
+      logger.warn(`Cannot start session — max concurrent sessions (${maxConcurrentSessions}) reached`, branch);
+      const lifetime = this.progressStore.getLifetimeStats(branch);
+      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
+      this.lastStates.set(branch, {
+        branch,
+        prNumber: pr.number,
+        prUrl: pr.url,
+        status: "error",
+        mode,
+        commentsAddressed: 0,
+        totalCostUsd,
+        error: `Cannot start session — max concurrent sessions (${maxConcurrentSessions}) reached`,
+        unresolvedCount: 0,
+        commentSummary: null,
+        lastPushAt: null,
+        claudeActivity: [],
+        lastSessionId: null,
+        workDir: null,
+        sessionExpiresAt: null,
+        ...lifetime,
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
+      });
+      this.emit("prUpdate", branch);
+      return;
+    }
 
     this.setOptimisticStatus(branch, "initializing", mode);
 
@@ -413,8 +483,15 @@ export class Daemon extends EventEmitter {
         // Remove any stale merged entry for this branch to prevent conflicts
         this.mergedPRs.delete(pr.headRefName);
         this.emit("prDiscovered", pr.headRefName, pr);
+        // Only notify for newly discovered PRs after initial discovery to avoid flooding
+        if (!this.isInitialDiscovery) {
+          this.maybeNotify("New PR Discovered", `Found pull request #${pr.number}: ${pr.title}`);
+        }
       }
     }
+
+    // Mark that initial discovery is complete
+    this.isInitialDiscovery = false;
 
     // Extract CI statuses from PR data (no extra API calls)
     this.updateCIStatusesFromPRs(prs);
@@ -442,6 +519,7 @@ export class Daemon extends EventEmitter {
           // Add to merged PRs before removing from discovered to avoid flicker
           logger.info(`PR #${pr.number} merged`, branch);
           this.mergedPRs.set(branch, { pr, mergedAt: Date.now() });
+          this.maybeNotify("PR Merged", `Pull request #${pr.number} (${pr.title}) has been merged!`);
         }
 
         // Now remove from discovered PRs and clean up
@@ -561,7 +639,15 @@ export class Daemon extends EventEmitter {
         this.lastStates.set(b, state);
         this.sessions.delete(b);
         this.emit("prUpdate", b);
+        this.maybeNotify("Session Failed", `Session for branch ${b} failed: ${state.error || "Unknown error"}`);
       } else {
+        // Notify on successful completion
+        const commentsAddressed = state.commentsAddressed || 0;
+        if (commentsAddressed > 0) {
+          this.maybeNotify("Session Complete", `Successfully addressed ${commentsAddressed} comment(s) on ${b}`);
+        } else {
+          this.maybeNotify("Session Complete", `Session completed for ${b}`);
+        }
         this.cleanupSession(b).catch((err) => {
           logger.warn(`Cleanup failed for ${b}: ${err}`);
         });

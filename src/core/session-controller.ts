@@ -101,6 +101,13 @@ export class SessionController extends EventEmitter {
     };
   }
 
+  updateConfig(config: Config): void {
+    this.config = config;
+    // Update dependent objects with new config
+    this.categorizer = new CommentCategorizer(this.cwd, config.confidence);
+    this.executor = new FixExecutor(config, this.cwd);
+  }
+
   getState(): BranchState {
     return { ...this.state };
   }
@@ -193,7 +200,7 @@ export class SessionController extends EventEmitter {
       const rebasedOntoBase = await this.gitManager.pullRebase(baseBranch);
       if (!rebasedOntoBase) {
         const settings = loadSettings();
-        if (settings?.autoResolveConflicts) {
+        if (settings?.autoResolveConflicts === "always" || settings?.autoResolveConflicts === true as unknown) {
           logger.info("Auto-resolving merge conflicts with Claude", this.branch);
           const resolved = await this.resolveConflicts(baseBranch);
           if (!resolved) {
@@ -202,8 +209,14 @@ export class SessionController extends EventEmitter {
             this.running = false;
             return;
           }
+        } else if (settings?.autoResolveConflicts === "never") {
+          // Immediately error out without prompting
+          this.state.error = "Merge conflicts detected — auto-resolve disabled";
+          this.setStatus("error");
+          this.running = false;
+          return;
         } else {
-          // Pause and prompt user
+          // Pause and prompt user ("ask" or undefined)
           this.pendingBaseBranch = baseBranch;
           this.state.conflicted = await this.getConflictFiles(baseBranch);
           if (this.state.conflicted.length === 0) {
@@ -299,7 +312,7 @@ export class SessionController extends EventEmitter {
     const rebasedOntoBase = await this.gitManager.pullRebase(baseBranch);
     if (!rebasedOntoBase) {
       const settings = loadSettings();
-      if (settings?.autoResolveConflicts) {
+      if (settings?.autoResolveConflicts === "always" || settings?.autoResolveConflicts === true as unknown) {
         logger.info("Auto-resolving merge conflicts with Claude", this.branch);
         const resolved = await this.resolveConflicts(baseBranch);
         if (!resolved) {
@@ -309,8 +322,14 @@ export class SessionController extends EventEmitter {
           return;
         }
         conflictsResolved = true;
+      } else if (settings?.autoResolveConflicts === "never") {
+        // Immediately error out without prompting
+        this.state.error = "Merge conflicts detected — auto-resolve disabled";
+        this.setStatus("error");
+        this.running = false;
+        return;
       } else {
-        // Pause and wait for user decision via TUI prompt
+        // Pause and wait for user decision via TUI prompt ("ask" or undefined)
         this.pendingBaseBranch = baseBranch;
         this.state.conflicted = await this.getConflictFiles(baseBranch);
         if (this.state.conflicted.length === 0) {
@@ -660,8 +679,8 @@ export class SessionController extends EventEmitter {
   /** Called by the daemon when the TUI user presses R or A on a conflict prompt. */
   acceptConflictResolution(always: boolean): void {
     if (always) {
-      saveSettings({ autoResolveConflicts: true });
-      logger.info("Saved autoResolveConflicts=true to settings", this.branch);
+      saveSettings({ autoResolveConflicts: "always" });
+      logger.info("Saved autoResolveConflicts=always to settings", this.branch);
     }
     if (this.conflictResolve) {
       this.conflictResolve("resolve");

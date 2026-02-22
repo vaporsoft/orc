@@ -13,7 +13,11 @@ export type Terminal =
 export interface UserSettings {
   theme: "dark" | "light";
   terminal?: Terminal;
-  autoResolveConflicts?: boolean;
+  autoResolveConflicts?: "always" | "ask" | "never";
+  pollInterval?: number;
+  claudeTimeout?: number;
+  notifications?: boolean;
+  maxConcurrentSessions?: number;
 }
 
 const settingsDir = join(homedir(), ".config", "orc");

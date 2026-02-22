@@ -29,7 +29,7 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
         justifyContent="center"
         gap={1}
       >
-        <Key k="t" label="theme" accentColor={theme.accent} />
+        <Key k="," label="settings" accentColor={theme.accent} />
         <Text dimColor>·</Text>
         <Key k="?" label="help" accentColor={theme.accent} />
         <Text dimColor>·</Text>
@@ -67,7 +67,7 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
       <Text dimColor>·</Text>
       <Key k="tab" label={showingLogs ? "hide logs" : "all logs"} accentColor={theme.accent} />
       <Text dimColor>·</Text>
-      <Key k="t" label="theme" accentColor={theme.accent} />
+      <Key k="," label="settings" accentColor={theme.accent} />
       <Text dimColor>·</Text>
       <Key k="?" label="hide help" accentColor={theme.accent} />
       <Text dimColor>·</Text>
