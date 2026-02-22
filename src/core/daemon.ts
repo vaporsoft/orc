@@ -216,6 +216,7 @@ export class Daemon extends EventEmitter {
         failedChecks: [],
         ciFixAttempts: 0,
         conflicted: [],
+        hasFixupCommits: false,
       });
       this.emit("prUpdate", branch);
       return;
@@ -254,6 +255,7 @@ export class Daemon extends EventEmitter {
         failedChecks: [],
         ciFixAttempts: 0,
         conflicted: [],
+        hasFixupCommits: false,
       });
       this.emit("prUpdate", branch);
       return;
@@ -641,6 +643,7 @@ export class Daemon extends EventEmitter {
         failedChecks: [],
         ciFixAttempts: 0,
         conflicted: [],
+        hasFixupCommits: false,
       });
       this.emit("prUpdate", branch);
       return;
@@ -752,6 +755,7 @@ export class Daemon extends EventEmitter {
       failedChecks: prev?.failedChecks ?? [],
       ciFixAttempts: prev?.ciFixAttempts ?? 0,
       conflicted: prev?.conflicted ?? [],
+      hasFixupCommits: prev?.hasFixupCommits ?? false,
       sessionExpiresAt: prev?.sessionExpiresAt ?? null,
     });
     this.emit("prUpdate", branch);
@@ -784,6 +788,7 @@ export class Daemon extends EventEmitter {
       failedChecks: [],
       ciFixAttempts: 0,
       conflicted: [],
+      hasFixupCommits: false,
       sessionExpiresAt: null,
     };
   }

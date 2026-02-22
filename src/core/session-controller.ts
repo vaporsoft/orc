@@ -40,9 +40,6 @@ const LOCKFILE_NAMES = new Set([
   "bun.lock",
 ]);
 
-/** Error message used when rebase fails due to conflicts. */
-const REBASE_CONFLICT_ERROR = "Rebase conflict — manual intervention needed";
-
 export class SessionController extends EventEmitter {
   private config: Config;
   private branch: string;
@@ -106,6 +103,7 @@ export class SessionController extends EventEmitter {
       failedChecks: [],
       ciFixAttempts: 0,
       conflicted: [],
+      hasFixupCommits: false,
     };
   }
 
@@ -255,6 +253,15 @@ export class SessionController extends EventEmitter {
         }
       }
       this.state.conflicted = [];
+
+      // Autosquash any fixup commits before pushing
+      const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+      if (!rebased) {
+        logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+        this.state.hasFixupCommits = true;
+      } else {
+        this.state.hasFixupCommits = false;
+      }
 
       // Push the rebased branch
       this.setStatus("pushing");
@@ -595,11 +602,11 @@ export class SessionController extends EventEmitter {
       if (!pushAborted) {
         const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
         if (!rebased) {
-          logger.error("Rebase failed — manual intervention needed", this.branch);
-          this.state.error = REBASE_CONFLICT_ERROR;
-          this.setStatus("error");
-          this.running = false;
-          pushAborted = true;
+          logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+          this.state.hasFixupCommits = true;
+        } else {
+          // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
+          this.state.hasFixupCommits = false;
         }
       }
 
@@ -616,42 +623,23 @@ export class SessionController extends EventEmitter {
       logger.info("No commits made — skipping push", this.branch);
     }
 
-    // 7. REPLY — immediately after push, before CI polling
-    this.setStatus("replying");
+    // 7. REPLY — only after a successful push. If nothing was pushed (error,
+    //    push failure, no commits) skip replies so the threads stay unresolved
+    //    and will be retried on the next cycle or handled manually.
+    const fixSucceeded = !fixResult.isError && madeCommits && pushed;
 
-    // Get the current SHA after rebase/push to ensure replies link to the correct commit
-    const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
+    if (fixSucceeded) {
+      this.setStatus("replying");
 
-    const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
-    const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+      const currentSha = await this.gitManager.getHeadSha();
+      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-    // Determine failure reason (if any) for reply messages
-    const getFailureReason = (): string | null => {
-      if (!fixResult.isError && madeCommits && pushed) return null;
-      if (fixResult.isError) return "fix session encountered an error.";
-      if (madeCommits && !pushed) {
-        return this.state.error === REBASE_CONFLICT_ERROR
-          ? "commits were made but a rebase conflict prevented pushing. Manual intervention needed."
-          : "commits were made but push failed.";
-      }
-      return "fix session produced no changes.";
-    };
-
-    const failureReason = getFailureReason();
-
-    // Reply to regular comments based on fix outcome
-    if (regularComments.length > 0) {
-      if (failureReason === null) {
+      if (regularComments.length > 0) {
         await this.responder.replyToAddressed(regularComments, currentSha);
-      } else {
-        await this.responder.replyToFailed(regularComments, failureReason);
       }
-    }
-    if (verifyComments.length > 0) {
-      if (failureReason === null) {
+      if (verifyComments.length > 0) {
         await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
-      } else {
-        await this.responder.replyToFailed(verifyComments, failureReason);
       }
     }
 
@@ -947,14 +935,17 @@ export class SessionController extends EventEmitter {
         }
         if (pushSucceeded) {
           const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-          if (rebased) {
-            const pushed = await this.gitManager.forcePushWithLease();
-            if (pushed) {
-              this.state.lastPushAt = new Date().toISOString();
-              this.emit("pushed", this.branch);
-            } else {
-              pushSucceeded = false;
-            }
+          if (!rebased) {
+            logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+            this.state.hasFixupCommits = true;
+          } else {
+            // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
+            this.state.hasFixupCommits = false;
+          }
+          const pushed = await this.gitManager.forcePushWithLease();
+          if (pushed) {
+            this.state.lastPushAt = new Date().toISOString();
+            this.emit("pushed", this.branch);
           } else {
             pushSucceeded = false;
           }

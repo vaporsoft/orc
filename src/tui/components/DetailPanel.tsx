@@ -233,6 +233,13 @@ export function DetailPanel({
 
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
 
+        {state?.hasFixupCommits && (
+          <Box marginTop={1} marginLeft={2}>
+            <Text color={theme.warning} bold>{"! "}</Text>
+            <Text color={theme.warning}>Unsquashed fixup commits — rebase before merging</Text>
+          </Box>
+        )}
+
         {/* Cycle history */}
         {state && state.cycleHistory.length > 0 && (
           <CycleHistory
