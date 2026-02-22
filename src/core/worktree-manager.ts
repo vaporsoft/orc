@@ -12,7 +12,7 @@ import { WORKTREE_BASE } from "../constants.js";
 
 export class WorktreeManager {
   private cwd: string;
-  private worktrees: Map<string, string> = new Map();
+  private worktrees = new Map<string, string>();
 
   constructor(cwd: string) {
     this.cwd = cwd;
@@ -83,7 +83,7 @@ export class WorktreeManager {
     if (!fs.existsSync(WORKTREE_BASE)) return;
 
     // Get list of worktrees that git knows about for this repo
-    let knownWorktrees: Set<string> = new Set();
+    const knownWorktrees = new Set<string>();
     try {
       const result = await exec("git", ["worktree", "list", "--porcelain"], {
         cwd: this.cwd,

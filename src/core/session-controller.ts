@@ -1030,7 +1030,7 @@ export class SessionController extends EventEmitter {
     sections.push(`## Failing Checks (${failedChecks.length})\n`);
 
     // Get all failed workflow run logs for this commit
-    let failedRunLogs: Array<{ name: string; log: string }> = [];
+    const failedRunLogs: { name: string; log: string }[] = [];
     try {
       const runs = await this.ghClient.getWorkflowRuns(this.state.prNumber);
       for (const run of runs) {

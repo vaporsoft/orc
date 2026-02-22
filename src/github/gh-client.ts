@@ -223,7 +223,7 @@ export class GHClient {
   }
 
   /** List workflow runs for the HEAD commit of a PR. */
-  async getWorkflowRuns(prNumber: number): Promise<Array<{ databaseId: number; name: string; conclusion: string | null; status: string }>> {
+  async getWorkflowRuns(prNumber: number): Promise<{ databaseId: number; name: string; conclusion: string | null; status: string }[]> {
     const { owner, repo } = await this.getRepoInfo();
 
     const { stdout: shaOut } = await withRetry(

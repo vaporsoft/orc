@@ -54,7 +54,7 @@ export class GitManager {
         baseBranch,
       ]);
       return true;
-    } catch (err) {
+    } catch (_err) {
       logger.error(`Rebase failed, aborting`, this.branch);
       await this.git(["rebase", "--abort"]).catch(() => {});
       return false;
@@ -73,7 +73,7 @@ export class GitManager {
         `HEAD:${this.branch}`,
       ]);
       return true;
-    } catch (err) {
+    } catch (_err) {
       logger.warn(`Push rejected, fetching and retrying`, this.branch);
 
       try {
@@ -132,7 +132,7 @@ export class GitManager {
         "--count",
         `HEAD...origin/${this.branch}`,
       ]);
-      const [ahead, behind] = result.stdout.trim().split("\t").map(Number);
+      const [_ahead, behind] = result.stdout.trim().split("\t").map(Number);
       if (behind > 0) {
         logger.warn(
           `Branch ${this.branch} is ${behind} commits behind remote`,
