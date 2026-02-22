@@ -518,15 +518,12 @@ export class Daemon extends EventEmitter {
       this.updateConflictStatuses(prs),
     ]);
 
-    // Check ready statuses after comment counts are updated
-    this.updateReadyStatuses();
-
-    // Handle PRs that are no longer open (closed or merged)
+    // Handle PRs that are no longer open (closed or merged) before checking ready statuses,
+    // so merged PRs are removed from discoveredPRs and don't briefly flicker to "ready"
     for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
         const pr = this.discoveredPRs.get(branch)!;
 
-        // Check if the PR was merged first to avoid UI flicker
         let wasMerged = false;
         try {
           wasMerged = await this.ghClient.isPRMerged(pr.number);
@@ -535,7 +532,6 @@ export class Daemon extends EventEmitter {
         }
 
         if (wasMerged) {
-          // Add to merged PRs before removing from discovered to avoid flicker
           logger.info(`PR #${pr.number} merged`, branch);
           this.mergedPRs.set(branch, { pr, mergedAt: Date.now() });
           this.maybeNotify("PR Merged", `Pull request #${pr.number} (${pr.title}) has been merged!`);
@@ -564,6 +560,9 @@ export class Daemon extends EventEmitter {
         }
       }
     }
+
+    // Check ready statuses after merged PRs have been removed from discoveredPRs
+    this.updateReadyStatuses();
   }
 
   private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
