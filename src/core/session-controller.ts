@@ -558,7 +558,7 @@ export class SessionController extends EventEmitter {
 
     // Reply to regular comments based on fix outcome
     if (regularComments.length > 0) {
-      if (!fixResult.isError && madeCommits) {
+      if (!fixResult.isError && madeCommits && pushed) {
         await this.responder.replyToAddressed(regularComments, currentSha);
       } else if (fixResult.isError) {
         await this.responder.replyToFailed(regularComments, "fix session encountered an error.");

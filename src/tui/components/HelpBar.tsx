@@ -53,7 +53,7 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
       <Text dimColor>·</Text>
       <Key k="w" label="watch" accentColor={theme.accent} />
       <Text dimColor>·</Text>
-      <Key k="r" label="retry" accentColor={theme.accent} />
+      <Key k="r" label="rebase" accentColor={theme.accent} />
       <Text dimColor>·</Text>
       <Key k="enter" label="details" accentColor={theme.accent} />
       <Text dimColor>·</Text>

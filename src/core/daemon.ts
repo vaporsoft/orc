@@ -263,6 +263,31 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      this.lastStates.set(branch, {
+        branch,
+        prNumber: pr.number,
+        prUrl: pr.url,
+        status: "error",
+        mode: "once",
+        commentsAddressed: 0,
+        totalCostUsd: 0,
+        error: `Failed to create worktree: ${err}`,
+        unresolvedCount: 0,
+        commentSummary: null,
+        lastPushAt: null,
+        claudeActivity: [],
+        lastSessionId: null,
+        workDir: this.cwd,
+        lifetimeAddressed: 0,
+        lifetimeSeen: 0,
+        cycleCount: 0,
+        cycleHistory: [],
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
+      });
+      this.emit("prUpdate", branch);
       return;
     }
 
@@ -321,6 +346,7 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      this.setOptimisticStatus(branch, "error");
       return;
     }
 
