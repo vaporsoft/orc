@@ -51,6 +51,8 @@ export interface CycleRecord {
   commentsSeen: number;
   commentsFixed: number;
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface RepoConfig {
@@ -97,6 +99,8 @@ export interface BranchState {
   mode: SessionMode;
   commentsAddressed: number;
   totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
   error: string | null;
   unresolvedCount: number;
   commentSummary: CommentSummary | null;

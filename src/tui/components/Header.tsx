@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import type { ToolbarButton } from "./Toolbar.js";
 import { useTheme } from "../theme.js";
+import { formatTokens } from "../../utils/format.js";
 
 interface HeaderProps {
   entries: Map<string, PREntry>;
@@ -30,8 +31,10 @@ export function Header({ entries, startTime, lastCheck, buttons, selectedButton 
   const total = activeEntries.length;
   const running = activeEntries.filter((e) => e.state !== null).length;
   let totalCost = 0;
+  let totalTokens = 0;
   for (const entry of activeEntries) {
     totalCost += entry.state?.totalCostUsd ?? 0;
+    totalTokens += (entry.state?.totalInputTokens ?? 0) + (entry.state?.totalOutputTokens ?? 0);
   }
   const uptime = formatUptime(Date.now() - startTime);
 
@@ -61,7 +64,7 @@ export function Header({ entries, startTime, lastCheck, buttons, selectedButton 
         <Text color={running > 0 ? theme.accent : theme.muted}>{running}</Text>
         <Text dimColor>/{total} active</Text>
         <Text color={theme.accent}> · </Text>
-        <Text dimColor>${totalCost.toFixed(2)}</Text>
+        <Text dimColor>${totalCost.toFixed(2)} · {formatTokens(totalTokens)} tok</Text>
         <Text color={theme.accent}> · </Text>
         <Text dimColor>{uptime}</Text>
         <Text color={theme.accent}> · </Text>

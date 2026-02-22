@@ -4,6 +4,7 @@ import type { PREntry } from "../hooks/useDaemonState.js";
 import type { CommentCategory, CycleRecord } from "../../types/index.js";
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
+import { formatTokens } from "../../utils/format.js";
 
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
@@ -77,7 +78,6 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   );
 }
 
-
 function CycleHistory({ cycles, resolved, total, accentColor }: {
   cycles: CycleRecord[];
   resolved: number;
@@ -85,6 +85,7 @@ function CycleHistory({ cycles, resolved, total, accentColor }: {
   accentColor: string;
 }) {
   const totalCost = cycles.reduce((sum, c) => sum + c.costUsd, 0);
+  const totalTokens = cycles.reduce((sum, c) => sum + (c.inputTokens ?? 0) + (c.outputTokens ?? 0), 0);
 
   return (
     <>
@@ -92,6 +93,7 @@ function CycleHistory({ cycles, resolved, total, accentColor }: {
       {cycles.map((cycle, i) => {
         const isLatest = i === cycles.length - 1;
         const time = formatTime(cycle.startedAt);
+        const cycleTok = (cycle.inputTokens ?? 0) + (cycle.outputTokens ?? 0);
         return (
           <Box key={i} marginLeft={2}>
             <Text dimColor>{"r" + String(i + 1).padEnd(4)}</Text>
@@ -99,6 +101,7 @@ function CycleHistory({ cycles, resolved, total, accentColor }: {
               {String(cycle.commentsSeen).padStart(2)} found
             </Text>
             <Text dimColor>{"   $" + cycle.costUsd.toFixed(3).padStart(6)}</Text>
+            <Text dimColor>{"  " + formatTokens(cycleTok).padStart(6) + " tok"}</Text>
             <Text dimColor>{"   " + time}</Text>
             {isLatest && !cycle.completedAt && (
               <Text color={accentColor}>{" ← now"}</Text>
@@ -107,7 +110,7 @@ function CycleHistory({ cycles, resolved, total, accentColor }: {
         );
       })}
       <Box marginLeft={2} marginTop={0}>
-        <Text dimColor>{"──────────────────────────────"}</Text>
+        <Text dimColor>{"──────────────────────────────────────────"}</Text>
       </Box>
       <Box marginLeft={2}>
         <Text dimColor>{"tot "}</Text>
@@ -115,6 +118,7 @@ function CycleHistory({ cycles, resolved, total, accentColor }: {
           {String(resolved).padStart(2)}/{total}
         </Text>
         <Text dimColor>{"    $" + totalCost.toFixed(3).padStart(6)}</Text>
+        <Text dimColor>{"  " + formatTokens(totalTokens).padStart(6) + " tok"}</Text>
       </Box>
     </>
   );
@@ -219,7 +223,7 @@ export function DetailPanel({
               ) : state.commentsAddressed > 0 ? (
                 <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
               ) : null}
-              <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
+              <Text dimColor> · ${state.totalCostUsd.toFixed(3)} · {formatTokens(state.totalInputTokens + state.totalOutputTokens)} tok</Text>
               {state.lastPushAt && <Text dimColor> · pushed {formatTime(state.lastPushAt)}</Text>}
             </>
           )}
