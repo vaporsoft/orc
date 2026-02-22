@@ -22,6 +22,7 @@ dist/
 # Logs
 *.log
 .orc-session-*.txt
+.orc-verify.json
 
 # OS junk
 .DS_Store
