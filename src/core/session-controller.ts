@@ -499,6 +499,7 @@ export class SessionController extends EventEmitter {
     const madeCommits = headAfter !== headBefore;
 
     let pushed = false;
+    let pushAborted = false;
     if (fixResult.isError) {
       logger.warn("Fix session had errors, skipping push", this.branch);
     } else if (madeCommits) {
@@ -518,7 +519,6 @@ export class SessionController extends EventEmitter {
 
       // 6. PUSH
       this.setStatus("pushing");
-      let pushAborted = false;
 
       const diverged = await this.gitManager.checkDivergence();
       if (diverged) {
@@ -554,41 +554,43 @@ export class SessionController extends EventEmitter {
     }
 
     // 7. REPLY — immediately after push, before CI polling
-    this.setStatus("replying");
+    if (!pushAborted) {
+      this.setStatus("replying");
 
-    // Get the current SHA after rebase/push to ensure replies link to the correct commit
-    const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
+      // Get the current SHA after rebase/push to ensure replies link to the correct commit
+      const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
 
-    const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
-    const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-    // Reply to regular comments based on fix outcome
-    if (regularComments.length > 0) {
-      if (!fixResult.isError && madeCommits && pushed) {
-        await this.responder.replyToAddressed(regularComments, currentSha);
-      } else if (fixResult.isError) {
-        await this.responder.replyToFailed(regularComments, "fix session encountered an error.");
-      } else {
-        await this.responder.replyToFailed(regularComments, "fix session produced no changes.");
+      // Reply to regular comments based on fix outcome
+      if (regularComments.length > 0) {
+        if (!fixResult.isError && madeCommits && pushed) {
+          await this.responder.replyToAddressed(regularComments, currentSha);
+        } else if (fixResult.isError) {
+          await this.responder.replyToFailed(regularComments, "fix session encountered an error.");
+        } else {
+          await this.responder.replyToFailed(regularComments, "fix session produced no changes.");
+        }
       }
-    }
-    if (verifyComments.length > 0) {
-      await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
-    }
-
-    // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
-    if (this.state.prNumber && madeCommits) {
-      const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
-        .filter((a) => a !== this.prAuthor);
-      if (uniqueAuthors.length > 0) {
-        await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
+      if (verifyComments.length > 0) {
+        await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
       }
-    }
 
-    // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
-    if (pushed) {
-      this.setStatus("listening");
-      await this.checkAndFixCI(baseBranch);
+      // 8. RE-REQUEST review (exclude the PR author — GitHub rejects that)
+      if (this.state.prNumber && madeCommits) {
+        const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
+          .filter((a) => a !== this.prAuthor);
+        if (uniqueAuthors.length > 0) {
+          await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
+        }
+      }
+
+      // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
+      if (pushed) {
+        this.setStatus("listening");
+        await this.checkAndFixCI(baseBranch);
+      }
     }
 
     // Update running totals - only count comments as fixed when commits are made and pushed successfully

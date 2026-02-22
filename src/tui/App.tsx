@@ -139,7 +139,7 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Conflict resolution: R to resolve once, A to always auto-resolve
     if (focusedPane === "sessions") {
-      const branch = openBranches[sessionIndex];
+      const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       if (entry?.state?.status === "conflict_prompt") {
         if (input === "r" || input === "R") {

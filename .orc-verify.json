@@ -1,4 +1,0 @@
-{
-  "PRRT_kwDORUX6Ds5v7lLX": { "status": "fixed", "summary": "Issue was already fixed in commit d7c90fe - unused pilotConfig parameter was removed from buildCIPrompt method" },
-  "PRRT_kwDORUX6Ds5v9AKf": { "status": "fixed", "summary": "Added setOptimisticStatus(branch, 'error') when worktree creation fails in rebaseBranchPlain to prevent branch getting stuck in 'initializing' status" }
-}

@@ -360,8 +360,13 @@ export class Daemon extends EventEmitter {
         const ok = await gitManager.pullRebase(pr.baseRefName);
         if (!ok) {
           logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
+          // Temporarily remove session to allow conflict status update
+          const session = this.sessions.get(branch);
+          this.sessions.delete(branch);
           // Refresh conflict status so TUI shows them
           await this.updateConflictStatuses([pr]);
+          // Restore session
+          if (session) this.sessions.set(branch, session);
           this.emit("conflictStatusUpdate", branch);
           return;
         }
