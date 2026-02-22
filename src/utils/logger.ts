@@ -32,7 +32,7 @@ class Logger extends EventEmitter {
     if (logPath) {
       const dir = path.dirname(logPath);
       fs.mkdirSync(dir, { recursive: true });
-      this.logFile = fs.createWriteStream(logPath, { flags: "a" });
+      this.logFile = fs.createWriteStream(logPath, { flags: "w" });
     }
   }
 
