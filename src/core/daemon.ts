@@ -16,6 +16,8 @@ import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, Se
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
+import { RateLimitError } from "../utils/retry.js";
 import { loadSettings } from "../utils/settings.js";
 import { notify } from "../utils/notify.js";
 
@@ -474,7 +476,11 @@ export class Daemon extends EventEmitter {
     try {
       prs = await this.ghClient.getMyOpenPRs();
     } catch (err) {
-      logger.warn(`Failed to discover PRs: ${err}`);
+      if (err instanceof RateLimitError) {
+        logger.warn("GitHub rate limit hit during discovery, skipping this cycle");
+      } else {
+        logger.warn(`Failed to discover PRs: ${err}`);
+      }
       return;
     }
 
@@ -561,7 +567,7 @@ export class Daemon extends EventEmitter {
   private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
     if (!this.botLogin) return;
 
-    await Promise.all(prs.map(async (pr) => {
+    await mapWithConcurrency(prs, 3, async (pr) => {
       try {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin!, pr.headRefName,
@@ -580,9 +586,16 @@ export class Daemon extends EventEmitter {
           this.emit("commentCountUpdate", pr.headRefName, count);
         }
       } catch (err) {
+        if (err instanceof RateLimitError) {
+          logger.warn("GitHub rate limit hit while fetching comments, stopping comment updates");
+          throw err;
+        }
         logger.debug(`Failed to fetch comments for ${pr.headRefName}: ${err}`);
       }
-    }));
+    }).catch((err) => {
+      if (err instanceof RateLimitError) return;
+      throw err;
+    });
   }
 
   private async launchSession(pr: GHPullRequest, mode: SessionMode = "once"): Promise<void> {

@@ -1,7 +1,7 @@
 /** Default values and magic numbers. */
 
 /** Seconds between GitHub polls. */
-export const DEFAULT_POLL_INTERVAL = 30;
+export const DEFAULT_POLL_INTERVAL = 60;
 
 /** Default confidence threshold for comment classification. */
 export const DEFAULT_CONFIDENCE = 0.75;

@@ -3,8 +3,8 @@
  * Uses `gh api` for GraphQL and REST calls — inherits the user's auth.
  */
 
-import { exec } from "../utils/process.js";
-import { withRetry } from "../utils/retry.js";
+import { exec, type ExecResult } from "../utils/process.js";
+import { withRetry, RateLimitError } from "../utils/retry.js";
 import { logger } from "../utils/logger.js";
 import {
   REVIEW_THREADS_QUERY,
@@ -28,6 +28,8 @@ export interface RepoInfo {
   repo: string;
 }
 
+const RATE_LIMIT_PATTERN = /rate limit|abuse detection/i;
+
 export class GHClient {
   private repoInfo: RepoInfo | null = null;
   private cachedLogin: string | null = null;
@@ -37,14 +39,28 @@ export class GHClient {
     this.cwd = cwd;
   }
 
+  /** Run a `gh` CLI command, converting rate-limit failures to RateLimitError. */
+  private async execGH(
+    args: string[],
+    options?: Parameters<typeof exec>[2],
+  ): Promise<ExecResult> {
+    try {
+      return await exec("gh", args, { cwd: this.cwd, ...options });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (RATE_LIMIT_PATTERN.test(message)) {
+        throw new RateLimitError(message);
+      }
+      throw err;
+    }
+  }
+
   /** Discover owner/repo from the current git remote. */
   async getRepoInfo(): Promise<RepoInfo> {
     if (this.repoInfo) return this.repoInfo;
 
-    const { stdout } = await exec(
-      "gh",
+    const { stdout } = await this.execGH(
       ["repo", "view", "--json", "owner,name"],
-      { cwd: this.cwd },
     );
     const parsed = JSON.parse(stdout);
     this.repoInfo = { owner: parsed.owner.login, repo: parsed.name };
@@ -55,10 +71,8 @@ export class GHClient {
   async getCurrentUser(): Promise<string> {
     if (this.cachedLogin) return this.cachedLogin;
 
-    const { stdout } = await exec(
-      "gh",
+    const { stdout } = await this.execGH(
       ["api", "user", "--jq", ".login"],
-      { cwd: this.cwd },
     );
     this.cachedLogin = stdout.trim();
     return this.cachedLogin;
@@ -92,7 +106,7 @@ export class GHClient {
       }
     }
     const { stdout } = await withRetry(
-      () => exec("gh", args, { cwd: this.cwd }),
+      () => this.execGH(args),
       "graphql",
     );
     return JSON.parse(stdout) as T;
@@ -168,12 +182,12 @@ export class GHClient {
     const { owner, repo } = await this.getRepoInfo();
     await withRetry(
       () =>
-        exec("gh", [
+        this.execGH([
           "api",
           "--method", "POST",
           `repos/${owner}/${repo}/issues/${prNumber}/comments`,
           "-f", `body=${body}`,
-        ], { cwd: this.cwd }),
+        ]),
       "add-pr-comment",
     );
   }
@@ -184,22 +198,22 @@ export class GHClient {
 
     const { stdout } = await withRetry(
       () =>
-        exec("gh", [
+        this.execGH([
           "api",
           `repos/${owner}/${repo}/pulls/${prNumber}`,
           "--jq",
           ".head.sha",
-        ], { cwd: this.cwd }),
+        ]),
       "fetch-pr-sha",
     );
     const sha = stdout.trim();
 
     const { stdout: checksJson } = await withRetry(
       () =>
-        exec("gh", [
+        this.execGH([
           "api",
           `repos/${owner}/${repo}/commits/${sha}/check-runs`,
-        ], { cwd: this.cwd }),
+        ]),
       "fetch-checks",
     );
 
@@ -210,13 +224,14 @@ export class GHClient {
   /** Fetch failed CI run logs with smart truncation. */
   async getFailedRunLog(runId: number): Promise<string> {
     try {
-      const { stdout } = await exec(
-        "gh",
+      const { stdout } = await this.execGH(
         ["run", "view", String(runId), "--log-failed"],
-        { cwd: this.cwd },
       );
       return this.truncateLog(stdout);
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        throw err;
+      }
       logger.warn(`Failed to fetch logs for run ${runId}`);
       return "(logs unavailable)";
     }
@@ -228,20 +243,18 @@ export class GHClient {
 
     const { stdout: shaOut } = await withRetry(
       () =>
-        exec("gh", [
+        this.execGH([
           "api",
           `repos/${owner}/${repo}/pulls/${prNumber}`,
           "--jq",
           ".head.sha",
-        ], { cwd: this.cwd }),
+        ]),
       "fetch-pr-sha-for-runs",
     );
     const sha = shaOut.trim();
 
-    const { stdout } = await exec(
-      "gh",
+    const { stdout } = await this.execGH(
       ["run", "list", "--commit", sha, "--json", "databaseId,name,conclusion,status"],
-      { cwd: this.cwd },
     );
     return JSON.parse(stdout);
   }
@@ -272,12 +285,12 @@ export class GHClient {
   ): Promise<void> {
     await withRetry(
       () =>
-        exec("gh", [
+        this.execGH([
           "api",
           "graphql",
           "-f",
           `query=mutation { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: "${threadNodeId}", body: "${body.replace(/"/g, '\\"').replace(/\n/g, "\\n")}" }) { comment { id } } }`,
-        ], { cwd: this.cwd }),
+        ]),
       "reply-to-thread",
     );
   }
@@ -296,7 +309,7 @@ export class GHClient {
       for (const reviewer of reviewers) {
         args.push("-f", `reviewers[]=${reviewer}`);
       }
-      await exec("gh", args, { cwd: this.cwd });
+      await this.execGH(args);
       logger.info(`Re-requested review from: ${reviewers.join(", ")}`);
     } catch (err) {
       logger.warn(`Failed to re-request reviewers: ${err}`);
@@ -307,11 +320,11 @@ export class GHClient {
   async isPRMerged(prNumber: number): Promise<boolean> {
     const { owner, repo } = await this.getRepoInfo();
     try {
-      const { stdout } = await exec("gh", [
+      const { stdout } = await this.execGH([
         "api",
         `repos/${owner}/${repo}/pulls/${prNumber}`,
         "--jq", ".merged",
-      ], { cwd: this.cwd });
+      ]);
       return stdout.trim() === "true";
     } catch {
       return false;
@@ -320,6 +333,6 @@ export class GHClient {
 
   /** Validate that `gh` is authenticated and can reach the repo. */
   async validateAuth(): Promise<void> {
-    await exec("gh", ["auth", "status"], { cwd: this.cwd });
+    await this.execGH(["auth", "status"]);
   }
 }
