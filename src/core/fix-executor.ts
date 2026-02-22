@@ -143,7 +143,7 @@ Do not push — the orchestrator handles that.`;
           permissionMode: "bypassPermissions",
           cwd: this.cwd,
           abortController,
-          appendSystemPrompt: systemSuffix,
+          systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: systemSuffix },
         },
       });
 
