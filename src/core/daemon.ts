@@ -189,6 +189,8 @@ export class Daemon extends EventEmitter {
       logger.warn(`Cannot start session — max concurrent sessions (${maxConcurrentSessions}) reached`, branch);
       const lifetime = this.progressStore.getLifetimeStats(branch);
       const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
+      const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
+      const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -206,6 +208,8 @@ export class Daemon extends EventEmitter {
         workDir: null,
         sessionExpiresAt: null,
         ...lifetime,
+        totalInputTokens,
+        totalOutputTokens,
         ciStatus: "unknown",
         failedChecks: [],
         ciFixAttempts: 0,
