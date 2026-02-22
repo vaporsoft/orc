@@ -106,6 +106,45 @@ export class ThreadResponder {
     }
   }
 
+  /** Reply to needs_clarification comments with a question tagging the original author. */
+  async replyToClarifications(comments: CategorizedComment[]): Promise<void> {
+    for (const comment of comments) {
+      const body = this.buildClarificationReply(comment);
+      try {
+        await this.reply(comment, body);
+        logger.info(
+          `Asked clarification on ${comment.path}`,
+          this.branch,
+        );
+      } catch (err) {
+        logger.warn(
+          `Failed to reply with clarification for ${comment.threadId}: ${err}`,
+          this.branch,
+        );
+      }
+    }
+  }
+
+  private buildClarificationReply(comment: CategorizedComment): string {
+    const isConversation = comment.path === "(conversation)";
+    const parts: string[] = [];
+
+    if (isConversation) {
+      const quotedBody = quoteCommentBody(comment.body);
+      parts.push(quotedBody);
+      parts.push("");
+    }
+
+    const prefix = isConversation ? `@${comment.author} ` : "";
+    const question = comment.clarificationQuestion ?? "Could you clarify what change you'd like here?";
+    parts.push(`${prefix}${question}`);
+
+    parts.push("");
+    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+
+    return parts.join("\n");
+  }
+
   private buildAddressedReply(comment: CategorizedComment, commitRef: string): string {
     const isConversation = comment.path === "(conversation)";
 
