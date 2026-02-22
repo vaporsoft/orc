@@ -162,6 +162,17 @@ No. `orc` is a CI/CD automation tool that invokes Claude Code as a subprocess â€
 
 `orc` is architecturally equivalent to a shell script that runs `claude` commands in a loop â€” it just adds a TUI dashboard and PR-aware orchestration on top.
 
+## Disclaimers
+
+**This software is provided "as is", without warranty of any kind.** By using orc, you acknowledge and agree to the following:
+
+- **Cost responsibility.** orc invokes Claude Code, which requires an active [Claude Code subscription](https://docs.anthropic.com/en/docs/claude-code). Each fix cycle consumes usage against your subscription or API quota. The authors are not responsible for any costs, charges, or overages incurred through use of this software.
+- **Autonomous code changes.** orc is designed to automatically modify code, commit, and push to your GitHub repositories. While it operates in isolated worktrees and runs configured verification commands, the authors make no guarantees about the correctness, safety, or suitability of any changes it produces. You are solely responsible for reviewing and accepting changes pushed to your repositories.
+- **No liability.** In no event shall the authors or copyright holders be liable for any claim, damages, or other liability arising from the use of this software, including but not limited to data loss, repository corruption, CI/CD costs, or unintended code modifications.
+- **Third-party services.** orc depends on third-party services (GitHub, Claude Code) that have their own terms of service, pricing, and availability. The authors make no guarantees about the availability or behavior of these services and are not responsible for changes to their terms or pricing.
+
+Use of this software constitutes acceptance of these terms. Always review changes before merging, and use the `--dry-run` flag to preview behavior before enabling autonomous fixes.
+
 ## License
 
-MIT
+[MIT](./LICENSE)
