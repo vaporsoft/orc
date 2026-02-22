@@ -93,9 +93,9 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
         </Text>
       </Box>
       <Box width={12}>
-        {state && state.lifetimeSeen > 0 ? (
-          <Text color={state.lifetimeAddressed > 0 ? theme.accentBright : theme.muted} dimColor={dimmed}>
-            {state.lifetimeAddressed}/{state.lifetimeSeen}
+        {entry.threadCounts && entry.threadCounts.total > 0 ? (
+          <Text color={entry.threadCounts.resolved === entry.threadCounts.total ? theme.accentBright : theme.muted} dimColor={dimmed}>
+            {entry.threadCounts.resolved}/{entry.threadCounts.total}
           </Text>
         ) : (
           <Text color={theme.muted} dimColor={dimmed}>—</Text>

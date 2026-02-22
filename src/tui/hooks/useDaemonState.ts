@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Daemon } from "../../core/daemon.js";
 import type { CIStatus, FailedCheck, ReviewThread } from "../../types/index.js";
+import type { ThreadCounts } from "../../core/comment-fetcher.js";
 import type { GHPullRequest } from "../../github/types.js";
 
 export interface PREntry {
@@ -9,6 +10,7 @@ export interface PREntry {
   state: import("../../types/index.js").BranchState | null; // null = discovered but not running
   commentCount: number;
   commentThreads: ReviewThread[];
+  threadCounts: ThreadCounts | null;
   ciStatus: CIStatus;
   failedChecks: FailedCheck[];
   conflicted: string[];
@@ -22,6 +24,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const threads = daemon.getCommentThreads();
   const lastStates = daemon.getLastStates();
   const progressStore = daemon.getProgressStore();
+  const allThreadCounts = daemon.getThreadCounts();
   const ciStatuses = daemon.getCIStatuses();
   const ciFailedChecks = daemon.getCIFailedChecks();
   const conflictStatuses = daemon.getConflictStatuses();
@@ -66,6 +69,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       state,
       commentCount: counts.get(branch) ?? state?.unresolvedCount ?? 0,
       commentThreads: threads.get(branch) ?? [],
+      threadCounts: allThreadCounts.get(branch) ?? null,
       ciStatus: isActive && state!.ciStatus !== "unknown" ? state!.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
       failedChecks: isActive && state!.ciStatus !== "unknown" ? (state!.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
       conflicted: isActive ? (state!.conflicted ?? []) : (conflictStatuses.get(branch) ?? []),
@@ -80,6 +84,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
         state: lastStates.get(branch) ?? null,
         commentCount: 0,
         commentThreads: [],
+        threadCounts: null,
         ciStatus: "unknown" as const,
         failedChecks: [],
         conflicted: [],

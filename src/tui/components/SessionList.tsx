@@ -51,8 +51,9 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       <Box width={16}><Text dimColor>status</Text></Box>
       <Box width={10}><Text dimColor>time left</Text></Box>
       <Box width={4}><Text dimColor>ci</Text></Box>
+      <Box width={12}><Text dimColor>conflicts</Text></Box>
       <Box width={10}><Text dimColor>comments</Text></Box>
-      <Box width={12}><Text dimColor>progress</Text></Box>
+      <Box width={12}><Text dimColor>resolved</Text></Box>
       <Box width={10}><Text dimColor>cost</Text></Box>
       <Box width={10}><Text dimColor>last push</Text></Box>
     </Box>

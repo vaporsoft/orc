@@ -78,25 +78,25 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
 }
 
 
-function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
+function CycleHistory({ cycles, resolved, total, accentColor }: {
   cycles: CycleRecord[];
-  totalAddressed: number;
-  totalSeen: number;
+  resolved: number;
+  total: number;
   accentColor: string;
 }) {
   const totalCost = cycles.reduce((sum, c) => sum + c.costUsd, 0);
 
   return (
     <>
-      <SectionHeader label={`Review Progress (${totalAddressed}/${totalSeen})`} color={accentColor} />
+      <SectionHeader label={`Review Progress (${resolved}/${total} resolved)`} color={accentColor} />
       {cycles.map((cycle, i) => {
         const isLatest = i === cycles.length - 1;
         const time = formatTime(cycle.startedAt);
         return (
           <Box key={i} marginLeft={2}>
             <Text dimColor>{"r" + String(i + 1).padEnd(4)}</Text>
-            <Text color={cycle.commentsFixed > 0 ? accentColor : "gray"}>
-              {String(cycle.commentsFixed).padStart(2)} fixed
+            <Text color={cycle.commentsSeen > 0 ? accentColor : "gray"}>
+              {String(cycle.commentsSeen).padStart(2)} found
             </Text>
             <Text dimColor>{"   $" + cycle.costUsd.toFixed(3).padStart(6)}</Text>
             <Text dimColor>{"   " + time}</Text>
@@ -112,7 +112,7 @@ function CycleHistory({ cycles, totalAddressed, totalSeen, accentColor }: {
       <Box marginLeft={2}>
         <Text dimColor>{"tot "}</Text>
         <Text color={accentColor} bold>
-          {String(totalAddressed).padStart(2)}/{totalSeen}
+          {String(resolved).padStart(2)}/{total}
         </Text>
         <Text dimColor>{"    $" + totalCost.toFixed(3).padStart(6)}</Text>
       </Box>
@@ -134,7 +134,7 @@ export function DetailPanel({
     return null;
   }
 
-  const { pr, state, commentCount, commentThreads, ciStatus, failedChecks, conflicted } = entry;
+  const { pr, state, commentCount, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
   const title = pr.title.length > 50 ? pr.title.slice(0, 49) + "…" : pr.title;
   const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
@@ -160,7 +160,7 @@ export function DetailPanel({
           </Text>
         </Box>
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
-        {activityLines.length > 0 && (
+        {isActive && activityLines.length > 0 && (
           <Box marginLeft={2}>
             <Text color={theme.accent} dimColor>Claude: </Text>
             <Text dimColor>{activityLines[activityLines.length - 1]}</Text>
@@ -214,11 +214,11 @@ export function DetailPanel({
           {state && (
             <>
               <Text dimColor> · </Text>
-              {state.lifetimeSeen > 0 ? (
-                <Text color={theme.accentBright}>{state.lifetimeAddressed}/{state.lifetimeSeen} addressed</Text>
-              ) : (
+              {threadCounts && threadCounts.total > 0 ? (
+                <Text color={theme.accentBright}>{threadCounts.resolved}/{threadCounts.total} resolved</Text>
+              ) : state.commentsAddressed > 0 ? (
                 <Text color={theme.accentBright}>{state.commentsAddressed} fixed</Text>
-              )}
+              ) : null}
               <Text dimColor> · ${state.totalCostUsd.toFixed(3)}</Text>
               {state.lastPushAt && <Text dimColor> · pushed {formatTime(state.lastPushAt)}</Text>}
             </>
@@ -234,8 +234,8 @@ export function DetailPanel({
         {state && state.cycleHistory.length > 0 && (
           <CycleHistory
             cycles={state.cycleHistory}
-            totalAddressed={state.lifetimeAddressed}
-            totalSeen={state.lifetimeSeen}
+            resolved={threadCounts?.resolved ?? 0}
+            total={threadCounts?.total ?? 0}
             accentColor={theme.accentBright}
           />
         )}
@@ -377,7 +377,7 @@ export function DetailPanel({
 
         {/* Claude section — always show */}
         <SectionHeader label="Claude" color={theme.accent} />
-        {activityLines.length > 0 ? (
+        {isActive && activityLines.length > 0 ? (
           activityLines.map((line, i) => (
             <Box key={i} marginLeft={2}>
               <Text dimColor={i < activityLines.length - 1} color={i === activityLines.length - 1 ? theme.text : undefined}>

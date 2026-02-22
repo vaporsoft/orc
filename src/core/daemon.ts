@@ -6,7 +6,7 @@
 
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
-import { CommentFetcher } from "./comment-fetcher.js";
+import { CommentFetcher, type ThreadCounts } from "./comment-fetcher.js";
 import { GitManager } from "./git-manager.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
@@ -32,6 +32,7 @@ export class Daemon extends EventEmitter {
   private discoveredPRs = new Map<string, GHPullRequest>();
   private commentCounts = new Map<string, number>();
   private commentThreads = new Map<string, ReviewThread[]>();
+  private threadCounts = new Map<string, ThreadCounts>();
   private lastStates = new Map<string, BranchState>();
   private mergedPRs = new Map<string, { pr: GHPullRequest; mergedAt: number }>();
   private ciStatuses = new Map<string, CIStatus>();
@@ -74,6 +75,10 @@ export class Daemon extends EventEmitter {
 
   getCommentThreads(): Map<string, ReviewThread[]> {
     return new Map(this.commentThreads);
+  }
+
+  getThreadCounts(): Map<string, ThreadCounts> {
+    return new Map(this.threadCounts);
   }
 
   getLastStates(): Map<string, BranchState> {
@@ -184,6 +189,13 @@ export class Daemon extends EventEmitter {
   async stopBranch(branch: string): Promise<void> {
     this.setOptimisticStatus(branch, "stopped");
     await this.teardownSession(branch);
+    // Cleanup saves the controller's final state (often "error" from abort),
+    // so force it back to "stopped"
+    const lastState = this.lastStates.get(branch);
+    if (lastState && lastState.status !== "stopped") {
+      lastState.status = "stopped";
+      lastState.error = null;
+    }
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     }
@@ -449,6 +461,7 @@ export class Daemon extends EventEmitter {
         this.discoveredPRs.delete(branch);
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
+        this.threadCounts.delete(branch);
         this.ciStatuses.delete(branch);
         this.ciFailedChecks.delete(branch);
         this.conflictStatuses.delete(branch);
@@ -477,10 +490,11 @@ export class Daemon extends EventEmitter {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin!, pr.headRefName,
         );
-        const fetched = await fetcher.fetch();
+        const { comments: fetched, threadCounts } = await fetcher.fetchWithCounts();
         const count = fetched.length;
         const prev = this.commentCounts.get(pr.headRefName) ?? -1;
         this.commentCounts.set(pr.headRefName, count);
+        this.threadCounts.set(pr.headRefName, threadCounts);
         this.commentThreads.set(
           pr.headRefName,
           fetched.map((f) => f.thread),
