@@ -4,8 +4,6 @@ import type { PREntry } from "../hooks/useDaemonState.js";
 import { SessionRow } from "./SessionRow.js";
 import { useTheme } from "../theme.js";
 
-const MERGE_SETTLE_MS = 30_000;
-
 interface SessionListProps {
   entries: Map<string, PREntry>;
   selectedIndex: number;
@@ -17,31 +15,6 @@ interface SessionListProps {
 
 export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, renderPaused }: SessionListProps) {
   const theme = useTheme();
-
-  // Tick every second so recently-merged rows transition after 30s
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (mergedBranches.length === 0) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [mergedBranches.length]);
-
-  // Split merged branches into "recent" (< 30s, shown inline in open section)
-  // and "settled" (>= 30s, shown in merged section)
-  const now = Date.now();
-  const recentMerged: string[] = [];
-  const settledMerged: string[] = [];
-  for (const branch of mergedBranches) {
-    const entry = entries.get(branch);
-    if (entry?.mergedAt && now - entry.mergedAt >= MERGE_SETTLE_MS) {
-      settledMerged.push(branch);
-    } else {
-      recentMerged.push(branch);
-    }
-  }
-
-  // Inline list: open branches + recently merged (still in the main section)
-  const inlineBranches = [...openBranches, ...recentMerged];
 
   const columnHeaders = (
     <Box paddingX={1}>
@@ -93,12 +66,12 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
         <Text color={theme.accent} bold>Open Branches</Text>
       </Box>
       {columnHeaders}
-      {inlineBranches.length === 0 ? (
+      {openBranches.length === 0 ? (
         <Box paddingX={1}>
           <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No open PRs"}</Text>
         </Box>
       ) : (
-        inlineBranches.map((branch, i) => (
+        openBranches.map((branch, i) => (
           <SessionRow
             key={branch}
             entry={entries.get(branch)!}
@@ -111,18 +84,18 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       {/* Merged Branches section */}
       <Box paddingX={1} marginTop={1} gap={2}>
         <Text color={theme.merged} bold>Merged Branches</Text>
-        {settledMerged.length > 0 && (
+        {mergedBranches.length > 0 && (
           <Text dimColor color={theme.muted}>
             [d] clear all
           </Text>
         )}
       </Box>
-      {settledMerged.length === 0 ? (
+      {mergedBranches.length === 0 ? (
         <Box paddingX={1}>
           <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No branches merged this session"}</Text>
         </Box>
       ) : (
-        settledMerged.map((branch) => (
+        mergedBranches.map((branch) => (
           <SessionRow
             key={branch}
             entry={entries.get(branch)!}
