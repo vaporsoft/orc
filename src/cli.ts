@@ -20,7 +20,7 @@ export const cli = new Command()
   .option("--model <model>", "Claude model for fixes")
   .option(
     "--session-timeout <n>",
-    "Hours before stopping a session (default: 1)",
+    "Hours before stopping a watch session (0 = unlimited, default: unlimited)",
     parseFloat,
   )
   .option(
