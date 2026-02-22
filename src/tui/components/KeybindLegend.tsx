@@ -20,6 +20,8 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
         { key: "j/k", label: "Select PR" },
         { key: "↑/↓", label: "Scroll / navigate" },
         { key: "enter", label: "Toggle details" },
+        { key: "↑/↓", label: "Navigate sections (in detail)" },
+        { key: "space", label: "Collapse/expand section" },
         { key: "l", label: "Branch logs" },
         { key: "tab", label: showingLogs ? "Hide all logs" : "All logs" },
       ],
@@ -82,8 +84,8 @@ export function KeybindLegend({ showingLogs, onClose }: KeybindLegendProps) {
           <Text color={theme.text} bold dimColor>
             {group.title}
           </Text>
-          {group.binds.map((bind) => (
-            <Box key={bind.key}>
+          {group.binds.map((bind, i) => (
+            <Box key={`${bind.key}-${i}`}>
               <Text>{"  "}</Text>
               <Text color={theme.accent} bold>
                 {bind.key.padEnd(maxKeyLen + 1)}
