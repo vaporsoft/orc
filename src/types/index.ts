@@ -80,8 +80,8 @@ export type SessionMode = "once" | "watch";
 export type BranchStatus =
   | "stopped"
   | "initializing"
-  | "listening"
-  | "categorizing"
+  | "watching"
+  | "triaging"
   | "fixing"
   | "verifying"
   | "pushing"

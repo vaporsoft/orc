@@ -155,7 +155,7 @@ export class SessionController extends EventEmitter {
       if (this.mode === "once") {
         await this.runCycle(pr.baseRefName);
         if (this.running) {
-          this.setStatus("ready");
+          this.setStatus("stopped");
           this.running = false;
         }
       } else {
@@ -266,7 +266,7 @@ export class SessionController extends EventEmitter {
         logger.error("Push failed after rebase", this.branch);
       }
 
-      this.setStatus("ready");
+      this.setStatus("stopped");
       this.running = false;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -389,7 +389,7 @@ export class SessionController extends EventEmitter {
     this.state.ciFixAttempts = 0;
 
     // 1. FETCH — poll until comments appear
-    this.setStatus("listening");
+    this.setStatus("watching");
     const fetchedComments = await this.fetcher.fetch();
 
     if (fetchedComments.length === 0) {
@@ -397,7 +397,7 @@ export class SessionController extends EventEmitter {
 
       if (this.mode === "once") {
         logger.info("No comments to address", this.branch);
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }
@@ -412,7 +412,7 @@ export class SessionController extends EventEmitter {
           `PR is no longer open (${pr?.state ?? "not found"})`,
           this.branch,
         );
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }
@@ -425,7 +425,7 @@ export class SessionController extends EventEmitter {
             `Session timeout reached (${this.config.sessionTimeout}h)`,
             this.branch,
           );
-          this.setStatus("ready");
+          this.setStatus("stopped");
           this.running = false;
           return;
         }
@@ -447,7 +447,7 @@ export class SessionController extends EventEmitter {
     this.syncLifetimeStats();
 
     // 2. CATEGORIZE
-    this.setStatus("categorizing");
+    this.setStatus("triaging");
     const {
       comments: categorized,
       costUsd: categorizationCost,
@@ -666,7 +666,7 @@ export class SessionController extends EventEmitter {
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
       if (pushed) {
-        this.setStatus("listening");
+        this.setStatus("watching");
         await this.checkAndFixCI(baseBranch);
       }
     }
@@ -704,7 +704,7 @@ export class SessionController extends EventEmitter {
           `Session timeout reached (${this.config.sessionTimeout}h)`,
           this.branch,
         );
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }
@@ -968,7 +968,7 @@ export class SessionController extends EventEmitter {
       }
 
       // Reset status before continuing to next CI polling cycle
-      this.setStatus("listening");
+      this.setStatus("watching");
     }
 
     // After exhausting all fix attempts, do a final CI poll to check if the

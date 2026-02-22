@@ -11,7 +11,7 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 const ACTIVE_STATUSES = new Set<BranchStatus>([
   "initializing",
-  "categorizing",
+  "triaging",
   "fixing",
   "verifying",
   "pushing",
@@ -19,23 +19,23 @@ const ACTIVE_STATUSES = new Set<BranchStatus>([
 ]);
 
 const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> = {
-  stopped:         { role: "muted",        label: "stopped" },
-  initializing:    { role: "accent",       label: "init" },
-  listening:       { role: "accent",       label: "listening" },
-  categorizing:    { role: "warning",      label: "sorting" },
-  fixing:          { role: "accentBright", label: "fixing" },
-  verifying:       { role: "info",         label: "verify" },
-  pushing:         { role: "accentBright", label: "pushing" },
-  replying:        { role: "info",         label: "replying" },
-  ready:           { role: "accent",       label: "ready" },
-  conflict_prompt: { role: "warning",      label: "conflict" },
-  error:           { role: "error",        label: "error" },
-  merged:          { role: "merged",       label: "merged" },
+  stopped:         { role: "muted",   label: "stopped" },
+  initializing:    { role: "info",    label: "init" },
+  watching:        { role: "accent",  label: "watching" },
+  triaging:        { role: "info",    label: "triaging" },
+  fixing:          { role: "info",    label: "fixing" },
+  verifying:       { role: "info",    label: "verify" },
+  pushing:         { role: "info",    label: "pushing" },
+  replying:        { role: "info",    label: "replying" },
+  ready:           { role: "accent",  label: "ready" },
+  conflict_prompt: { role: "warning", label: "conflict" },
+  error:           { role: "error",   label: "error" },
+  merged:          { role: "merged",  label: "merged" },
 };
 
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
   stopped:         "○",
-  listening:       "●",
+  watching:        "●",
   ready:           "✓",
   conflict_prompt: "!",
   error:           "✗",
