@@ -88,16 +88,14 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       borderTop={false}
       borderBottom={false}
     >
-      {/* Open Branches section header (only show label when there are also merged branches) */}
-      {settledMerged.length > 0 && (
-        <Box paddingX={1}>
-          <Text color={theme.accent} bold>Open Branches</Text>
-        </Box>
-      )}
+      {/* Open Branches section header */}
+      <Box paddingX={1}>
+        <Text color={theme.accent} bold>Open Branches</Text>
+      </Box>
       {columnHeaders}
-      {inlineBranches.length === 0 && settledMerged.length === 0 ? (
+      {inlineBranches.length === 0 ? (
         <Box paddingX={1}>
-          <Text dimColor>  Discovering PRs...</Text>
+          <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No open PRs"}</Text>
         </Box>
       ) : (
         inlineBranches.map((branch, i) => (
@@ -109,31 +107,30 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
           />
         ))
       )}
-      {inlineBranches.length === 0 && settledMerged.length > 0 && (
-        <Box paddingX={1}>
-          <Text dimColor>  No open PRs</Text>
-        </Box>
-      )}
 
       {/* Merged Branches section */}
-      {settledMerged.length > 0 && (
-        <>
-          <Box paddingX={1} marginTop={1} gap={2}>
-            <Text color={theme.merged} bold>Merged Branches</Text>
-            <Text dimColor color={theme.muted}>
-              [d] clear all
-            </Text>
-          </Box>
-          {settledMerged.map((branch) => (
-            <SessionRow
-              key={branch}
-              entry={entries.get(branch)!}
-              selected={false}
-              dimmed
-              renderPaused={renderPaused}
-            />
-          ))}
-        </>
+      <Box paddingX={1} marginTop={1} gap={2}>
+        <Text color={theme.merged} bold>Merged Branches</Text>
+        {settledMerged.length > 0 && (
+          <Text dimColor color={theme.muted}>
+            [d] clear all
+          </Text>
+        )}
+      </Box>
+      {settledMerged.length === 0 ? (
+        <Box paddingX={1}>
+          <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No branches merged this session"}</Text>
+        </Box>
+      ) : (
+        settledMerged.map((branch) => (
+          <SessionRow
+            key={branch}
+            entry={entries.get(branch)!}
+            selected={false}
+            dimmed
+            renderPaused={renderPaused}
+          />
+        ))
       )}
     </Box>
   );
