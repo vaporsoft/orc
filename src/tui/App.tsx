@@ -14,6 +14,7 @@ import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
 
 import { HelpBar } from "./components/HelpBar.js";
+import { KeybindLegend } from "./components/KeybindLegend.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { useThemeContext } from "./theme.js";
 
@@ -38,10 +39,10 @@ export function App({ daemon, startTime }: AppProps) {
   const [logOffset, setLogOffset] = useState(0);
   const [detailMode, setDetailMode] = useState<"off" | "detail" | "logs">("off");
   const [detailModeBeforeLogs, setDetailModeBeforeLogs] = useState<"off" | "detail" | "logs">("off");
-  const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
   const [toolbarIndex, setToolbarIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -133,16 +134,16 @@ export function App({ daemon, startTime }: AppProps) {
   }, [daemon]);
 
   useInput((input, key) => {
-    // Settings panel is a modal — block all other keybindings when open
-    if (showSettings) return;
+    // Modal panels — block all other keybindings when open
+    if (showSettings || showLegend) return;
 
     if (input === "q") {
       onQuit();
       return;
     }
 
-    if (input === "?") {
-      setShowHelp((v) => !v);
+    if (input === "h") {
+      setShowLegend(true);
       return;
     }
 
@@ -407,6 +408,12 @@ export function App({ daemon, startTime }: AppProps) {
           onClose={() => setShowSettings(false)}
         />
       )}
+      {showLegend && (
+        <KeybindLegend
+          showingLogs={showLogs}
+          onClose={() => setShowLegend(false)}
+        />
+      )}
       {/* Spacer fills remaining height, borders connect the frame */}
       <Box
         flexGrow={1}
@@ -415,7 +422,7 @@ export function App({ daemon, startTime }: AppProps) {
         borderTop={false}
         borderBottom={false}
       />
-      <HelpBar showingLogs={showLogs} expanded={showHelp} />
+      <HelpBar />
     </Box>
   );
 }
