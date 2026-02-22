@@ -12,6 +12,19 @@ interface SessionRowProps {
 }
 
 
+function formatTimeLeft(expiresAt: number): string {
+  const remainMs = expiresAt - Date.now();
+  if (remainMs <= 0) return "0s";
+  const totalSec = Math.ceil(remainMs / 1000);
+  // Final minute: show seconds
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.ceil(remainMs / 60_000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${h}h`;
+}
+
 export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount } = entry;
@@ -23,6 +36,14 @@ export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
   const status = entry.mergedAt ? "merged" as const : (state?.status ?? "stopped");
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
+
+  const isWatch = state?.mode === "watch";
+  const expiresAt = state?.sessionExpiresAt ?? null;
+  const doneStatuses = ["stopped", "done", "error", "merged"];
+  const showTimeLeft = isWatch && expiresAt && !doneStatuses.includes(status);
+  const timeLeft = showTimeLeft ? formatTimeLeft(expiresAt) : null;
+  const remainMs = expiresAt ? expiresAt - Date.now() : null;
+  const isLow = remainMs !== null && remainMs > 0 && remainMs < 10 * 60_000; // < 10 min
 
   return (
     <Box paddingX={1}>
@@ -39,7 +60,14 @@ export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
       </Box>
       <Box width={16}>
         <StatusBadge status={status} />
-        {state?.mode === "watch" && <Text color={theme.info}> ⟳</Text>}
+        {isWatch && <Text color={theme.info}> ⟳</Text>}
+      </Box>
+      <Box width={10}>
+        {showTimeLeft ? (
+          <Text color={isLow ? theme.warning : theme.muted}>{timeLeft}</Text>
+        ) : (
+          <Text color={theme.muted}>{"—"}</Text>
+        )}
       </Box>
       <Box width={10}>
         <Text color={commentCount > 0 ? theme.warning : theme.muted} dimColor={dimmed}>
