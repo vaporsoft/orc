@@ -236,7 +236,7 @@ Do not push — the orchestrator handles that.`;
     abortSignal?: AbortSignal,
     onActivity?: (line: string) => void,
   ): Promise<FixResult> {
-    const prompt = this.buildCIPrompt(ciContext, pilotConfig);
+    const prompt = this.buildCIPrompt(ciContext);
     logger.info("Invoking Claude Code to fix CI failures");
     logger.debug("CI fix prompt:\n" + prompt);
 
@@ -258,7 +258,7 @@ Do not push — the orchestrator handles that.`;
     return sections.join("\n");
   }
 
-  private buildCIPrompt(ciContext: string, pilotConfig: RepoPilotConfig): string {
+  private buildCIPrompt(ciContext: string): string {
     const sections: string[] = [];
 
     sections.push(
@@ -268,10 +268,6 @@ Do not push — the orchestrator handles that.`;
     sections.push(ciContext);
 
     sections.push("\nMake targeted fixes and create commits to resolve these CI failures.\n");
-
-    if (pilotConfig.instructions) {
-      sections.push(`## Additional Context\n\n${pilotConfig.instructions}\n`);
-    }
 
     return sections.join("\n");
   }
