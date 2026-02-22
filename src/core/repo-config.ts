@@ -1,23 +1,32 @@
 /**
- * Parses an ORC.md config file from the repo root.
+ * Loads per-repo configuration from two sources:
  *
- * Format:
- *   # Orc
- *   ## Instructions
- *   Free-form text passed to Claude Code as context.
- *   ## Verify
- *   - `yarn lint`
- *   - `yarn typecheck`
- *   ## Auto-fix
- *   - must_fix: true
- *   - should_fix: true
- *   - nice_to_have: false
+ * - `ORC.md`          — freeform instructions/context passed to Claude Code
+ * - `orc.config.json` — structured config (setup, verify, permissions, auto-fix)
+ *
+ * This mirrors the Claude Code pattern: markdown for context, JSON for config.
  */
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import type { RepoConfig } from "../types/index.js";
 import { logger } from "../utils/logger.js";
+
+const OrcConfigSchema = z.object({
+  setup: z.array(z.string()).default([]),
+  verify: z.array(z.string()).default([]),
+  allowedCommands: z.array(z.string()).default([]),
+  autoFix: z
+    .object({
+      must_fix: z.boolean().default(true),
+      should_fix: z.boolean().default(true),
+      nice_to_have: z.boolean().default(false),
+      verify_and_fix: z.boolean().default(true),
+      needs_clarification: z.boolean().default(true),
+    })
+    .default({}),
+});
 
 const DEFAULT_CONFIG: RepoConfig = {
   instructions: "",
@@ -34,73 +43,50 @@ const DEFAULT_CONFIG: RepoConfig = {
 };
 
 export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
+  const instructions = await loadInstructions(cwd);
+  const jsonConfig = await loadJsonConfig(cwd);
+
+  return {
+    instructions,
+    setupCommands: jsonConfig.setup,
+    verifyCommands: jsonConfig.verify,
+    allowedCommands: jsonConfig.allowedCommands,
+    autoFix: jsonConfig.autoFix,
+  };
+}
+
+/** Read freeform instructions from ORC.md. */
+async function loadInstructions(cwd: string): Promise<string> {
   const filePath = join(cwd, "ORC.md");
-  let content: string;
   try {
-    content = await readFile(filePath, "utf-8");
+    const content = await readFile(filePath, "utf-8");
+    logger.info("Loaded ORC.md instructions");
+    return content.trim();
   } catch {
-    logger.debug("No ORC.md found, using defaults");
-    return { ...DEFAULT_CONFIG, autoFix: { ...DEFAULT_CONFIG.autoFix } };
+    logger.debug("No ORC.md found");
+    return DEFAULT_CONFIG.instructions;
   }
+}
 
-  logger.info("Loaded ORC.md config");
-
-  const sections = new Map<string, string>();
-  let currentHeading = "";
-  const lines = content.split("\n");
-
-  for (const line of lines) {
-    const h2Match = line.match(/^## (.+)/);
-    if (h2Match) {
-      currentHeading = h2Match[1].trim().toLowerCase();
-      continue;
+/** Read structured config from orc.config.json, validated with Zod. */
+async function loadJsonConfig(cwd: string): Promise<z.infer<typeof OrcConfigSchema>> {
+  const filePath = join(cwd, "orc.config.json");
+  try {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const config = OrcConfigSchema.parse(parsed);
+    logger.info("Loaded orc.config.json");
+    return config;
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      logger.warn(`Invalid orc.config.json: ${err.issues.map((i) => i.message).join(", ")}`);
+    } else if (err instanceof SyntaxError) {
+      logger.warn(`Malformed JSON in orc.config.json: ${err.message}`);
+    } else if (err instanceof Error && "code" in err && err.code === "ENOENT") {
+      logger.debug("No orc.config.json found, using defaults");
+    } else {
+      logger.warn(`Failed to load orc.config.json: ${err instanceof Error ? err.message : String(err)}`);
     }
-    // Skip H1
-    if (line.match(/^# /)) continue;
-
-    if (currentHeading) {
-      const existing = sections.get(currentHeading) ?? "";
-      sections.set(currentHeading, existing + line + "\n");
-    }
+    return OrcConfigSchema.parse({});
   }
-
-  const instructions = (sections.get("instructions") ?? "").trim();
-
-  const setupCommands: string[] = [];
-  const setupSection = sections.get("setup") ?? "";
-  for (const line of setupSection.split("\n")) {
-    const match = line.match(/^-\s*`(.+)`/);
-    if (match) {
-      setupCommands.push(match[1]);
-    }
-  }
-
-  const verifyCommands: string[] = [];
-  const verifySection = sections.get("verify") ?? "";
-  for (const line of verifySection.split("\n")) {
-    const match = line.match(/^-\s*`(.+)`/);
-    if (match) {
-      verifyCommands.push(match[1]);
-    }
-  }
-
-  const allowedCommands: string[] = [];
-  const allowedSection = sections.get("allowed commands") ?? "";
-  for (const line of allowedSection.split("\n")) {
-    const match = line.match(/^-\s*`(.+)`/);
-    if (match) {
-      allowedCommands.push(match[1]);
-    }
-  }
-
-  const autoFix = { ...DEFAULT_CONFIG.autoFix };
-  const autoFixSection = sections.get("auto-fix") ?? "";
-  for (const line of autoFixSection.split("\n")) {
-    const match = line.match(/^-\s*(must_fix|should_fix|nice_to_have|verify_and_fix|needs_clarification)\s*:\s*(true|false)/);
-    if (match) {
-      autoFix[match[1] as keyof typeof autoFix] = match[2] === "true";
-    }
-  }
-
-  return { instructions, setupCommands, verifyCommands, allowedCommands, autoFix };
 }
