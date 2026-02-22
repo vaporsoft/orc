@@ -99,10 +99,6 @@ class Logger extends EventEmitter {
     fs.writeFileSync(outputPath, lines.join("\n") + "\n");
   }
 
-  clearBranchBuffer(branch: string): void {
-    this.branchBuffers.delete(branch);
-  }
-
   close(): void {
     this.logFile?.end();
   }

@@ -87,18 +87,33 @@ export function App({ daemon, startTime }: AppProps) {
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
 
-  // Auto-focus a session that enters conflict_prompt
+  // Auto-focus a session that enters conflict_prompt (only when newly entering that status)
+  const [prevConflictBranches, setPrevConflictBranches] = useState<Set<string>>(new Set());
+
   useEffect(() => {
-    const conflictIndex = openBranches.findIndex((b) => {
+    const currentConflictBranches = new Set<string>();
+    openBranches.forEach((b) => {
       const e = entries.get(b);
-      return e?.state?.status === "conflict_prompt";
+      if (e?.state?.status === "conflict_prompt") {
+        currentConflictBranches.add(b);
+      }
     });
-    if (conflictIndex >= 0) {
-      setSessionIndex(conflictIndex);
-      setDetailMode("detail");
-      setFocusedPane("sessions");
+
+    // Find branches that newly entered conflict_prompt
+    const newConflictBranches = [...currentConflictBranches].filter(b => !prevConflictBranches.has(b));
+
+    if (newConflictBranches.length > 0) {
+      // Focus on the first branch that newly entered conflict_prompt
+      const conflictIndex = openBranches.findIndex(b => b === newConflictBranches[0]);
+      if (conflictIndex >= 0) {
+        setSessionIndex(conflictIndex);
+        setDetailMode("detail");
+        setFocusedPane("sessions");
+      }
     }
-  }, [entries]);
+
+    setPrevConflictBranches(currentConflictBranches);
+  }, [entries, openBranches]);
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },

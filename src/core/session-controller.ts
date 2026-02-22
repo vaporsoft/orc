@@ -281,6 +281,8 @@ export class SessionController extends EventEmitter {
   }
 
   private async runCycle(baseBranch: string): Promise<void> {
+    // Track cycle start cost to include CI fix costs in cycle records
+    const cycleStartCost = this.state.totalCostUsd;
 
     // 0. REBASE — proactively rebase onto base branch before starting
     let conflictsResolved = false;
@@ -408,7 +410,11 @@ export class SessionController extends EventEmitter {
     // 2. CATEGORIZE
     this.setStatus("categorizing");
     const categorized = await this.categorizer.categorize(fetchedComments, this.abortController.signal);
-    if (!this.running) return;
+    if (!this.running) {
+      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      this.syncLifetimeStats();
+      return;
+    }
 
     const summary: CommentSummary = {
       total: categorized.length,
@@ -536,7 +542,11 @@ export class SessionController extends EventEmitter {
           this.state.error = "Rebase conflict — manual intervention needed";
           this.setStatus("error");
           this.running = false;
-          pushAborted = true;
+          this.state.totalCostUsd += fixResult.costUsd;
+          const totalCycleCost = this.state.totalCostUsd - cycleStartCost;
+          await this.progressStore.recordCycleEnd(this.branch, 0, totalCycleCost);
+          this.syncLifetimeStats();
+          return;
         }
       }
 
@@ -569,6 +579,8 @@ export class SessionController extends EventEmitter {
           await this.responder.replyToAddressed(regularComments, currentSha);
         } else if (fixResult.isError) {
           await this.responder.replyToFailed(regularComments, "fix session encountered an error.");
+        } else if (madeCommits && !pushed) {
+          await this.responder.replyToFailed(regularComments, "commits were made but push failed.");
         } else {
           await this.responder.replyToFailed(regularComments, "fix session produced no changes.");
         }
@@ -598,16 +610,19 @@ export class SessionController extends EventEmitter {
     if (fixedCount > 0) {
       this.state.commentsAddressed += fixedCount;
     }
-    this.state.totalCostUsd += fixResult.costUsd;
 
-    // Persist cycle results
-    await this.progressStore.recordCycleEnd(this.branch, fixedCount, fixResult.costUsd);
+    // Calculate total cycle cost (including both review fixes and CI fixes)
+    this.state.totalCostUsd += fixResult.costUsd;
+    const totalCycleCost = this.state.totalCostUsd - cycleStartCost;
+
+    // Persist cycle results with total cycle cost
+    await this.progressStore.recordCycleEnd(this.branch, fixedCount, totalCycleCost);
     this.syncLifetimeStats();
     this.state.commentSummary = null;
     this.state.claudeActivity = [];
 
     logger.info(
-      `Cycle complete: ${fixedCount} fixed, ${skipped.length} skipped, $${fixResult.costUsd.toFixed(4)} cost`,
+      `Cycle complete: ${fixedCount} fixed, ${skipped.length} skipped, $${totalCycleCost.toFixed(4)} cost`,
       this.branch,
     );
 
@@ -787,9 +802,14 @@ export class SessionController extends EventEmitter {
         this.branch,
       );
 
-      const ciContext = await this.buildCIContext(
+      const { context: ciContext, firstLogSnippet } = await this.buildCIContext(
         ciResult.failedChecks
       );
+
+      // Set logSnippet on the first failed check for compatibility
+      if (firstLogSnippet && this.state.failedChecks.length > 0 && !this.state.failedChecks[0].logSnippet) {
+        this.state.failedChecks[0].logSnippet = firstLogSnippet;
+      }
 
       this.setStatus("fixing");
       this.state.claudeActivity = [];
@@ -918,8 +938,8 @@ export class SessionController extends EventEmitter {
   }
 
   /** Build context string describing CI failures for the fix executor. */
-  private async buildCIContext(failedChecks: FailedCheck[]): Promise<string> {
-    if (!this.state.prNumber) return "";
+  private async buildCIContext(failedChecks: FailedCheck[]): Promise<{ context: string; firstLogSnippet?: string }> {
+    if (!this.state.prNumber) return { context: "" };
 
     const sections: string[] = [];
     sections.push(`## Failing Checks (${failedChecks.length})\n`);
@@ -950,19 +970,20 @@ export class SessionController extends EventEmitter {
     }
 
     // Add all failed workflow logs
+    let firstLogSnippet: string | undefined;
     if (failedRunLogs.length > 0) {
       sections.push("## Failed Workflow Logs\n");
       for (const { name, log } of failedRunLogs) {
         sections.push(`### ${name}`);
         sections.push("```\n" + log + "\n```\n");
-        // Set logSnippet on the first failed check for compatibility
-        if (failedChecks.length > 0 && !failedChecks[0].logSnippet) {
-          failedChecks[0].logSnippet = log.slice(0, 500);
+        // Capture the first log snippet for compatibility
+        if (!firstLogSnippet) {
+          firstLogSnippet = log.slice(0, 500);
         }
       }
     }
 
-    return sections.join("\n");
+    return { context: sections.join("\n"), firstLogSnippet };
   }
 
   private setStatus(status: BranchStatus): void {

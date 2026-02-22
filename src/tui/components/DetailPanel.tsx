@@ -46,7 +46,7 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   if (lower.includes("checked out")) {
     hints.push("run: git checkout main");
   } else if (lower.includes("rebase") || lower.includes("conflict")) {
-    hints.push("w to open worktree and resolve conflicts");
+    hints.push("e to open worktree and resolve conflicts");
   } else if (lower.includes("ci") || lower.includes("check")) {
     hints.push("CI is failing — orc will auto-fix on next cycle");
   } else if (lower.includes("push")) {

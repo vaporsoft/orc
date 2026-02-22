@@ -227,31 +227,7 @@ export class Daemon extends EventEmitter {
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
       logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
-      this.lastStates.set(branch, {
-        branch,
-        prNumber: pr.number,
-        prUrl: pr.url,
-        status: "error",
-        mode: "once",
-        commentsAddressed: 0,
-        totalCostUsd: 0,
-        error: "Cannot rebase — branch is checked out locally. Switch to main first.",
-        unresolvedCount: 0,
-        commentSummary: null,
-        lastPushAt: null,
-        claudeActivity: [],
-        lastSessionId: null,
-        workDir: this.cwd,
-        lifetimeAddressed: 0,
-        lifetimeSeen: 0,
-        cycleCount: 0,
-        cycleHistory: [],
-        ciStatus: "unknown",
-        failedChecks: [],
-        ciFixAttempts: 0,
-        conflicted: [],
-        sessionExpiresAt: null,
-      });
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, "Cannot rebase — branch is checked out locally. Switch to main first.", "once"));
       this.emit("prUpdate", branch);
       return;
     }
@@ -264,31 +240,7 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
-      this.lastStates.set(branch, {
-        branch,
-        prNumber: pr.number,
-        prUrl: pr.url,
-        status: "error",
-        mode: "once",
-        commentsAddressed: 0,
-        totalCostUsd: 0,
-        error: `Failed to create worktree: ${err}`,
-        unresolvedCount: 0,
-        commentSummary: null,
-        lastPushAt: null,
-        claudeActivity: [],
-        lastSessionId: null,
-        workDir: this.cwd,
-        lifetimeAddressed: 0,
-        lifetimeSeen: 0,
-        cycleCount: 0,
-        cycleHistory: [],
-        ciStatus: "unknown",
-        failedChecks: [],
-        ciFixAttempts: 0,
-        conflicted: [],
-        sessionExpiresAt: null,
-      });
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
       this.emit("prUpdate", branch);
       return;
     }
@@ -337,7 +289,8 @@ export class Daemon extends EventEmitter {
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
       logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
-      this.setOptimisticStatus(branch, "error");
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, "Cannot rebase — branch is checked out locally. Switch to main first.", "once"));
+      this.emit("prUpdate", branch);
       return;
     }
 
@@ -348,7 +301,8 @@ export class Daemon extends EventEmitter {
       workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
-      this.setOptimisticStatus(branch, "error");
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
+      this.emit("prUpdate", branch);
       return;
     }
 
@@ -676,6 +630,33 @@ export class Daemon extends EventEmitter {
     this.emit("prUpdate", branch);
   }
 
+  private makeErrorState(branch: string, pr: GHPullRequest, error: string, mode: SessionMode = "once"): BranchState {
+    const lifetime = this.progressStore.getLifetimeStats(branch);
+    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
+    return {
+      branch,
+      prNumber: pr.number,
+      prUrl: pr.url,
+      status: "error",
+      mode,
+      commentsAddressed: 0,
+      totalCostUsd,
+      error,
+      unresolvedCount: 0,
+      commentSummary: null,
+      lastPushAt: null,
+      claudeActivity: [],
+      lastSessionId: null,
+      workDir: this.cwd,
+      ...lifetime,
+      ciStatus: "unknown",
+      failedChecks: [],
+      ciFixAttempts: 0,
+      conflicted: [],
+      sessionExpiresAt: null,
+    };
+  }
+
   private async getCurrentBranch(): Promise<string | null> {
     try {
       const { stdout } = await exec("git", ["branch", "--show-current"], { cwd: this.cwd });
@@ -736,14 +717,29 @@ export class Daemon extends EventEmitter {
 
   /** Detect merge conflicts with base branch for all discovered PRs not actively running. */
   private async updateConflictStatuses(prs: GHPullRequest[]): Promise<void> {
-    await Promise.all(prs.map(async (pr) => {
-      if (this.sessions.has(pr.headRefName)) return;
+    const activePRs = prs.filter(pr => !this.sessions.has(pr.headRefName));
+    if (activePRs.length === 0) return;
 
+    // Batch unique refs to fetch only once to prevent git lock contention
+    const allRefs = new Set<string>();
+    for (const pr of activePRs) {
+      allRefs.add(pr.baseRefName);
+      allRefs.add(pr.headRefName);
+    }
+
+    // Perform a single fetch operation for all refs
+    try {
+      await exec("git", ["fetch", "origin", ...Array.from(allRefs)], {
+        cwd: this.cwd,
+        allowFailure: true,
+      });
+    } catch (err) {
+      logger.debug(`Failed to fetch refs: ${err}`);
+    }
+
+    // Now check conflicts for each PR sequentially
+    await Promise.all(activePRs.map(async (pr) => {
       try {
-        await exec("git", ["fetch", "origin", pr.baseRefName, pr.headRefName], {
-          cwd: this.cwd,
-          allowFailure: true,
-        });
         const { stdout, exitCode } = await exec("git", [
           "merge-tree", "--write-tree", `origin/${pr.headRefName}`, `origin/${pr.baseRefName}`,
         ], { cwd: this.cwd, allowFailure: true });
