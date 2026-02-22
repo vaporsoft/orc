@@ -12,16 +12,35 @@ const ANALYSIS_PROMPT = `You are a code review comment analyzer. Given a PR revi
 
 Classify the comment into one of these categories:
 - must_fix: Clear bug, security issue, or breaking change that must be addressed
-- should_fix: Valid improvement suggestion, style issue, or reasonable request
+- should_fix: Valid improvement suggestion, style issue, or reasonable request (includes dead code, unused exports, unnecessary complexity)
 - nice_to_have: Minor suggestion that could be skipped without issue
-- false_positive: Incorrect suggestion, already handled, or not applicable
+- needs_clarification: The comment raises a potentially valid concern but is too ambiguous to act on — you cannot determine what specific change the reviewer wants, or whether the concern applies without more context from the reviewer
+- false_positive: The reviewer is factually wrong — the issue they describe does not exist in the code (e.g. they misread the code, the problem is already handled elsewhere, or the suggestion would break correct behavior)
+
+## Bias toward technical correctness
+
+When a reviewer raises a concern that involves a real failure mode — data corruption, race conditions, missing transactions, incorrect error handling, silent data loss, security holes — lean toward should_fix or must_fix even if the current code "works most of the time." The fact that a bug is unlikely does not make the suggestion low-priority. Correctness concerns are cheap to fix now and expensive to debug later.
+
+However, do NOT blindly escalate large architectural refactors that have no concrete failure mode. If a reviewer is pushing a pattern preference (e.g. "rewrite this to use the repository pattern", "this should use event sourcing") without identifying a specific bug or failure scenario, that is nice_to_have at most. The test: can the reviewer point to a realistic scenario where the current code produces a wrong result or fails? If yes, it's should_fix or higher. If the argument is purely about code aesthetics or architectural philosophy, it's nice_to_have.
+
+## Guarding against false dismissals
+
+Be rigorous about false_positive. A comment is only a false positive if the reviewer's factual claim is incorrect. These are NOT false positives:
+- Dead code or unused methods (even if they "might be useful later" — that is speculative)
+- Style or naming improvements (these are valid suggestions)
+- Requests to remove unnecessary complexity
+- Suggestions the reviewer is correct about but that seem low-priority
+
+When in doubt between false_positive and should_fix, choose should_fix.
+When in doubt between nice_to_have and should_fix, consider whether a real failure mode exists.
 
 Respond with JSON only (no markdown fences):
 {
   "confidence": <0.0-1.0>,
-  "category": "<must_fix|should_fix|nice_to_have|false_positive>",
+  "category": "<must_fix|should_fix|nice_to_have|needs_clarification|false_positive>",
   "reasoning": "<brief explanation>",
-  "suggestedAction": "<what the fix should do>"
+  "suggestedAction": "<what the fix should do>",
+  "clarificationQuestion": "<only when category is needs_clarification: a specific, concise question to ask the reviewer>"
 }`;
 
 export interface CategorizationResult {
@@ -46,7 +65,7 @@ export class CommentCategorizer {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
-    for (const { thread } of comments) {
+    for (const { thread, rawThread } of comments) {
       if (abortSignal?.aborted) break;
       // Conversation comments lack diff context — delegate verification to fix executor
       if (thread.path === "(conversation)") {
@@ -71,10 +90,25 @@ export class CommentCategorizer {
         totalInputTokens += inputTokens;
         totalOutputTokens += outputTokens;
 
+        // Cap clarifications at one round per thread: if Orc has already asked
+        // a clarification question, promote to should_fix instead of asking again.
+        // We detect prior clarification by looking for the signature marker in
+        // any previous Orc reply (rawThread contains all comments including Orc's).
+        const hasAskedClarification = rawThread?.comments.nodes.some(
+          (c) => /^\*Orc — needs_clarification \(confidence: [\d.]+\)\*$/m.test(c.body),
+        );
+        if (analysis.category === "needs_clarification" && hasAskedClarification) {
+          analysis.category = "should_fix";
+          analysis.reasoning = `[follow-up received — attempting fix] ${analysis.reasoning}`;
+          delete analysis.clarificationQuestion;
+        }
+
         // Override low-confidence inline comments to verify_and_fix
+        // (but not needs_clarification — those should stay as-is)
         if (
           analysis.confidence < this.confidenceThreshold &&
-          analysis.category !== "must_fix"
+          analysis.category !== "must_fix" &&
+          analysis.category !== "needs_clarification"
         ) {
           results.push({
             threadId: thread.threadId,
@@ -123,7 +157,7 @@ export class CommentCategorizer {
     thread: FetchedComment["thread"],
     abortSignal?: AbortSignal,
   ): Promise<{
-    analysis: Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction">;
+    analysis: Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction" | "clarificationQuestion">;
     costUsd: number;
     inputTokens: number;
     outputTokens: number;
@@ -184,6 +218,7 @@ ${thread.body}`;
           category: parsed.category,
           reasoning: parsed.reasoning,
           suggestedAction: parsed.suggestedAction,
+          ...(parsed.clarificationQuestion ? { clarificationQuestion: parsed.clarificationQuestion } : {}),
         },
         costUsd,
         inputTokens,

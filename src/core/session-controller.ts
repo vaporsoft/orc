@@ -487,18 +487,24 @@ export class SessionController extends EventEmitter {
       niceToHave: categorized.filter((c) => c.category === "nice_to_have").length,
       falsePositive: categorized.filter((c) => c.category === "false_positive").length,
       verifyAndFix: categorized.filter((c) => c.category === "verify_and_fix").length,
+      needsClarification: categorized.filter((c) => c.category === "needs_clarification").length,
       comments: categorized,
     };
     this.state.commentSummary = summary;
     this.emit("sessionUpdate", this.branch, this.getState());
 
     logger.info(
-      `Categorized: ${summary.mustFix} must_fix, ${summary.shouldFix} should_fix, ${summary.niceToHave} nice_to_have, ${summary.falsePositive} false_positive, ${summary.verifyAndFix} verify_and_fix`,
+      `Categorized: ${summary.mustFix} must_fix, ${summary.shouldFix} should_fix, ${summary.niceToHave} nice_to_have, ${summary.falsePositive} false_positive, ${summary.verifyAndFix} verify_and_fix, ${summary.needsClarification} needs_clarification`,
       this.branch,
     );
 
     // 3. FILTER by repoConfig.autoFix settings
+    // Separate needs_clarification — these go to the responder, not the fix executor
+    const clarifications = categorized.filter(
+      (c) => c.category === "needs_clarification" && this.repoConfig.autoFix.needs_clarification,
+    );
     const actionable = categorized.filter((c) => {
+      if (c.category === "needs_clarification") return false; // handled separately
       if (c.category === "verify_and_fix") return this.repoConfig.autoFix.verify_and_fix;
       if (c.category === "false_positive") return false;
       if (c.category === "must_fix") return this.repoConfig.autoFix.must_fix;
@@ -507,16 +513,23 @@ export class SessionController extends EventEmitter {
       return false;
     });
 
-    const skipped = categorized.filter((c) => !actionable.includes(c));
+    const skipped = categorized.filter(
+      (c) => !actionable.includes(c) && !clarifications.includes(c),
+    );
 
     logger.info(
-      `${actionable.length} actionable, ${skipped.length} skipped`,
+      `${actionable.length} actionable, ${clarifications.length} clarifications, ${skipped.length} skipped`,
       this.branch,
     );
 
     // Reply to skipped comments
     if (skipped.length > 0 && !this.config.dryRun) {
       await this.responder.replyToSkipped(skipped);
+    }
+
+    // Post clarification questions (one per thread, capped at 1 round)
+    if (clarifications.length > 0 && !this.config.dryRun) {
+      await this.responder.replyToClarifications(clarifications);
     }
 
     if (actionable.length === 0) {

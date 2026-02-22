@@ -326,8 +326,14 @@ Do not push — the orchestrator handles that.`;
     if (verifyAndFix.length > 0) {
       sections.push(`## Verify and Fix\n`);
       sections.push(
-        `For each comment below, first read the relevant file(s) and verify the request is valid.
-If valid, make the fix and commit. If not applicable, skip it.\n`,
+        `For each comment below, first read the relevant file(s) and verify whether the reviewer's concern is factually correct.
+
+Rules:
+- If the reviewer is correct (e.g. the code IS dead, the method IS unused, the logic IS redundant), fix it — even if the issue seems minor.
+- Only mark as "not_applicable" if the reviewer's factual claim is wrong (e.g. the code IS actually used, the method IS called from somewhere they didn't see).
+- Do NOT dismiss valid concerns with speculative justifications like "might be useful later" or "reasonable for future consumers." Unused code is unused code.
+- When checking if something is unused, search the entire codebase thoroughly (grep for all references) before concluding.
+\n`,
       );
       for (const comment of verifyAndFix) {
         sections.push(...renderComment(comment, true));

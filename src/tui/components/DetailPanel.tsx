@@ -34,6 +34,7 @@ const CATEGORY_COLORS: Record<CommentCategory, string> = {
   nice_to_have: "cyan",
   false_positive: "gray",
   verify_and_fix: "magenta",
+  needs_clarification: "blue",
 };
 
 const CATEGORY_LABELS: Record<CommentCategory, string> = {
@@ -42,6 +43,7 @@ const CATEGORY_LABELS: Record<CommentCategory, string> = {
   nice_to_have: "NICE",
   false_positive: "FALSE POS",
   verify_and_fix: "VERIFY",
+  needs_clarification: "CLARIFY",
 };
 
 const MAX_CYCLES = 8;

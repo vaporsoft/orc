@@ -20,7 +20,8 @@ export type CommentCategory =
   | "should_fix"
   | "nice_to_have"
   | "false_positive"
-  | "verify_and_fix";
+  | "verify_and_fix"
+  | "needs_clarification";
 
 export interface CategorizedComment {
   threadId: string;
@@ -33,6 +34,8 @@ export interface CategorizedComment {
   confidence: number;
   reasoning: string;
   suggestedAction: string;
+  /** Question to ask the reviewer when category is needs_clarification. */
+  clarificationQuestion?: string;
 }
 
 export interface CommentSummary {
@@ -42,6 +45,7 @@ export interface CommentSummary {
   niceToHave: number;
   falsePositive: number;
   verifyAndFix: number;
+  needsClarification: number;
   comments: CategorizedComment[];
 }
 
@@ -63,6 +67,7 @@ export interface RepoConfig {
     should_fix: boolean;
     nice_to_have: boolean;
     verify_and_fix: boolean;
+    needs_clarification: boolean;
   };
 }
 
