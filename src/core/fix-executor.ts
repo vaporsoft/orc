@@ -60,7 +60,8 @@ export class FixExecutor {
     logger.debug("Fix prompt:\n" + prompt);
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "review");
-    const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session");
+    const extraTools = this.buildExtraTools(repoConfig);
+    const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session", extraTools);
 
     // Add verify results and fix summaries for review feedback
     result.verifyResults = await this.readVerifyResults(comments);
@@ -80,7 +81,8 @@ export class FixExecutor {
     logger.debug("Conflict fix prompt:\n" + prompt);
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "conflict");
-    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude conflict resolution session");
+    const extraTools = this.buildExtraTools(repoConfig);
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude conflict resolution session", extraTools);
   }
 
   /** Build system suffix based on execution mode and pilot config. */
@@ -110,7 +112,7 @@ Do not push — the orchestrator handles that.`;
     if (repoConfig.verifyCommands.length > 0 && mode !== "conflict") {
       systemSuffix += `\n\nAfter making changes, run these verification commands:\n${repoConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
     } else if (mode === "review") {
-      systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
+      systemSuffix += "\n\nRun the project's lint and type-check tools after making changes, if available.";
     }
 
     return systemSuffix;
@@ -122,7 +124,8 @@ Do not push — the orchestrator handles that.`;
     systemSuffix: string,
     abortSignal?: AbortSignal,
     onActivity?: (line: string) => void,
-    sessionLabel = "Claude Code session"
+    sessionLabel = "Claude Code session",
+    extraTools: string[] = [],
   ): Promise<FixResult> {
     const startTime = Date.now();
     const abortController = new AbortController();
@@ -142,7 +145,7 @@ Do not push — the orchestrator handles that.`;
       const stream = query({
         prompt,
         options: {
-          allowedTools: [...ALLOWED_TOOLS],
+          allowedTools: [...ALLOWED_TOOLS, ...extraTools],
           permissionMode: "bypassPermissions",
           cwd: this.cwd,
           abortController,
@@ -255,7 +258,13 @@ Do not push — the orchestrator handles that.`;
     logger.debug("CI fix prompt:\n" + prompt);
 
     const systemSuffix = this.buildSystemSuffix(repoConfig, "ci");
-    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session");
+    const extraTools = this.buildExtraTools(repoConfig);
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session", extraTools);
+  }
+
+  /** Convert repo-level allowed commands into Bash tool permissions. */
+  private buildExtraTools(repoConfig: RepoConfig): string[] {
+    return repoConfig.allowedCommands.map((cmd) => `Bash(${cmd})`);
   }
 
   private buildConflictPrompt(conflictContext: string): string {

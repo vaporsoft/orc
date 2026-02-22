@@ -21,8 +21,9 @@ export class WorktreeManager {
   /**
    * Create a worktree for a branch. Returns the worktree path.
    * If a worktree already exists for this branch, returns its path.
+   * When setupCommands are provided (from ORC.md), they replace the default dependency install.
    */
-  async create(branch: string): Promise<string> {
+  async create(branch: string, setupCommands?: string[]): Promise<string> {
     if (this.worktrees.has(branch)) {
       return this.worktrees.get(branch)!;
     }
@@ -47,8 +48,12 @@ export class WorktreeManager {
       cwd: this.cwd,
     });
 
-    // Detect package manager and install dependencies
-    await this.installDependencies(worktreePath, branch);
+    // Run setup: use explicit commands from ORC.md, or fall back to auto-detected dependency install
+    if (setupCommands && setupCommands.length > 0) {
+      await this.runSetupCommands(worktreePath, branch, setupCommands);
+    } else {
+      await this.installDependencies(worktreePath, branch);
+    }
 
     this.worktrees.set(branch, worktreePath);
     return worktreePath;
@@ -157,6 +162,25 @@ export class WorktreeManager {
   /** Get the working directory for a branch (worktree or cwd). */
   getWorkDir(branch: string): string | null {
     return this.worktrees.get(branch) ?? null;
+  }
+
+  private async runSetupCommands(
+    worktreePath: string,
+    branch: string,
+    commands: string[],
+  ): Promise<void> {
+    for (const cmd of commands) {
+      logger.info(`Running setup: ${cmd}`, branch);
+      try {
+        const parts = cmd.trim().split(/\s+/);
+        await exec(parts[0], parts.slice(1), {
+          cwd: worktreePath,
+          timeout: 120000,
+        });
+      } catch (err) {
+        logger.warn(`Setup command failed: ${cmd}: ${err}`, branch);
+      }
+    }
   }
 
   private async installDependencies(
