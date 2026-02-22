@@ -75,7 +75,7 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
       </Box>
       <Box width={16}>
         <StatusBadge status={status} paused={renderPaused} />
-        {isWatch && <Text color={theme.info}> ⟳</Text>}
+        {isActive && <Text color={theme.info}> ⟳</Text>}
       </Box>
       <Box width={10}>
         {showTimeLeft ? (
