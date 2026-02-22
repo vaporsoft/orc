@@ -106,10 +106,6 @@ export class Daemon extends EventEmitter {
     return this.nextCheckAt;
   }
 
-  getPollInterval(): number {
-    return this.config.pollInterval;
-  }
-
   getConfig(): Config {
     return { ...this.config };
   }
