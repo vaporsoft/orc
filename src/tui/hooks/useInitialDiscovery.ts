@@ -18,6 +18,13 @@ export function useInitialDiscovery(daemon: Daemon): boolean {
   useEffect(() => {
     if (!discovering) return;
 
+    // Re-check synchronously to close the gap between render and effect:
+    // the event may have fired between useState init and useEffect execution.
+    if (daemon.hasCompletedInitialDiscovery()) {
+      setDiscovering(false);
+      return;
+    }
+
     const done = () => setDiscovering(false);
 
     daemon.on("initialDiscoveryComplete", done);
