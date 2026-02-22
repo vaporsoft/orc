@@ -35,9 +35,8 @@ export function App({ daemon, startTime }: AppProps) {
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
-  const [showDetail, setShowDetail] = useState(false);
-  const [showDetailBeforeLogs, setShowDetailBeforeLogs] = useState(false);
-  const [showBranchLogs, setShowBranchLogs] = useState(false);
+  const [detailMode, setDetailMode] = useState<"off" | "detail" | "logs">("off");
+  const [detailModeBeforeLogs, setDetailModeBeforeLogs] = useState<"off" | "detail" | "logs">("off");
   const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
   const [toolbarIndex, setToolbarIndex] = useState(-1);
@@ -96,7 +95,7 @@ export function App({ daemon, startTime }: AppProps) {
     });
     if (conflictIndex >= 0) {
       setSessionIndex(conflictIndex);
-      setShowDetail(true);
+      setDetailMode("detail");
       setFocusedPane("sessions");
     }
   }, [entries]);
@@ -180,12 +179,12 @@ export function App({ daemon, startTime }: AppProps) {
       setFocusedPane((prev) => {
         if (prev === "sessions") {
           // Switching to logs — save and hide detail views
-          setShowDetailBeforeLogs(showDetail);
-          setShowDetail(false);
+          setDetailModeBeforeLogs(detailMode);
+          setDetailMode("off");
           return "logs";
         } else {
           // Switching back — restore detail state
-          setShowDetail(showDetailBeforeLogs);
+          setDetailMode(detailModeBeforeLogs);
           return "sessions";
         }
       });
@@ -222,13 +221,13 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Toggle detail pane for selected branch (handle both \r and \n)
     if ((key.return || input === "\n") && focusedPane === "sessions") {
-      setShowDetail((prev) => !prev);
+      setDetailMode((prev) => prev === "detail" ? "off" : "detail");
       return;
     }
 
-    // Toggle branch logs for selected branch
+    // Swap detail view with branch logs
     if (input === "l" && focusedPane === "sessions") {
-      setShowBranchLogs((prev) => !prev);
+      setDetailMode((prev) => prev === "logs" ? "off" : "logs");
       setBranchLogOffset(0);
       return;
     }
@@ -312,7 +311,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     if (focusedPane === "sessions") {
-      if (showBranchLogs) {
+      if (detailMode === "logs") {
         // When branch logs are open, arrows scroll the branch log
         if (key.upArrow) {
           setBranchLogOffset((prev) => Math.min(prev + 1, Math.max(0, branchLogs.length - branchLogLines)));
@@ -351,13 +350,15 @@ export function App({ daemon, startTime }: AppProps) {
         mergedBranches={mergedBranches}
         renderPaused={renderPaused}
       />
-      <DetailPanel
-        entries={entries}
-        selectedBranch={selectedBranch}
-        showDetail={showDetail}
-        activityLines={activityLines}
-      />
-      {showBranchLogs && (
+      {detailMode !== "logs" && (
+        <DetailPanel
+          entries={entries}
+          selectedBranch={selectedBranch}
+          showDetail={detailMode === "detail"}
+          activityLines={activityLines}
+        />
+      )}
+      {detailMode === "logs" && (
         <LogPane
           entries={branchLogs}
           focused={focusedPane === "sessions"}
