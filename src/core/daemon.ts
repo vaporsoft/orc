@@ -102,6 +102,10 @@ export class Daemon extends EventEmitter {
     this.emit("prUpdate", "__merged__");
   }
 
+  hasCompletedInitialDiscovery(): boolean {
+    return !this.isInitialDiscovery;
+  }
+
   getNextCheckAt(): number | null {
     return this.nextCheckAt;
   }
@@ -522,7 +526,10 @@ export class Daemon extends EventEmitter {
     }
 
     // Mark that initial discovery is complete
-    this.isInitialDiscovery = false;
+    if (this.isInitialDiscovery) {
+      this.isInitialDiscovery = false;
+      this.emit("initialDiscoveryComplete");
+    }
 
     // Extract CI statuses from PR data (no extra API calls)
     this.updateCIStatusesFromPRs(prs);

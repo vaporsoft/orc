@@ -7,6 +7,7 @@ import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { useNextCheckCountdown } from "./hooks/useNextCheckCountdown.js";
+import { useInitialDiscovery } from "./hooks/useInitialDiscovery.js";
 import { useTerminalFocus } from "./hooks/useTerminalFocus.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
@@ -37,6 +38,7 @@ export function App({ daemon, startTime }: AppProps) {
   const entries = useDaemonState(daemon, renderPaused);
   const { entries: logEntries } = useLogBuffer(renderPaused);
   const nextCheckIn = useNextCheckCountdown(daemon, renderPaused);
+  const isDiscovering = useInitialDiscovery(daemon);
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
@@ -450,6 +452,7 @@ export function App({ daemon, startTime }: AppProps) {
         openBranches={openBranches}
         mergedBranches={mergedBranches}
         renderPaused={renderPaused}
+        isDiscovering={isDiscovering}
       />
       {detailMode !== "logs" && (
         <DetailPanel

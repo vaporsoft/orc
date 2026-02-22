@@ -11,9 +11,11 @@ interface SessionListProps {
   openBranches: string[];
   mergedBranches: string[];
   renderPaused?: boolean;
+  /** True while the daemon's initial PR discovery is still in progress. */
+  isDiscovering?: boolean;
 }
 
-export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, renderPaused }: SessionListProps) {
+export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, renderPaused, isDiscovering }: SessionListProps) {
   const theme = useTheme();
 
   const columnHeaders = (
@@ -68,7 +70,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       {columnHeaders}
       {openBranches.length === 0 ? (
         <Box paddingX={1}>
-          <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No open PRs"}</Text>
+          <Text dimColor>  {isDiscovering ? "Discovering PRs..." : "No open PRs"}</Text>
         </Box>
       ) : (
         openBranches.map((branch, i) => (
@@ -92,7 +94,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       </Box>
       {mergedBranches.length === 0 ? (
         <Box paddingX={1}>
-          <Text dimColor>  {entries.size === 0 ? "Discovering PRs..." : "No branches merged this session"}</Text>
+          <Text dimColor>  {isDiscovering ? "Discovering PRs..." : "No branches merged this session"}</Text>
         </Box>
       ) : (
         mergedBranches.map((branch) => (
