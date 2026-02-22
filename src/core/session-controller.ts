@@ -26,7 +26,6 @@ import type {
 import type { Config } from "../types/config.js";
 import { loadSettings, saveSettings } from "../utils/settings.js";
 import { logger } from "../utils/logger.js";
-import { sleep } from "../utils/retry.js";
 import { exec } from "../utils/process.js";
 import { MAX_CI_FIX_ATTEMPTS } from "../constants.js";
 
@@ -257,6 +256,19 @@ export class SessionController extends EventEmitter {
     logger.info("Stopping session", this.branch);
   }
 
+  /** Sleep that resolves immediately when the abort signal fires. */
+  private sleep(ms: number): Promise<void> {
+    if (this.abortController.signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.abortController.signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
   private async runCycle(baseBranch: string): Promise<void> {
 
     // 0. REBASE — proactively rebase onto base branch before starting
@@ -367,7 +379,7 @@ export class SessionController extends EventEmitter {
         return;
       }
 
-      await sleep(this.config.pollInterval * 1000);
+      await this.sleep(this.config.pollInterval * 1000);
       return;
     }
 
@@ -384,7 +396,8 @@ export class SessionController extends EventEmitter {
 
     // 2. CATEGORIZE
     this.setStatus("categorizing");
-    const categorized = await this.categorizer.categorize(fetchedComments);
+    const categorized = await this.categorizer.categorize(fetchedComments, this.abortController.signal);
+    if (!this.running) return;
 
     const summary: CommentSummary = {
       total: categorized.length,
@@ -598,7 +611,7 @@ export class SessionController extends EventEmitter {
 
     // Wait before next cycle to let GitHub propagate replies (only in watch mode)
     if (this.mode === "watch") {
-      await sleep(this.config.pollInterval * 1000);
+      await this.sleep(this.config.pollInterval * 1000);
     }
   }
 
@@ -847,7 +860,7 @@ export class SessionController extends EventEmitter {
     // Wait for checks to start (GitHub needs time after push)
     this.state.ciStatus = "pending";
     this.emit("sessionUpdate", this.branch, this.getState());
-    await sleep(15_000);
+    await this.sleep(15_000);
 
     const maxWait = 10 * 60 * 1000; // 10 min max wait
     const pollInterval = 30_000;
@@ -859,7 +872,7 @@ export class SessionController extends EventEmitter {
         if (checks.length === 0) {
           this.state.ciStatus = "pending";
           this.emit("sessionUpdate", this.branch, this.getState());
-          await sleep(pollInterval);
+          await this.sleep(pollInterval);
           continue;
         }
 
@@ -884,7 +897,7 @@ export class SessionController extends EventEmitter {
 
       this.state.ciStatus = "pending";
       this.emit("sessionUpdate", this.branch, this.getState());
-      await sleep(pollInterval);
+      await this.sleep(pollInterval);
     }
 
     return { status: "unknown", failedChecks: [] };
