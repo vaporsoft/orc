@@ -623,6 +623,9 @@ export class SessionController extends EventEmitter {
     }
 
     // 7. REPLY — immediately after push, before CI polling
+    // Preserve any error status set above (e.g. from pushAborted) so the TUI
+    // doesn't show "replying" when the session has actually failed.
+    const preReplyError = this.state.error;
     this.setStatus("replying");
 
     // Get the current SHA after rebase/push to ensure replies link to the correct commit
@@ -655,6 +658,13 @@ export class SessionController extends EventEmitter {
       } else {
         await this.responder.replyToFailed(verifyComments, failureReason);
       }
+    }
+
+    // Restore error state if replying overwrote it
+    if (preReplyError) {
+      this.state.error = preReplyError;
+      this.setStatus("error");
+      this.running = false;
     }
 
     // 8. RE-REQUEST review and CI check only after successful push
