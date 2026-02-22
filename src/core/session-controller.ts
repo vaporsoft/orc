@@ -961,7 +961,8 @@ export class SessionController extends EventEmitter {
 
         const allCompleted = checks.every((c) => c.status === "completed");
         if (allCompleted) {
-          const failed = checks.filter((c) => c.conclusion === "failure");
+          const passing = new Set(["success", "neutral", "skipped"]);
+          const failed = checks.filter((c) => !passing.has(c.conclusion ?? ""));
           if (failed.length === 0) {
             return { status: "passing", failedChecks: [] };
           }

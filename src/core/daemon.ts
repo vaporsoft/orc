@@ -776,7 +776,8 @@ export class Daemon extends EventEmitter {
         continue;
       }
 
-      const failed = checks.filter((c) => c.conclusion?.toUpperCase() === "FAILURE");
+      const passing = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+      const failed = checks.filter((c) => !passing.has(c.conclusion?.toUpperCase() ?? ""));
       if (failed.length === 0) {
         this.updateCIStatus(pr.headRefName, "passing", []);
       } else {
