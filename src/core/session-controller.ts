@@ -622,49 +622,24 @@ export class SessionController extends EventEmitter {
       logger.info("No commits made — skipping push", this.branch);
     }
 
-    // 7. REPLY — immediately after push, before CI polling
-    // Preserve any error status set above (e.g. from pushAborted) so the TUI
-    // doesn't show "replying" when the session has actually failed.
-    const preReplyError = this.state.error;
-    this.setStatus("replying");
+    // 7. REPLY — only after a successful push. If nothing was pushed (error,
+    //    push failure, no commits) skip replies so the threads stay unresolved
+    //    and will be retried on the next cycle or handled manually.
+    const fixSucceeded = !fixResult.isError && madeCommits && pushed;
 
-    // Get the current SHA after rebase/push to ensure replies link to the correct commit
-    const currentSha = madeCommits ? await this.gitManager.getHeadSha() : undefined;
+    if (fixSucceeded) {
+      this.setStatus("replying");
 
-    const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
-    const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+      const currentSha = await this.gitManager.getHeadSha();
+      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-    // Determine failure reason (if any) for reply messages
-    const getFailureReason = (): string | null => {
-      if (!fixResult.isError && madeCommits && pushed) return null;
-      if (fixResult.isError) return "fix session encountered an error.";
-      if (madeCommits && !pushed) return "commits were made but push failed.";
-      return "fix session produced no changes.";
-    };
-
-    const failureReason = getFailureReason();
-
-    // Reply to regular comments based on fix outcome
-    if (regularComments.length > 0) {
-      if (failureReason === null) {
+      if (regularComments.length > 0) {
         await this.responder.replyToAddressed(regularComments, currentSha);
-      } else {
-        await this.responder.replyToFailed(regularComments, failureReason);
       }
-    }
-    if (verifyComments.length > 0) {
-      if (failureReason === null) {
+      if (verifyComments.length > 0) {
         await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);
-      } else {
-        await this.responder.replyToFailed(verifyComments, failureReason);
       }
-    }
-
-    // Restore error state if replying overwrote it
-    if (preReplyError) {
-      this.state.error = preReplyError;
-      this.setStatus("error");
-      this.running = false;
     }
 
     // 8. RE-REQUEST review and CI check only after successful push
