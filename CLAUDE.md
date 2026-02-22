@@ -51,4 +51,4 @@ Repositories can include an `ORC.md` file at the root to provide custom instruct
 - **Conventional Commits** — all commit messages must use the format `type: description` (e.g. `feat: add worktree pooling`, `fix: handle missing CI checks`, `chore: update dependencies`). Common types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `style`, `perf`.
 - **Rebase over merge** — prefer rebasing onto the target branch instead of creating merge commits. Keep history linear and clean.
 - **Yarn only** — always use `yarn` for package management. Never use `npm` or `pnpm`.
-- **Run checks before pushing** — run `yarn typecheck && yarn lint && yarn test` to catch issues before they hit CI.
+- **Verify build before pushing** — run `yarn build` to make sure the project compiles cleanly.
