@@ -12,9 +12,10 @@ interface SessionListProps {
   focused: boolean;
   openBranches: string[];
   mergedBranches: string[];
+  renderPaused?: boolean;
 }
 
-export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches }: SessionListProps) {
+export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, renderPaused }: SessionListProps) {
   const theme = useTheme();
 
   // Tick every second so recently-merged rows transition after 30s
@@ -102,6 +103,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             key={branch}
             entry={entries.get(branch)!}
             selected={focused && i === selectedIndex}
+            renderPaused={renderPaused}
           />
         ))
       )}
@@ -126,6 +128,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
               entry={entries.get(branch)!}
               selected={false}
               dimmed
+              renderPaused={renderPaused}
             />
           ))}
         </>

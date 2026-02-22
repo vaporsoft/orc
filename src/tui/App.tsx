@@ -6,6 +6,7 @@ import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
+import { useTerminalFocus } from "./hooks/useTerminalFocus.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
@@ -27,8 +28,10 @@ export function App({ daemon, startTime }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
-  const entries = useDaemonState(daemon);
-  const { entries: logEntries, lastTimestamp } = useLogBuffer();
+  const terminalFocused = useTerminalFocus();
+  const renderPaused = !terminalFocused;
+  const entries = useDaemonState(daemon, renderPaused);
+  const { entries: logEntries, lastTimestamp } = useLogBuffer(renderPaused);
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
@@ -79,7 +82,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   const selectedBranch = openBranches[clampedSessionIndex] ?? null;
 
-  const branchLogs = useBranchLogs(selectedBranch);
+  const branchLogs = useBranchLogs(selectedBranch, renderPaused);
 
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
@@ -292,6 +295,7 @@ export function App({ daemon, startTime }: AppProps) {
         focused={focusedPane === "sessions" && toolbarIndex < 0}
         openBranches={openBranches}
         mergedBranches={mergedBranches}
+        renderPaused={renderPaused}
       />
       <DetailPanel
         entries={entries}

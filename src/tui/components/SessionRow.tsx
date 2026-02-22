@@ -9,6 +9,7 @@ interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
   dimmed?: boolean;
+  renderPaused?: boolean;
 }
 
 
@@ -25,7 +26,7 @@ function formatTimeLeft(expiresAt: number): string {
   return m > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${h}h`;
 }
 
-export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
+export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount } = entry;
   const branch = entry.branch.length > 26
@@ -59,7 +60,7 @@ export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
         <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={16}>
-        <StatusBadge status={status} />
+        <StatusBadge status={status} paused={renderPaused} />
         {isWatch && <Text color={theme.info}> ⟳</Text>}
       </Box>
       <Box width={10}>

@@ -40,18 +40,18 @@ const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
   merged:    "◆",
 };
 
-export function StatusBadge({ status }: StatusBadgeProps) {
+export function StatusBadge({ status, paused }: StatusBadgeProps & { paused?: boolean }) {
   const theme = useTheme();
   const isActive = ACTIVE_STATUSES.has(status);
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive || paused) return;
     const id = setInterval(() => {
       setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
     }, 80);
     return () => clearInterval(id);
-  }, [isActive]);
+  }, [isActive, paused]);
 
   const config = STATUS_ROLES[status];
   const symbol = isActive ? SPINNER_FRAMES[frame] : (STATIC_SYMBOLS[status] ?? "●");
