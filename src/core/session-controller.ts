@@ -536,10 +536,6 @@ export class SessionController extends EventEmitter {
       if (pushed) {
         this.state.lastPushAt = new Date().toISOString();
         this.emit("pushed", this.branch);
-        this.setStatus("listening");
-
-        // 6b. CI CHECK — poll checks after push, auto-fix on failure
-        await this.checkAndFixCI(baseBranch);
       } else {
         logger.error("Push failed", this.branch);
       }
@@ -547,7 +543,7 @@ export class SessionController extends EventEmitter {
       logger.info("No commits made — skipping push", this.branch);
     }
 
-    // 7. REPLY — always reply, even when no commits (e.g. verify_and_fix → not_applicable)
+    // 7. REPLY — immediately after push, before CI polling
     this.setStatus("replying");
 
     // Get the current SHA after rebase/push to ensure replies link to the correct commit
@@ -577,6 +573,12 @@ export class SessionController extends EventEmitter {
       if (uniqueAuthors.length > 0) {
         await this.ghClient.requestReviewers(this.state.prNumber, uniqueAuthors);
       }
+    }
+
+    // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
+    if (pushed) {
+      this.setStatus("listening");
+      await this.checkAndFixCI(baseBranch);
     }
 
     // Update running totals - only count comments as fixed when commits are made and pushed successfully

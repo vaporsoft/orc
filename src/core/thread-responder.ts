@@ -1,6 +1,6 @@
 /**
  * Replies to review threads and PR conversation comments via GitHub API.
- * Does NOT auto-resolve threads — lets reviewers decide.
+ * Auto-resolves inline threads after successful "addressed" or "verified fixed" replies.
  */
 
 import { GHClient } from "../github/gh-client.js";
@@ -34,6 +34,13 @@ export class ThreadResponder {
           `Replied to addressed comment on ${comment.path}`,
           this.branch,
         );
+        if (comment.path !== "(conversation)") {
+          try {
+            await this.ghClient.resolveThread(comment.threadId);
+          } catch (err) {
+            logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
+          }
+        }
       } catch (err) {
         logger.warn(
           `Failed to reply to comment ${comment.threadId}: ${err}`,
@@ -101,6 +108,13 @@ export class ThreadResponder {
           `Replied to verified comment on ${comment.path} (${outcome?.status ?? "unknown"})`,
           this.branch,
         );
+        if (outcome?.status === "fixed" && comment.path !== "(conversation)") {
+          try {
+            await this.ghClient.resolveThread(comment.threadId);
+          } catch (err) {
+            logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
+          }
+        }
       } catch (err) {
         logger.warn(
           `Failed to reply to verified comment ${comment.threadId}: ${err}`,
