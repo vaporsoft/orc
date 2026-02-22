@@ -10,7 +10,8 @@ import { useTerminalFocus } from "./hooks/useTerminalFocus.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
-import { DetailPanel } from "./components/DetailPanel.js";
+import { DetailPanel, getVisibleSections } from "./components/DetailPanel.js";
+import type { DetailSection } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
 
 import { HelpBar } from "./components/HelpBar.js";
@@ -43,6 +44,8 @@ export function App({ daemon, startTime }: AppProps) {
   const [toolbarIndex, setToolbarIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [focusedSection, setFocusedSection] = useState<DetailSection | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<DetailSection>>(new Set());
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -85,10 +88,22 @@ export function App({ daemon, startTime }: AppProps) {
 
   const selectedBranch = openBranches[clampedSessionIndex] ?? null;
 
+  // Track previous selected branch to detect when it changes (e.g., due to sorting shifts)
+  const prevSelectedBranchRef = React.useRef<string | null>(selectedBranch);
+  React.useEffect(() => {
+    if (prevSelectedBranchRef.current !== selectedBranch) {
+      // Branch changed (even if index stayed same due to list reordering)
+      setFocusedSection(null);
+      setCollapsedSections(new Set());
+      prevSelectedBranchRef.current = selectedBranch;
+    }
+  }, [selectedBranch]);
+
   const branchLogs = useBranchLogs(selectedBranch, renderPaused);
 
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
+  const visibleSections = getVisibleSections(selectedEntry);
 
   // Auto-focus a session that enters conflict_prompt (only when newly entering that status)
   const [prevConflictBranches, setPrevConflictBranches] = useState<Set<string>>(new Set());
@@ -111,6 +126,8 @@ export function App({ daemon, startTime }: AppProps) {
       if (conflictIndex >= 0) {
         setSessionIndex(conflictIndex);
         setDetailMode("detail");
+        setFocusedSection(null); // Will default to first visible section
+        setCollapsedSections(new Set()); // Clear collapsed sections for new branch
         setFocusedPane("sessions");
       }
     }
@@ -247,6 +264,9 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Toggle detail pane for selected branch (handle both \r and \n)
     if ((key.return || input === "\n") && focusedPane === "sessions") {
+      if (detailMode !== "detail") {
+        setFocusedSection(null); // Will default to first visible section
+      }
       setDetailMode((prev) => prev === "detail" ? "off" : "detail");
       return;
     }
@@ -324,15 +344,47 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // Space toggles collapse of focused section in detail view
+    if (input === " " && focusedPane === "sessions" && detailMode === "detail" && visibleSections.length > 0) {
+      // Use same validation as DetailPanel: check if focusedSection is in visibleSections before using it
+      const section = (focusedSection && visibleSections.includes(focusedSection))
+        ? focusedSection
+        : visibleSections[0];
+      if (section) {
+        setCollapsedSections((prev) => {
+          const next = new Set(prev);
+          if (next.has(section)) {
+            next.delete(section);
+          } else {
+            next.add(section);
+          }
+          return next;
+        });
+      }
+      return;
+    }
+
     // j/k always navigate the session list
     if (input === "k" && focusedPane === "sessions") {
-      setSessionIndex((prev) => Math.max(0, prev - 1));
-      setBranchLogOffset(0);
+      const nextIndex = Math.max(0, sessionIndex - 1);
+      if (nextIndex !== sessionIndex) {
+        // Only reset section state when actually changing branches
+        setBranchLogOffset(0);
+        setFocusedSection(null);
+        setCollapsedSections(new Set());
+      }
+      setSessionIndex(nextIndex);
       return;
     }
     if (input === "j" && focusedPane === "sessions") {
-      setSessionIndex((prev) => Math.min(openCount - 1, prev + 1));
-      setBranchLogOffset(0);
+      const nextIndex = Math.min(openCount - 1, sessionIndex + 1);
+      if (nextIndex !== sessionIndex) {
+        // Only reset section state when actually changing branches
+        setBranchLogOffset(0);
+        setFocusedSection(null);
+        setCollapsedSections(new Set());
+      }
+      setSessionIndex(nextIndex);
       return;
     }
 
@@ -344,16 +396,37 @@ export function App({ daemon, startTime }: AppProps) {
         } else if (key.downArrow) {
           setBranchLogOffset((prev) => Math.max(0, prev - 1));
         }
+      } else if (detailMode === "detail" && visibleSections.length > 0) {
+        // When detail panel is open, arrows navigate between sections
+        const currentIndex = focusedSection ? visibleSections.indexOf(focusedSection) : 0;
+        const effectiveIndex = currentIndex >= 0 ? currentIndex : 0;
+        if (key.upArrow) {
+          const newIndex = Math.max(0, effectiveIndex - 1);
+          setFocusedSection(visibleSections[newIndex] ?? null);
+        } else if (key.downArrow) {
+          const newIndex = Math.min(visibleSections.length - 1, effectiveIndex + 1);
+          setFocusedSection(visibleSections[newIndex] ?? null);
+        }
       } else {
         if (key.upArrow) {
           if (sessionIndex === 0) {
             // At top of session list — move focus up into toolbar
             setToolbarIndex(0);
           } else {
-            setSessionIndex((prev) => prev - 1);
+            const nextIndex = sessionIndex - 1;
+            setBranchLogOffset(0);
+            setFocusedSection(null);
+            setCollapsedSections(new Set());
+            setSessionIndex(nextIndex);
           }
         } else if (key.downArrow) {
-          setSessionIndex((prev) => Math.min(openCount - 1, prev + 1));
+          const nextIndex = Math.min(openCount - 1, sessionIndex + 1);
+          if (nextIndex !== sessionIndex) {
+            setBranchLogOffset(0);
+            setFocusedSection(null);
+            setCollapsedSections(new Set());
+          }
+          setSessionIndex(nextIndex);
         }
       }
     } else {
@@ -382,6 +455,8 @@ export function App({ daemon, startTime }: AppProps) {
           selectedBranch={selectedBranch}
           showDetail={detailMode === "detail"}
           activityLines={activityLines}
+          focusedSection={detailMode === "detail" ? focusedSection : null}
+          collapsedSections={collapsedSections}
         />
       )}
       {detailMode === "logs" && (

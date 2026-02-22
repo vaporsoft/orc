@@ -6,11 +6,26 @@ import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
 import { formatTokens } from "../../utils/format.js";
 
+export type DetailSection = "cycles" | "conflicts" | "ci" | "comments" | "claude";
+
+/** Returns the ordered list of visible sections for the given entry. */
+export function getVisibleSections(entry: PREntry | undefined): DetailSection[] {
+  if (!entry) return [];
+  const sections: DetailSection[] = [];
+  if (entry.state && entry.state.cycleHistory.length > 0) {
+    sections.push("cycles");
+  }
+  sections.push("conflicts", "ci", "comments", "claude");
+  return sections;
+}
+
 interface DetailPanelProps {
   entries: Map<string, PREntry>;
   selectedBranch: string | null;
   showDetail: boolean;
   activityLines?: string[];
+  focusedSection?: DetailSection | null;
+  collapsedSections?: Set<DetailSection>;
 }
 
 const CATEGORY_COLORS: Record<CommentCategory, string> = {
@@ -29,13 +44,37 @@ const CATEGORY_LABELS: Record<CommentCategory, string> = {
   verify_and_fix: "VERIFY",
 };
 
-function SectionHeader({ label, color }: { label: string; color: string }) {
-  const rule = "─".repeat(Math.max(0, 44 - label.length));
+const MAX_CYCLES = 8;
+const MAX_CONFLICTS = 10;
+const MAX_CI_CHECKS = 10;
+const MAX_COMMENTS = 8;
+const MAX_ACTIVITY = 6;
+
+function SectionHeader({ label, color, focused, collapsed }: {
+  label: string;
+  color: string;
+  focused?: boolean;
+  collapsed?: boolean;
+}) {
+  const chevron = collapsed ? "▸" : "▾";
+  const rule = "─".repeat(Math.max(0, 42 - label.length));
   return (
     <Box marginTop={1}>
-      <Text color={color} dimColor>{"━━ "}</Text>
+      <Text color={color} dimColor={!focused} bold={focused}>
+        {focused ? "▐ " : "  "}
+      </Text>
+      <Text color={color} dimColor={!focused}>{chevron} </Text>
       <Text color={color} bold>{label}</Text>
       <Text color={color} dimColor>{" " + rule}</Text>
+    </Box>
+  );
+}
+
+function MoreIndicator({ hidden, label }: { hidden: number; label?: string }) {
+  if (hidden <= 0) return null;
+  return (
+    <Box marginLeft={2}>
+      <Text dimColor>  ... {hidden} more {label ?? "items"}</Text>
     </Box>
   );
 }
@@ -78,25 +117,33 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   );
 }
 
-function CycleHistory({ cycles, resolved, total, accentColor }: {
+function CycleHistory({ cycles, resolved, total, accentColor, collapsed }: {
   cycles: CycleRecord[];
   resolved: number;
   total: number;
   accentColor: string;
+  collapsed: boolean;
 }) {
+  if (collapsed) return null;
+
   const totalCost = cycles.reduce((sum, c) => sum + c.costUsd, 0);
   const totalTokens = cycles.reduce((sum, c) => sum + (c.inputTokens ?? 0) + (c.outputTokens ?? 0), 0);
+  const visibleCycles = cycles.length > MAX_CYCLES ? cycles.slice(cycles.length - MAX_CYCLES) : cycles;
+  const hiddenCount = cycles.length - visibleCycles.length;
+  // Compute the starting index offset for hidden cycles
+  const startIndex = hiddenCount;
 
   return (
     <>
-      <SectionHeader label={`Review Progress (${resolved}/${total} resolved)`} color={accentColor} />
-      {cycles.map((cycle, i) => {
-        const isLatest = i === cycles.length - 1;
+      {hiddenCount > 0 && <MoreIndicator hidden={hiddenCount} label="cycles" />}
+      {visibleCycles.map((cycle, i) => {
+        const globalIndex = startIndex + i;
+        const isLatest = globalIndex === cycles.length - 1;
         const time = formatTime(cycle.startedAt);
         const cycleTok = (cycle.inputTokens ?? 0) + (cycle.outputTokens ?? 0);
         return (
-          <Box key={i} marginLeft={2}>
-            <Text dimColor>{"r" + String(i + 1).padEnd(4)}</Text>
+          <Box key={globalIndex} marginLeft={2}>
+            <Text dimColor>{"r" + String(globalIndex + 1).padEnd(4)}</Text>
             <Text color={cycle.commentsSeen > 0 ? accentColor : "gray"}>
               {String(cycle.commentsSeen).padStart(2)} found
             </Text>
@@ -129,6 +176,8 @@ export function DetailPanel({
   selectedBranch,
   showDetail,
   activityLines = [],
+  focusedSection = null,
+  collapsedSections = new Set(),
 }: DetailPanelProps) {
   const theme = useTheme();
   const branch = selectedBranch;
@@ -142,6 +191,18 @@ export function DetailPanel({
   const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
+
+  const visibleSections = getVisibleSections(entry);
+
+  // When focusedSection is null or not in visibleSections, default to first visible section
+  const effectiveFocusedSection = (focusedSection && visibleSections.includes(focusedSection))
+    ? focusedSection
+    : visibleSections[0] ?? null;
+
+  const isFocused = (section: DetailSection) => {
+    return effectiveFocusedSection === section;
+  };
+  const isCollapsed = (section: DetailSection) => collapsedSections.has(section);
 
 
   // Collapsed view
@@ -173,6 +234,14 @@ export function DetailPanel({
     );
   }
 
+  // Count helpers for section headers
+  const ciLabel = ciStatus === "failing" && failedChecks.length > 0
+    ? `CI (${failedChecks.length} failing)`
+    : "CI";
+  const conflictLabel = conflicted.length > 0
+    ? `Conflicts (${conflicted.length} files)`
+    : "Conflicts";
+
   // Expanded view
   return (
     <Box
@@ -184,10 +253,11 @@ export function DetailPanel({
       paddingTop={1}
       flexDirection="column"
     >
-      {/* Commands bar — same as collapsed view */}
+      {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
           <Text color={theme.accent}>r</Text> rebase · <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> start · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> collapse
+          {effectiveFocusedSection && <Text> · <Text color={theme.accent}>space</Text> toggle section</Text>}
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
       </Box>
@@ -211,7 +281,7 @@ export function DetailPanel({
         paddingLeft={1}
         flexDirection="column"
       >
-        {/* Status summary */}
+        {/* Status summary — always visible */}
         <Box>
           <Text dimColor>base: {pr.baseRefName}</Text>
           {state && (
@@ -231,6 +301,7 @@ export function DetailPanel({
           )}
         </Box>
 
+        {/* Error — always visible */}
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
 
         {state?.hasFixupCommits && (
@@ -242,163 +313,255 @@ export function DetailPanel({
 
         {/* Cycle history */}
         {state && state.cycleHistory.length > 0 && (
-          <CycleHistory
-            cycles={state.cycleHistory}
-            resolved={threadCounts?.resolved ?? 0}
-            total={threadCounts?.total ?? 0}
-            accentColor={theme.accentBright}
-          />
+          <>
+            <SectionHeader
+              label={`Review Progress (${threadCounts?.resolved ?? 0}/${threadCounts?.total ?? 0} resolved)`}
+              color={theme.accentBright}
+              focused={isFocused("cycles")}
+              collapsed={isCollapsed("cycles")}
+            />
+            <CycleHistory
+              cycles={state.cycleHistory}
+              resolved={threadCounts?.resolved ?? 0}
+              total={threadCounts?.total ?? 0}
+              accentColor={theme.accentBright}
+              collapsed={isCollapsed("cycles")}
+            />
+          </>
         )}
 
-        {/* Conflicts section — always show */}
+        {/* Conflicts section */}
         {state?.status === "conflict_prompt" && conflicted.length > 0 ? (
           <>
-            <SectionHeader label={`Conflicts (${conflicted.length} files)`} color={theme.warning} />
-            {conflicted.map((file, i) => (
-              <Box key={i} marginLeft={2}>
-                <Text color="yellow">{"· "}</Text>
-                <Text>{file}</Text>
-              </Box>
-            ))}
-            <Box marginTop={1} marginLeft={2}>
-              <Text color="green" bold>[R]</Text>
-              <Text> Resolve with Claude  </Text>
-              <Text color="cyan" bold>[A]</Text>
-              <Text> Always resolve with Claude  </Text>
-              <Text dimColor bold>[Esc]</Text>
-              <Text dimColor> Dismiss</Text>
-            </Box>
+            <SectionHeader
+              label={conflictLabel}
+              color={theme.warning}
+              focused={isFocused("conflicts")}
+              collapsed={isCollapsed("conflicts")}
+            />
+            {!isCollapsed("conflicts") && (
+              <>
+                {conflicted.slice(0, MAX_CONFLICTS).map((file, i) => (
+                  <Box key={i} marginLeft={2}>
+                    <Text color="yellow">{"· "}</Text>
+                    <Text>{file}</Text>
+                  </Box>
+                ))}
+                <MoreIndicator hidden={conflicted.length - MAX_CONFLICTS} label="files" />
+                <Box marginTop={1} marginLeft={2}>
+                  <Text color="green" bold>[R]</Text>
+                  <Text> Resolve with Claude  </Text>
+                  <Text color="cyan" bold>[A]</Text>
+                  <Text> Always resolve with Claude  </Text>
+                  <Text dimColor bold>[Esc]</Text>
+                  <Text dimColor> Dismiss</Text>
+                </Box>
+              </>
+            )}
           </>
         ) : conflicted.length > 0 ? (
           <>
-            <SectionHeader label={`Conflicts (${conflicted.length} files)`} color={theme.error} />
-            {conflicted.map((file, i) => (
-              <Box key={i} marginLeft={2}>
-                <Text color="red">{"· "}</Text>
-                <Text>{file}</Text>
-              </Box>
-            ))}
-            {!state && (
+            <SectionHeader
+              label={conflictLabel}
+              color={theme.error}
+              focused={isFocused("conflicts")}
+              collapsed={isCollapsed("conflicts")}
+            />
+            {!isCollapsed("conflicts") && (
               <>
-                <Box marginLeft={2}>
-                  <Text dimColor>
-                    <Text color={theme.accent}>r</Text> to rebase
-                  </Text>
-                </Box>
-                <Box marginLeft={2}>
-                  <Text dimColor>
-                    <Text color={theme.accent}>f</Text> to fix with Claude
-                  </Text>
-                </Box>
+                {conflicted.slice(0, MAX_CONFLICTS).map((file, i) => (
+                  <Box key={i} marginLeft={2}>
+                    <Text color="red">{"· "}</Text>
+                    <Text>{file}</Text>
+                  </Box>
+                ))}
+                <MoreIndicator hidden={conflicted.length - MAX_CONFLICTS} label="files" />
+                {!state && (
+                  <>
+                    <Box marginLeft={2}>
+                      <Text dimColor>
+                        <Text color={theme.accent}>r</Text> to rebase
+                      </Text>
+                    </Box>
+                    <Box marginLeft={2}>
+                      <Text dimColor>
+                        <Text color={theme.accent}>f</Text> to fix with Claude
+                      </Text>
+                    </Box>
+                  </>
+                )}
               </>
             )}
           </>
         ) : (
           <>
-            <SectionHeader label="Conflicts" color={theme.accent} />
-            <Box marginLeft={2}><Text dimColor>None</Text></Box>
+            <SectionHeader
+              label="Conflicts"
+              color={theme.accent}
+              focused={isFocused("conflicts")}
+              collapsed={isCollapsed("conflicts")}
+            />
+            {!isCollapsed("conflicts") && (
+              <Box marginLeft={2}><Text dimColor>None</Text></Box>
+            )}
           </>
         )}
 
-        {/* CI section — always show */}
+        {/* CI section */}
         {ciStatus === "failing" && failedChecks.length > 0 ? (
           <>
-            <SectionHeader label={`CI (${failedChecks.length} failing)`} color={theme.error} />
-            {failedChecks.map((check) => (
-              <Box key={check.id} marginLeft={2}>
-                <Text color="red">{"✗ "}</Text>
-                <Text color="white">{check.name}</Text>
-                {check.logSnippet && (
-                  <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+            <SectionHeader
+              label={ciLabel}
+              color={theme.error}
+              focused={isFocused("ci")}
+              collapsed={isCollapsed("ci")}
+            />
+            {!isCollapsed("ci") && (
+              <>
+                {failedChecks.slice(0, MAX_CI_CHECKS).map((check) => (
+                  <Box key={check.id} marginLeft={2}>
+                    <Text color="red">{"✗ "}</Text>
+                    <Text color="white">{check.name}</Text>
+                    {check.logSnippet && (
+                      <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+                    )}
+                  </Box>
+                ))}
+                <MoreIndicator hidden={failedChecks.length - MAX_CI_CHECKS} label="checks" />
+                {state && state.ciFixAttempts > 0 && (
+                  <Box marginLeft={2}>
+                    <Text dimColor>
+                      fix attempts: {state.ciFixAttempts}
+                    </Text>
+                  </Box>
                 )}
-              </Box>
-            ))}
-            {state && state.ciFixAttempts > 0 && (
-              <Box marginLeft={2}>
-                <Text dimColor>
-                  fix attempts: {state.ciFixAttempts}
-                </Text>
-              </Box>
+              </>
             )}
           </>
         ) : (
           <>
-            <SectionHeader label="CI" color={theme.accent} />
-            <Box marginLeft={2}>
-              {ciStatus === "passing" && (
-                <Text color="green">{"✓ "}<Text dimColor>All checks passing</Text></Text>
-              )}
-              {ciStatus === "pending" && (
-                <Text color="yellow">{"● "}<Text dimColor>Checks running...</Text></Text>
-              )}
-              {ciStatus === "unknown" && (
-                <Text dimColor>No data</Text>
-              )}
-            </Box>
+            <SectionHeader
+              label="CI"
+              color={theme.accent}
+              focused={isFocused("ci")}
+              collapsed={isCollapsed("ci")}
+            />
+            {!isCollapsed("ci") && (
+              <Box marginLeft={2}>
+                {ciStatus === "passing" && (
+                  <Text color="green">{"✓ "}<Text dimColor>All checks passing</Text></Text>
+                )}
+                {ciStatus === "pending" && (
+                  <Text color="yellow">{"● "}<Text dimColor>Checks running...</Text></Text>
+                )}
+                {ciStatus === "unknown" && (
+                  <Text dimColor>No data</Text>
+                )}
+              </Box>
+            )}
           </>
         )}
 
-        {/* Comments section — always show */}
+        {/* Comments section */}
         {summary && summary.comments.length > 0 ? (
           <>
-            <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} />
-            {summary.comments.map((c) => {
-              const loc = c.line ? `${c.path}:${c.line}` : c.path;
-              const body = c.body.replace(/\n/g, " ");
-              const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
-              return (
-                <Box key={c.threadId} marginLeft={2} flexDirection="column">
-                  <Text>
-                    <Text color={CATEGORY_COLORS[c.category]} bold>
-                      {CATEGORY_LABELS[c.category].padEnd(11)}
-                    </Text>
-                    <Text color={theme.text}>{loc}</Text>
-                    <Text dimColor>  @{c.author}</Text>
-                  </Text>
-                  <Text dimColor>{"           "}{truncated}</Text>
-                </Box>
-              );
-            })}
+            <SectionHeader
+              label={`Comments (${summary.comments.length})`}
+              color={theme.accent}
+              focused={isFocused("comments")}
+              collapsed={isCollapsed("comments")}
+            />
+            {!isCollapsed("comments") && (
+              <>
+                {summary.comments.slice(0, MAX_COMMENTS).map((c) => {
+                  const loc = c.line ? `${c.path}:${c.line}` : c.path;
+                  const body = c.body.replace(/\n/g, " ");
+                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+                  return (
+                    <Box key={c.threadId} marginLeft={2} flexDirection="column">
+                      <Text>
+                        <Text color={CATEGORY_COLORS[c.category]} bold>
+                          {CATEGORY_LABELS[c.category].padEnd(11)}
+                        </Text>
+                        <Text color={theme.text}>{loc}</Text>
+                        <Text dimColor>  @{c.author}</Text>
+                      </Text>
+                      <Text dimColor>{"           "}{truncated}</Text>
+                    </Box>
+                  );
+                })}
+                <MoreIndicator hidden={summary.comments.length - MAX_COMMENTS} label="comments" />
+              </>
+            )}
           </>
         ) : commentThreads.length > 0 ? (
           <>
-            <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} />
-            {commentThreads.map((t) => {
-              const loc = t.line ? `${t.path}:${t.line}` : t.path;
-              const body = t.body.replace(/\n/g, " ");
-              const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
-              return (
-                <Box key={t.threadId} marginLeft={2} flexDirection="column">
-                  <Text>
-                    <Text color={theme.text}>{loc}</Text>
-                    <Text dimColor>  @{t.author}</Text>
-                  </Text>
-                  <Text dimColor>  {truncated}</Text>
-                </Box>
-              );
-            })}
+            <SectionHeader
+              label={`Comments (${commentThreads.length})`}
+              color={theme.accent}
+              focused={isFocused("comments")}
+              collapsed={isCollapsed("comments")}
+            />
+            {!isCollapsed("comments") && (
+              <>
+                {commentThreads.slice(0, MAX_COMMENTS).map((t) => {
+                  const loc = t.line ? `${t.path}:${t.line}` : t.path;
+                  const body = t.body.replace(/\n/g, " ");
+                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+                  return (
+                    <Box key={t.threadId} marginLeft={2} flexDirection="column">
+                      <Text>
+                        <Text color={theme.text}>{loc}</Text>
+                        <Text dimColor>  @{t.author}</Text>
+                      </Text>
+                      <Text dimColor>  {truncated}</Text>
+                    </Box>
+                  );
+                })}
+                <MoreIndicator hidden={commentThreads.length - MAX_COMMENTS} label="comments" />
+              </>
+            )}
           </>
         ) : (
           <>
-            <SectionHeader label="Comments" color={theme.accent} />
-            <Box marginLeft={2}><Text dimColor>None</Text></Box>
+            <SectionHeader
+              label="Comments"
+              color={theme.accent}
+              focused={isFocused("comments")}
+              collapsed={isCollapsed("comments")}
+            />
+            {!isCollapsed("comments") && (
+              <Box marginLeft={2}><Text dimColor>None</Text></Box>
+            )}
           </>
         )}
 
-        {/* Claude section — always show */}
-        <SectionHeader label="Claude" color={theme.accent} />
-        {isActive && activityLines.length > 0 ? (
-          activityLines.map((line, i) => (
-            <Box key={i} marginLeft={2}>
-              <Text dimColor={i < activityLines.length - 1} color={i === activityLines.length - 1 ? theme.text : undefined}>
-                {line}
-              </Text>
+        {/* Claude section */}
+        <SectionHeader
+          label="Claude"
+          color={theme.accent}
+          focused={isFocused("claude")}
+          collapsed={isCollapsed("claude")}
+        />
+        {!isCollapsed("claude") && (
+          isActive && activityLines.length > 0 ? (
+            <>
+              {activityLines.length > MAX_ACTIVITY && (
+                <MoreIndicator hidden={activityLines.length - MAX_ACTIVITY} label="lines" />
+              )}
+              {activityLines.slice(Math.max(0, activityLines.length - MAX_ACTIVITY)).map((line, i, arr) => (
+                <Box key={i} marginLeft={2}>
+                  <Text dimColor={i < arr.length - 1} color={i === arr.length - 1 ? theme.text : undefined}>
+                    {line}
+                  </Text>
+                </Box>
+              ))}
+            </>
+          ) : (
+            <Box marginLeft={2}>
+              <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
             </Box>
-          ))
-        ) : (
-          <Box marginLeft={2}>
-            <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
-          </Box>
+          )
         )}
       </Box>
     </Box>
