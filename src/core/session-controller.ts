@@ -28,6 +28,7 @@ import type { Config } from "../types/config.js";
 import { loadSettings, saveSettings } from "../utils/settings.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
+import { RateLimitError } from "../utils/retry.js";
 import { MAX_CI_FIX_ATTEMPTS } from "../constants.js";
 
 /** Lockfiles that should be auto-resolved during rebase, not sent to Claude. */
@@ -1000,7 +1001,7 @@ export class SessionController extends EventEmitter {
     await this.sleep(15_000);
 
     const maxWait = 10 * 60 * 1000; // 10 min max wait
-    const pollInterval = 30_000;
+    const pollInterval = 60_000;
     const start = Date.now();
 
     while (Date.now() - start < maxWait && this.running) {
@@ -1030,6 +1031,10 @@ export class SessionController extends EventEmitter {
           return { status: "failing", failedChecks };
         }
       } catch (err) {
+        if (err instanceof RateLimitError) {
+          logger.warn("GitHub rate limit hit during CI polling, stopping", this.branch);
+          return { status: "unknown", failedChecks: [] };
+        }
         logger.debug(`CI poll error: ${err}`, this.branch);
       }
 
