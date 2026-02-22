@@ -76,6 +76,8 @@ export class SessionController extends EventEmitter {
 
     const lifetime = progressStore.getLifetimeStats(branch);
     const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
+    const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
+    const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
 
     this.state = {
       branch,
@@ -85,6 +87,8 @@ export class SessionController extends EventEmitter {
       mode,
       commentsAddressed: 0,
       totalCostUsd,
+      totalInputTokens,
+      totalOutputTokens,
       error: null,
       unresolvedCount: 0,
       commentSummary: null,
@@ -303,8 +307,10 @@ export class SessionController extends EventEmitter {
   }
 
   private async runCycle(baseBranch: string): Promise<void> {
-    // Track cycle start cost to include CI fix costs in cycle records
+    // Track cycle start cost/tokens to include CI fix costs in cycle records
     const cycleStartCost = this.state.totalCostUsd;
+    const cycleStartInputTokens = this.state.totalInputTokens;
+    const cycleStartOutputTokens = this.state.totalOutputTokens;
 
     // 0. REBASE — proactively rebase onto base branch before starting
     let conflictsResolved = false;
@@ -439,9 +445,20 @@ export class SessionController extends EventEmitter {
 
     // 2. CATEGORIZE
     this.setStatus("categorizing");
-    const categorized = await this.categorizer.categorize(fetchedComments, this.abortController.signal);
+    const {
+      comments: categorized,
+      costUsd: categorizationCost,
+      inputTokens: catInputTokens,
+      outputTokens: catOutputTokens,
+    } = await this.categorizer.categorize(fetchedComments, this.abortController.signal);
+    this.state.totalCostUsd += categorizationCost;
+    this.state.totalInputTokens += catInputTokens;
+    this.state.totalOutputTokens += catOutputTokens;
     if (!this.running) {
-      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      const abortCycleCost = this.state.totalCostUsd - cycleStartCost;
+      const abortCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+      const abortCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+      await this.progressStore.recordCycleEnd(this.branch, 0, abortCycleCost, abortCycleInput, abortCycleOutput);
       this.syncLifetimeStats();
       return;
     }
@@ -487,7 +504,10 @@ export class SessionController extends EventEmitter {
 
     if (actionable.length === 0) {
       logger.info("No actionable comments after filtering", this.branch);
-      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      const noActionCycleCost = this.state.totalCostUsd - cycleStartCost;
+      const noActionCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+      const noActionCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+      await this.progressStore.recordCycleEnd(this.branch, 0, noActionCycleCost, noActionCycleInput, noActionCycleOutput);
       this.syncLifetimeStats();
       return;
     }
@@ -498,7 +518,10 @@ export class SessionController extends EventEmitter {
       for (const c of actionable) {
         logger.info(`  - ${c.path}:${c.line ?? "?"} (${c.category})`, this.branch);
       }
-      await this.progressStore.recordCycleEnd(this.branch, 0, 0);
+      const dryRunCycleCost = this.state.totalCostUsd - cycleStartCost;
+      const dryRunCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+      const dryRunCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+      await this.progressStore.recordCycleEnd(this.branch, 0, dryRunCycleCost, dryRunCycleInput, dryRunCycleOutput);
       this.syncLifetimeStats();
       return;
     }
@@ -573,8 +596,12 @@ export class SessionController extends EventEmitter {
           this.setStatus("error");
           this.running = false;
           this.state.totalCostUsd += fixResult.costUsd;
+          this.state.totalInputTokens += fixResult.inputTokens;
+          this.state.totalOutputTokens += fixResult.outputTokens;
           const totalCycleCost = this.state.totalCostUsd - cycleStartCost;
-          await this.progressStore.recordCycleEnd(this.branch, 0, totalCycleCost);
+          const totalCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+          const totalCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+          await this.progressStore.recordCycleEnd(this.branch, 0, totalCycleCost, totalCycleInput, totalCycleOutput);
           this.syncLifetimeStats();
           return;
         }
@@ -641,12 +668,16 @@ export class SessionController extends EventEmitter {
       this.state.commentsAddressed += fixedCount;
     }
 
-    // Calculate total cycle cost (including both review fixes and CI fixes)
+    // Calculate total cycle cost/tokens (including both review fixes and CI fixes)
     this.state.totalCostUsd += fixResult.costUsd;
+    this.state.totalInputTokens += fixResult.inputTokens;
+    this.state.totalOutputTokens += fixResult.outputTokens;
     const totalCycleCost = this.state.totalCostUsd - cycleStartCost;
+    const totalCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+    const totalCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
 
-    // Persist cycle results with total cycle cost
-    await this.progressStore.recordCycleEnd(this.branch, fixedCount, totalCycleCost);
+    // Persist cycle results with total cycle cost and tokens
+    await this.progressStore.recordCycleEnd(this.branch, fixedCount, totalCycleCost, totalCycleInput, totalCycleOutput);
     this.syncLifetimeStats();
     this.state.commentSummary = null;
     this.state.claudeActivity = [];
@@ -762,6 +793,8 @@ export class SessionController extends EventEmitter {
 
         this.state.lastSessionId = fixResult.sessionId;
         this.state.totalCostUsd += fixResult.costUsd;
+        this.state.totalInputTokens += fixResult.inputTokens;
+        this.state.totalOutputTokens += fixResult.outputTokens;
         this.state.claudeActivity = [];
 
         if (fixResult.isError) {
@@ -880,6 +913,8 @@ export class SessionController extends EventEmitter {
 
       this.state.lastSessionId = ciFixResult.sessionId;
       this.state.totalCostUsd += ciFixResult.costUsd;
+      this.state.totalInputTokens += ciFixResult.inputTokens;
+      this.state.totalOutputTokens += ciFixResult.outputTokens;
 
       // Clean uncommitted files left by Claude
       const postCIDirty = await this.gitManager.hasUncommittedChanges();

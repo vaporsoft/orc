@@ -114,6 +114,8 @@ export class ProgressStore {
       commentsSeen: threadIds.length,
       commentsFixed: 0,
       costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
     });
 
     await this.save();
@@ -127,6 +129,8 @@ export class ProgressStore {
     branch: string,
     commentsFixed: number,
     costUsd: number,
+    inputTokens: number,
+    outputTokens: number,
   ): Promise<void> {
     const pr = this.data.prs[branch];
     if (!pr || pr.cycles.length === 0) return;
@@ -135,6 +139,8 @@ export class ProgressStore {
     cycle.completedAt = new Date().toISOString();
     cycle.commentsFixed = commentsFixed;
     cycle.costUsd = costUsd;
+    cycle.inputTokens = inputTokens;
+    cycle.outputTokens = outputTokens;
 
     await this.save();
   }

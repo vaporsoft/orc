@@ -12,7 +12,7 @@ import {
   query,
   type SDKMessage,
   type SDKResultMessage,
-} from "@anthropic-ai/claude-code";
+} from "@anthropic-ai/claude-agent-sdk";
 import type { CategorizedComment, RepoConfig } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { ALLOWED_TOOLS } from "../constants.js";
@@ -27,6 +27,8 @@ export interface VerifyOutcome {
 export interface FixResult {
   sessionId: string;
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
   durationMs: number;
   isError: boolean;
   changedFiles: string[];
@@ -189,6 +191,8 @@ Do not push — the orchestrator handles that.`;
         return {
           sessionId,
           costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
           durationMs,
           isError: true,
           changedFiles: [],
@@ -200,6 +204,8 @@ Do not push — the orchestrator handles that.`;
       return {
         sessionId,
         costUsd: resultMessage.total_cost_usd ?? 0,
+        inputTokens: resultMessage.usage?.input_tokens ?? 0,
+        outputTokens: resultMessage.usage?.output_tokens ?? 0,
         durationMs,
         isError: resultMessage.is_error ?? false,
         changedFiles: [],
@@ -220,6 +226,8 @@ Do not push — the orchestrator handles that.`;
       return {
         sessionId,
         costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
         durationMs,
         isError: true,
         changedFiles: [],

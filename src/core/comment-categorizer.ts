@@ -3,7 +3,7 @@
  * Piggybacks on Claude Code's existing authentication (no separate API key needed).
  */
 
-import { query, type SDKResultMessage } from "@anthropic-ai/claude-code";
+import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { CategorizedComment } from "../types/index.js";
 import type { FetchedComment } from "./comment-fetcher.js";
 import { logger } from "../utils/logger.js";
@@ -24,6 +24,13 @@ Respond with JSON only (no markdown fences):
   "suggestedAction": "<what the fix should do>"
 }`;
 
+export interface CategorizationResult {
+  comments: CategorizedComment[];
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export class CommentCategorizer {
   private cwd: string;
   private confidenceThreshold: number;
@@ -33,8 +40,11 @@ export class CommentCategorizer {
     this.confidenceThreshold = confidenceThreshold;
   }
 
-  async categorize(comments: FetchedComment[], abortSignal?: AbortSignal): Promise<CategorizedComment[]> {
+  async categorize(comments: FetchedComment[], abortSignal?: AbortSignal): Promise<CategorizationResult> {
     const results: CategorizedComment[] = [];
+    let totalCostUsd = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for (const { thread } of comments) {
       if (abortSignal?.aborted) break;
@@ -56,7 +66,10 @@ export class CommentCategorizer {
       }
 
       try {
-        const analysis = await this.classifyComment(thread, abortSignal);
+        const { analysis, costUsd, inputTokens, outputTokens } = await this.classifyComment(thread, abortSignal);
+        totalCostUsd += costUsd;
+        totalInputTokens += inputTokens;
+        totalOutputTokens += outputTokens;
 
         // Override low-confidence inline comments to verify_and_fix
         if (
@@ -103,13 +116,18 @@ export class CommentCategorizer {
       }
     }
 
-    return results;
+    return { comments: results, costUsd: totalCostUsd, inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
   }
 
   private async classifyComment(
     thread: FetchedComment["thread"],
     abortSignal?: AbortSignal,
-  ): Promise<Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction">> {
+  ): Promise<{
+    analysis: Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction">;
+    costUsd: number;
+    inputTokens: number;
+    outputTokens: number;
+  }> {
     const userMessage = `## File: ${thread.path}${thread.line ? ` (line ${thread.line})` : ""}
 
 ### Diff Context:
@@ -123,6 +141,9 @@ ${thread.body}`;
     const prompt = `${ANALYSIS_PROMPT}\n\n${userMessage}`;
 
     let resultText = "";
+    let costUsd = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
 
     const ac = new AbortController();
     if (abortSignal) {
@@ -143,6 +164,9 @@ ${thread.body}`;
     for await (const message of stream) {
       if (message.type === "result") {
         const result = message as SDKResultMessage;
+        costUsd = result.total_cost_usd ?? 0;
+        inputTokens = result.usage?.input_tokens ?? 0;
+        outputTokens = result.usage?.output_tokens ?? 0;
         if (result.subtype === "success") {
           resultText = result.result;
         }
@@ -155,18 +179,28 @@ ${thread.body}`;
     try {
       const parsed = JSON.parse(cleaned);
       return {
-        confidence: Number(parsed.confidence),
-        category: parsed.category,
-        reasoning: parsed.reasoning,
-        suggestedAction: parsed.suggestedAction,
+        analysis: {
+          confidence: Number(parsed.confidence),
+          category: parsed.category,
+          reasoning: parsed.reasoning,
+          suggestedAction: parsed.suggestedAction,
+        },
+        costUsd,
+        inputTokens,
+        outputTokens,
       };
     } catch {
       logger.warn(`Failed to parse categorization response: ${cleaned}`);
       return {
-        confidence: 0.5,
-        category: "should_fix",
-        reasoning: "Failed to parse analysis response",
-        suggestedAction: thread.body,
+        analysis: {
+          confidence: 0.5,
+          category: "should_fix",
+          reasoning: "Failed to parse analysis response",
+          suggestedAction: thread.body,
+        },
+        costUsd,
+        inputTokens,
+        outputTokens,
       };
     }
   }
