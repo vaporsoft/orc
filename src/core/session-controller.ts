@@ -971,12 +971,22 @@ export class SessionController extends EventEmitter {
       this.setStatus("listening");
     }
 
-    // Log if we've exhausted all attempts
+    // After exhausting all fix attempts, do a final CI poll to check if the
+    // last fix actually resolved CI. Without this, ciStatus stays "failing"
+    // from the poll at the START of the last iteration, even if the pushed
+    // fix made CI pass.
     if (this.state.ciFixAttempts >= MAX_CI_FIX_ATTEMPTS && this.running) {
-      logger.warn(
-        `CI still failing after ${MAX_CI_FIX_ATTEMPTS} fix attempts, giving up`,
-        this.branch,
-      );
+      const finalResult = await this.pollCIStatus();
+      this.state.ciStatus = finalResult.status;
+      this.state.failedChecks = finalResult.failedChecks;
+      this.emit("sessionUpdate", this.branch, this.getState());
+
+      if (finalResult.status === "failing") {
+        logger.warn(
+          `CI still failing after ${MAX_CI_FIX_ATTEMPTS} fix attempts, giving up`,
+          this.branch,
+        );
+      }
     }
   }
 
