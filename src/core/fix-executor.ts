@@ -13,7 +13,7 @@ import {
   type SDKMessage,
   type SDKResultMessage,
 } from "@anthropic-ai/claude-code";
-import type { CategorizedComment, RepoPilotConfig } from "../types/index.js";
+import type { CategorizedComment, RepoConfig } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { ALLOWED_TOOLS } from "../constants.js";
 import { logger } from "../utils/logger.js";
@@ -45,11 +45,11 @@ export class FixExecutor {
 
   async execute(
     comments: CategorizedComment[],
-    pilotConfig: RepoPilotConfig,
+    repoConfig: RepoConfig,
     abortSignal?: AbortSignal,
     onActivity?: (line: string) => void,
   ): Promise<FixResult> {
-    const prompt = this.buildPrompt(comments, pilotConfig);
+    const prompt = this.buildPrompt(comments, repoConfig);
     logger.info("Invoking Claude Code to fix feedback", undefined, {
       commentsCount: comments.length,
     });
@@ -76,12 +76,12 @@ If you are not confident which commit to fixup against (e.g. the change spans mu
 
 Do not push — the orchestrator handles that.`;
 
-    if (pilotConfig.instructions) {
-      systemSuffix += `\n\n## Repo-Specific Instructions\n${pilotConfig.instructions}`;
+    if (repoConfig.instructions) {
+      systemSuffix += `\n\n## Repo-Specific Instructions\n${repoConfig.instructions}`;
     }
 
-    if (pilotConfig.verifyCommands.length > 0) {
-      systemSuffix += `\n\nAfter making changes, run these verification commands:\n${pilotConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
+    if (repoConfig.verifyCommands.length > 0) {
+      systemSuffix += `\n\nAfter making changes, run these verification commands:\n${repoConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
     } else {
       systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
     }
@@ -188,7 +188,7 @@ Do not push — the orchestrator handles that.`;
 
   private buildPrompt(
     comments: CategorizedComment[],
-    pilotConfig: RepoPilotConfig,
+    repoConfig: RepoConfig,
   ): string {
     const sections: string[] = [];
 
@@ -266,8 +266,8 @@ The thread IDs are:\n`,
       sections.push("");
     }
 
-    if (pilotConfig.instructions) {
-      sections.push(`## Additional Context\n\n${pilotConfig.instructions}\n`);
+    if (repoConfig.instructions) {
+      sections.push(`## Additional Context\n\n${repoConfig.instructions}\n`);
     }
 
     return sections.join("\n");

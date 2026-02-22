@@ -16,10 +16,10 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RepoPilotConfig } from "../types/index.js";
+import type { RepoConfig } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
-const DEFAULT_CONFIG: RepoPilotConfig = {
+const DEFAULT_CONFIG: RepoConfig = {
   instructions: "",
   verifyCommands: [],
   autoFix: {
@@ -30,7 +30,7 @@ const DEFAULT_CONFIG: RepoPilotConfig = {
   },
 };
 
-export async function loadPilotConfig(cwd: string): Promise<RepoPilotConfig> {
+export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
   const filePath = join(cwd, "ORC.md");
   let content: string;
   try {
