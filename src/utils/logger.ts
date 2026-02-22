@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+const MAX_BRANCH_BUFFER = 500;
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogEntry {
@@ -19,6 +21,7 @@ class Logger extends EventEmitter {
   private logFile: fs.WriteStream | null = null;
   private verbose = false;
   private suppressConsole = false;
+  private branchBuffers = new Map<string, LogEntry[]>();
 
   setSuppressConsole(v: boolean): void {
     this.suppressConsole = v;
@@ -50,6 +53,16 @@ class Logger extends EventEmitter {
     // Write to log file
     this.logFile?.write(JSON.stringify(entry) + "\n");
 
+    // Buffer per-branch logs for dump
+    if (branch) {
+      let buf = this.branchBuffers.get(branch);
+      if (!buf) { buf = []; this.branchBuffers.set(branch, buf); }
+      buf.push(entry);
+      if (buf.length > MAX_BRANCH_BUFFER) {
+        buf.splice(0, buf.length - MAX_BRANCH_BUFFER);
+      }
+    }
+
     // Emit for UI consumption
     this.emit("log", entry);
 
@@ -75,6 +88,19 @@ class Logger extends EventEmitter {
 
   error(message: string, branch?: string, data?: unknown): void {
     this.log("error", message, branch ?? null, data);
+  }
+
+  dumpBranchLogs(branch: string, outputPath: string): void {
+    const entries = this.branchBuffers.get(branch) ?? [];
+    const lines = entries.map(e => {
+      const level = e.level.toUpperCase().padEnd(5);
+      return `${e.timestamp} ${level} ${e.message}`;
+    });
+    fs.writeFileSync(outputPath, lines.join("\n") + "\n");
+  }
+
+  clearBranchBuffer(branch: string): void {
+    this.branchBuffers.delete(branch);
   }
 
   close(): void {

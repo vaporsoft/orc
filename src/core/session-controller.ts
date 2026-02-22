@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import * as path from "node:path";
 import { GHClient } from "../github/gh-client.js";
 import { CommentFetcher } from "./comment-fetcher.js";
 import { CommentCategorizer } from "./comment-categorizer.js";
@@ -146,6 +147,11 @@ export class SessionController extends EventEmitter {
       logger.error(message, this.branch);
     } finally {
       this.emit("ready", this.branch, this.state);
+      try {
+        const safeBranch = this.branch.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const logPath = path.join(process.cwd(), `.orc-session-${safeBranch}.txt`);
+        logger.dumpBranchLogs(this.branch, logPath);
+      } catch {}
     }
   }
 
@@ -240,6 +246,11 @@ export class SessionController extends EventEmitter {
       logger.error(message, this.branch);
     } finally {
       this.emit("ready", this.branch, this.state);
+      try {
+        const safeBranch = this.branch.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const logPath = path.join(process.cwd(), `.orc-session-${safeBranch}.txt`);
+        logger.dumpBranchLogs(this.branch, logPath);
+      } catch {}
     }
   }
 
@@ -507,37 +518,36 @@ export class SessionController extends EventEmitter {
 
       // 6. PUSH
       this.setStatus("pushing");
+      let pushAborted = false;
 
       const diverged = await this.gitManager.checkDivergence();
       if (diverged) {
         const pulled = await this.gitManager.pullRebase();
         if (!pulled) {
           logger.error("Could not pull --rebase, skipping push", this.branch);
-          this.state.totalCostUsd += fixResult.costUsd;
-          await this.progressStore.recordCycleEnd(this.branch, 0, fixResult.costUsd);
-          this.syncLifetimeStats();
-          return;
+          pushAborted = true;
         }
       }
 
-      const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-      if (!rebased) {
-        logger.error("Rebase failed — manual intervention needed", this.branch);
-        this.state.error = "Rebase conflict — manual intervention needed";
-        this.setStatus("error");
-        this.running = false;
-        this.state.totalCostUsd += fixResult.costUsd;
-        await this.progressStore.recordCycleEnd(this.branch, 0, fixResult.costUsd);
-        this.syncLifetimeStats();
-        return;
+      if (!pushAborted) {
+        const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+        if (!rebased) {
+          logger.error("Rebase failed — manual intervention needed", this.branch);
+          this.state.error = "Rebase conflict — manual intervention needed";
+          this.setStatus("error");
+          this.running = false;
+          pushAborted = true;
+        }
       }
 
-      pushed = await this.gitManager.forcePushWithLease();
-      if (pushed) {
-        this.state.lastPushAt = new Date().toISOString();
-        this.emit("pushed", this.branch);
-      } else {
-        logger.error("Push failed", this.branch);
+      if (!pushAborted) {
+        pushed = await this.gitManager.forcePushWithLease();
+        if (pushed) {
+          this.state.lastPushAt = new Date().toISOString();
+          this.emit("pushed", this.branch);
+        } else {
+          logger.error("Push failed", this.branch);
+        }
       }
     } else {
       logger.info("No commits made — skipping push", this.branch);
