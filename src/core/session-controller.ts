@@ -155,7 +155,7 @@ export class SessionController extends EventEmitter {
       if (this.mode === "once") {
         await this.runCycle(pr.baseRefName);
         if (this.running) {
-          this.setStatus("ready");
+          this.setStatus("stopped");
           this.running = false;
         }
       } else {
@@ -266,7 +266,7 @@ export class SessionController extends EventEmitter {
         logger.error("Push failed after rebase", this.branch);
       }
 
-      this.setStatus("ready");
+      this.setStatus("stopped");
       this.running = false;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -397,7 +397,7 @@ export class SessionController extends EventEmitter {
 
       if (this.mode === "once") {
         logger.info("No comments to address", this.branch);
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }
@@ -412,7 +412,7 @@ export class SessionController extends EventEmitter {
           `PR is no longer open (${pr?.state ?? "not found"})`,
           this.branch,
         );
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }
@@ -425,7 +425,7 @@ export class SessionController extends EventEmitter {
             `Session timeout reached (${this.config.sessionTimeout}h)`,
             this.branch,
           );
-          this.setStatus("ready");
+          this.setStatus("stopped");
           this.running = false;
           return;
         }
@@ -704,7 +704,7 @@ export class SessionController extends EventEmitter {
           `Session timeout reached (${this.config.sessionTimeout}h)`,
           this.branch,
         );
-        this.setStatus("ready");
+        this.setStatus("stopped");
         this.running = false;
         return;
       }

@@ -510,6 +510,9 @@ export class Daemon extends EventEmitter {
       this.updateConflictStatuses(prs),
     ]);
 
+    // Check ready statuses after comment counts are updated
+    this.updateReadyStatuses();
+
     // Handle PRs that are no longer open (closed or merged)
     for (const branch of [...this.discoveredPRs.keys()]) {
       if (!activeBranches.has(branch)) {
@@ -690,6 +693,15 @@ export class Daemon extends EventEmitter {
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);
 
+    // Refresh CI status for this branch since it was skipped during active session
+    const pr = this.discoveredPRs.get(branch);
+    if (pr) {
+      this.updateCIStatusesFromPRs([pr]);
+    }
+
+    // Check if this branch is now ready to merge
+    this.updateReadyStatuses();
+
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     } else {
@@ -810,6 +822,7 @@ export class Daemon extends EventEmitter {
         this.updateCIStatus(pr.headRefName, "failing", failedChecks);
       }
     }
+
   }
 
   private updateCIStatus(branch: string, status: CIStatus, failedChecks: FailedCheck[]): void {
@@ -819,6 +832,26 @@ export class Daemon extends EventEmitter {
     this.ciFailedChecks.set(branch, failedChecks);
     if (status !== prev) {
       this.emit("ciStatusUpdate", branch, status, failedChecks);
+    }
+  }
+
+  /** Set status to "ready" for branches with CI passing and 0 unresolved comments. */
+  private updateReadyStatuses(): void {
+    for (const [branch] of this.discoveredPRs) {
+      if (this.sessions.has(branch)) continue;
+
+      const ci = this.ciStatuses.get(branch);
+      if (ci !== "passing") continue;
+
+      const unresolvedCount = this.commentCounts.get(branch) ?? 0;
+      if (unresolvedCount > 0) continue;
+
+      const lastState = this.lastStates.get(branch);
+      const currentStatus = lastState?.status;
+      if (currentStatus !== "stopped" && currentStatus !== "listening") continue;
+
+      lastState!.status = "ready";
+      this.emit("prUpdate", branch);
     }
   }
 
