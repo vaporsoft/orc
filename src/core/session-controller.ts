@@ -118,6 +118,12 @@ export class SessionController extends EventEmitter {
     return { ...this.state };
   }
 
+  /** Update the conflicted paths (used by daemon to propagate merge conflict status). */
+  setConflicted(paths: string[]): void {
+    this.state.conflicted = paths;
+    this.emit("sessionUpdate", this.branch, this.getState());
+  }
+
   async start(): Promise<void> {
     this.running = true;
     this.startedAt = Date.now();
