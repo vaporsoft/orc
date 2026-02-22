@@ -30,6 +30,15 @@ import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 import { MAX_CI_FIX_ATTEMPTS } from "../constants.js";
 
+/** Lockfiles that should be auto-resolved during rebase, not sent to Claude. */
+const LOCKFILE_NAMES = new Set([
+  "yarn.lock",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  "bun.lock",
+]);
+
 export class SessionController extends EventEmitter {
   private config: Config;
   private branch: string;
@@ -694,36 +703,53 @@ export class SessionController extends EventEmitter {
       round++;
       logger.info(`Resolving conflicts (round ${round}): ${currentFiles.join(", ")}`, this.branch);
 
-      const conflictContext = [
-        "The rebase has paused with conflict markers in the following files.",
-        "Resolve them by editing the files to remove all <<<<<<< / ======= / >>>>>>> markers,",
-        "keeping the correct combined result.\n",
-        "Conflicting files:",
-        ...currentFiles.map((f) => `- ${f}`),
-      ].join("\n");
+      // Auto-resolve lockfiles — never send these to Claude
+      const lockfiles = currentFiles.filter((f) => LOCKFILE_NAMES.has(path.basename(f)));
+      const codeFiles = currentFiles.filter((f) => !LOCKFILE_NAMES.has(path.basename(f)));
 
-      const MAX_ACTIVITY_LINES = 10;
-      const fixResult = await this.executor.executeConflictFix(
-        conflictContext,
-        this.repoConfig,
-        this.abortController.signal,
-        (line: string) => {
-          this.state.claudeActivity.push(line);
-          if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
-            this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
-          }
-          this.emit("sessionUpdate", this.branch, this.getState());
-        },
-      );
+      if (lockfiles.length > 0) {
+        logger.info(`Auto-resolving lockfiles: ${lockfiles.join(", ")}`, this.branch);
+        for (const lf of lockfiles) {
+          await exec("git", ["checkout", "--theirs", lf], { cwd: this.cwd });
+          await exec("git", ["add", lf], { cwd: this.cwd });
+        }
+      }
 
-      this.state.lastSessionId = fixResult.sessionId;
-      this.state.totalCostUsd += fixResult.costUsd;
-      this.state.claudeActivity = [];
+      // If only lockfiles conflicted, skip Claude and just continue the rebase
+      if (codeFiles.length === 0) {
+        logger.info("Only lockfile conflicts — skipping Claude", this.branch);
+      } else {
+        const conflictContext = [
+          "The rebase has paused with conflict markers in the following files.",
+          "Resolve them by editing the files to remove all <<<<<<< / ======= / >>>>>>> markers,",
+          "keeping the correct combined result.\n",
+          "Conflicting files:",
+          ...codeFiles.map((f) => `- ${f}`),
+        ].join("\n");
 
-      if (fixResult.isError) {
-        logger.error("Conflict resolution session failed", this.branch);
-        await this.gitManager.abortRebase();
-        return false;
+        const MAX_ACTIVITY_LINES = 10;
+        const fixResult = await this.executor.executeConflictFix(
+          conflictContext,
+          this.repoConfig,
+          this.abortController.signal,
+          (line: string) => {
+            this.state.claudeActivity.push(line);
+            if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
+              this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
+            }
+            this.emit("sessionUpdate", this.branch, this.getState());
+          },
+        );
+
+        this.state.lastSessionId = fixResult.sessionId;
+        this.state.totalCostUsd += fixResult.costUsd;
+        this.state.claudeActivity = [];
+
+        if (fixResult.isError) {
+          logger.error("Conflict resolution session failed", this.branch);
+          await this.gitManager.abortRebase();
+          return false;
+        }
       }
 
       // Stage resolved files and continue the rebase

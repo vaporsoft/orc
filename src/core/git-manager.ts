@@ -12,6 +12,7 @@ import { logger } from "../utils/logger.js";
 export class GitManager {
   private cwd: string;
   private branch: string;
+  private conflictStashPending: boolean = false;
 
   constructor(cwd: string, branch: string) {
     this.cwd = cwd;
@@ -145,9 +146,30 @@ export class GitManager {
     }
   }
 
+  /** Stash any uncommitted changes. Returns true if something was stashed. */
+  private async stash(): Promise<boolean> {
+    const dirty = await this.hasUncommittedChanges();
+    if (!dirty) return false;
+    await this.git(["stash", "--include-untracked"]);
+    logger.info("Stashed uncommitted changes before rebase", this.branch);
+    return true;
+  }
+
+  /** Pop the stash, ignoring errors if the stash is empty or conflicts. */
+  private async stashPop(): Promise<void> {
+    try {
+      await this.git(["stash", "pop"]);
+    } catch {
+      // Stash pop can fail if changes conflict with rebased result — drop it
+      logger.warn("Stash pop failed, dropping stash", this.branch);
+      await this.git(["stash", "drop"]).catch(() => {});
+    }
+  }
+
   /** Fetch and rebase onto remote branch (works with detached HEAD). */
   async pullRebase(targetBranch?: string): Promise<boolean> {
     const branch = targetBranch || this.branch;
+    const stashed = await this.stash();
     try {
       await this.git(["fetch", "origin", branch]);
       await this.git(["rebase", `origin/${branch}`]);
@@ -156,6 +178,8 @@ export class GitManager {
       logger.error(`Rebase onto origin/${branch} failed`, this.branch);
       await this.git(["rebase", "--abort"]).catch(() => {});
       return false;
+    } finally {
+      if (stashed) await this.stashPop();
     }
   }
 
@@ -164,20 +188,38 @@ export class GitManager {
    * Returns the list of conflicting files, or null if the rebase succeeded (no conflicts).
    */
   async startConflictingRebase(targetBranch: string): Promise<string[] | null> {
-    await this.git(["fetch", "origin", targetBranch]);
+    const stashed = await this.stash();
+    this.conflictStashPending = stashed;
+
     try {
-      await this.git(["rebase", `origin/${targetBranch}`]);
-      return null; // No conflicts
-    } catch {
-      // Rebase stopped at a conflict — get the conflicting files
-      const result = await this.git(["diff", "--name-only", "--diff-filter=U"]);
-      const files = result.stdout.trim().split("\n").filter(Boolean);
-      if (files.length === 0) {
-        // Rebase failed for a non-conflict reason
-        await this.git(["rebase", "--abort"]).catch(() => {});
-        return [];
+      await this.git(["fetch", "origin", targetBranch]);
+
+      try {
+        await this.git(["rebase", `origin/${targetBranch}`]);
+        // Rebase succeeded without conflicts
+        if (stashed) await this.stashPop();
+        this.conflictStashPending = false;
+        return null;
+      } catch {
+        // Rebase stopped at a conflict — get the conflicting files
+        const result = await this.git(["diff", "--name-only", "--diff-filter=U"]);
+        const files = result.stdout.trim().split("\n").filter(Boolean);
+        if (files.length === 0) {
+          // Rebase failed for a non-conflict reason
+          await this.git(["rebase", "--abort"]).catch(() => {});
+          if (stashed) await this.stashPop();
+          this.conflictStashPending = false;
+          return [];
+        }
+        // Keep conflictStashPending = true, will be handled after rebase completes
+        return files;
       }
-      return files;
+    } catch (error) {
+      // Error from fetch or inner catch - abort any in-progress rebase and clean up stash
+      await this.git(["rebase", "--abort"]).catch(() => {});
+      if (stashed) await this.stashPop();
+      this.conflictStashPending = false;
+      throw error;
     }
   }
 
@@ -186,6 +228,11 @@ export class GitManager {
     try {
       await this.git(["add", "."]);
       await this.git(["-c", "core.editor=true", "rebase", "--continue"]);
+      // Rebase completed successfully - pop any pending stash
+      if (this.conflictStashPending) {
+        await this.stashPop();
+        this.conflictStashPending = false;
+      }
       return true;
     } catch {
       // More conflicts in subsequent commits — check if still rebasing
@@ -193,7 +240,12 @@ export class GitManager {
       if (status.stdout.trim().length > 0) {
         return false; // Still have conflicts
       }
+      // Rebase failed completely - abort and clean up stash
       await this.git(["rebase", "--abort"]).catch(() => {});
+      if (this.conflictStashPending) {
+        await this.stashPop();
+        this.conflictStashPending = false;
+      }
       return false;
     }
   }
@@ -201,6 +253,11 @@ export class GitManager {
   /** Abort a rebase in progress. */
   async abortRebase(): Promise<void> {
     await this.git(["rebase", "--abort"]).catch(() => {});
+    // Clean up any pending stash when aborting
+    if (this.conflictStashPending) {
+      await this.stashPop();
+      this.conflictStashPending = false;
+    }
   }
 
   /** Checkout the branch (ensuring we're on it). */
