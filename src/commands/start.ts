@@ -3,6 +3,8 @@
  * authored by the current user.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import React, { useState } from "react";
 import { render, Box, Text, useInput, useApp } from "ink";
 import { Daemon } from "../core/daemon.js";
@@ -113,6 +115,22 @@ export async function startCommand(options: StartOptions): Promise<void> {
   });
 
   logger.init("orc.log", config.verbose);
+
+  // Clean up session log files from previous runs
+  try {
+    const cwd = process.cwd();
+    for (const entry of fs.readdirSync(cwd)) {
+      if (entry.startsWith(".orc-session-") && entry.endsWith(".txt")) {
+        try {
+          fs.unlinkSync(path.join(cwd, entry));
+        } catch {
+          // Continue cleanup even if individual file deletion fails
+        }
+      }
+    }
+  } catch {
+    // Directory read failed, skip cleanup
+  }
 
   const isTTY = process.stdin.isTTY === true;
 
