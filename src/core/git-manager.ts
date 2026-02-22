@@ -12,7 +12,7 @@ import { logger } from "../utils/logger.js";
 export class GitManager {
   private cwd: string;
   private branch: string;
-  private conflictStashPending: boolean = false;
+  private conflictStashPending = false;
 
   constructor(cwd: string, branch: string) {
     this.cwd = cwd;
