@@ -21,14 +21,19 @@ export class ThreadResponder {
   }
 
   /** Reply to threads/comments that were addressed by fixes. */
-  async replyToAddressed(comments: CategorizedComment[], commitSha?: string): Promise<void> {
+  async replyToAddressed(
+    comments: CategorizedComment[],
+    commitSha?: string,
+    fixSummaries?: Map<string, string>,
+  ): Promise<void> {
     const { owner, repo } = await this.ghClient.getRepoInfo();
     const commitRef = commitSha
       ? `[${commitSha.slice(0, 7)}](https://github.com/${owner}/${repo}/commit/${commitSha})`
       : "latest commit";
 
     for (const comment of comments) {
-      const body = this.buildAddressedReply(comment, commitRef);
+      const summary = fixSummaries?.get(comment.threadId);
+      const body = this.buildAddressedReply(comment, commitRef, summary);
       try {
         await this.reply(comment, body);
         logger.info(
@@ -145,7 +150,7 @@ export class ThreadResponder {
     return parts.join("\n");
   }
 
-  private buildAddressedReply(comment: CategorizedComment, commitRef: string): string {
+  private buildAddressedReply(comment: CategorizedComment, commitRef: string, summary?: string): string {
     const isConversation = comment.path === "(conversation)";
 
     const parts: string[] = [];
@@ -155,9 +160,15 @@ export class ThreadResponder {
       const quotedBody = quoteCommentBody(comment.body);
       parts.push(quotedBody);
       parts.push("");
-      parts.push(`@${comment.author} Addressed in ${commitRef}.`);
+    }
+
+    const prefix = isConversation ? `@${comment.author} ` : "";
+
+    if (summary) {
+      // Use the summary from Claude Code describing what was actually done
+      parts.push(`${prefix}${summary} (${commitRef}).`);
     } else {
-      parts.push(`Addressed in ${commitRef}.`);
+      parts.push(`${prefix}Addressed in ${commitRef}.`);
     }
 
     parts.push("");
@@ -180,9 +191,9 @@ export class ThreadResponder {
     const prefix = isConversation ? `@${comment.author} ` : "";
 
     if (comment.category === "false_positive") {
-      parts.push(`${prefix}Won't fix — ${comment.reasoning}`);
+      parts.push(`${prefix}Took a look — skipping this one. ${comment.reasoning}`);
     } else {
-      parts.push(`${prefix}Won't fix — auto-fix for \`${comment.category}\` is disabled. ${comment.reasoning}`);
+      parts.push(`${prefix}Skipping this — auto-fix for \`${comment.category}\` is disabled. ${comment.reasoning}`);
     }
 
     parts.push("");
@@ -207,28 +218,21 @@ export class ThreadResponder {
       parts.push("");
     }
 
+    const prefix = isConversation ? `@${comment.author} ` : "";
+
     if (outcome?.status === "fixed") {
-      const summary = outcome.summary ? ` ${outcome.summary}` : "";
-      if (isConversation) {
-        parts.push(`@${comment.author} Verified and addressed in ${commitRef}.${summary}`);
+      if (outcome.summary) {
+        parts.push(`${prefix}${outcome.summary} (${commitRef}).`);
       } else {
-        parts.push(`Verified and addressed in ${commitRef}.${summary}`);
+        parts.push(`${prefix}Verified and addressed in ${commitRef}.`);
       }
     } else if (outcome?.status === "not_applicable") {
       const reason = outcome.reason ? ` ${outcome.reason}` : "";
-      if (isConversation) {
-        parts.push(`@${comment.author} Verified — not applicable.${reason}`);
-      } else {
-        parts.push(`Verified — not applicable.${reason}`);
-      }
+      parts.push(`${prefix}Took a look — this doesn't appear to apply here.${reason}`);
     } else {
       // Unknown or missing outcome
-      const reason = outcome?.reason ? ` ${outcome.reason}` : " Status could not be determined.";
-      if (isConversation) {
-        parts.push(`@${comment.author} Could not verify completion.${reason}`);
-      } else {
-        parts.push(`Could not verify completion.${reason}`);
-      }
+      const reason = outcome?.reason ? ` ${outcome.reason}` : "";
+      parts.push(`${prefix}Wasn't able to verify whether this was fully addressed.${reason}`);
     }
 
     parts.push("");
