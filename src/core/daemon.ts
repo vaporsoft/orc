@@ -47,6 +47,8 @@ export class Daemon extends EventEmitter {
   private botLogin: string | null = null;
   private cachedNotificationSettings: boolean | null = null;
   private isInitialDiscovery = true;
+  private nextCheckAt: number | null = null;
+  private skipNextSleep = false;
 
   constructor(config: Config, cwd: string) {
     super();
@@ -98,6 +100,10 @@ export class Daemon extends EventEmitter {
   clearMergedPRs(): void {
     this.mergedPRs.clear();
     this.emit("prUpdate", "__merged__");
+  }
+
+  getNextCheckAt(): number | null {
+    return this.nextCheckAt;
   }
 
   getConfig(): Config {
@@ -168,13 +174,24 @@ export class Daemon extends EventEmitter {
         logger.error(`Discovery failed: ${err}`);
       }
       if (!this.running) break;
-      await this.cancellableSleep(this.config.pollInterval * 1000);
+      // Skip sleep if refreshNow() was called (during or before discover)
+      if (this.skipNextSleep) {
+        this.skipNextSleep = false;
+      } else {
+        this.nextCheckAt = Date.now() + this.config.pollInterval * 1000;
+        this.emit("discoveryComplete");
+        await this.cancellableSleep(this.config.pollInterval * 1000);
+      }
     }
   }
 
   async refreshNow(): Promise<void> {
     logger.info("Manual refresh triggered");
-    await this.discover();
+    // Don't call discover() here — just wake the main loop and let it call discover().
+    // This avoids redundant API calls when refreshNow() is called during sleep.
+    this.skipNextSleep = true;
+    this.abortController.abort();
+    this.abortController = new AbortController();
   }
 
   async startBranch(branch: string, mode: SessionMode = "once"): Promise<void> {

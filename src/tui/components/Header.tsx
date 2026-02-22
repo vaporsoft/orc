@@ -8,7 +8,7 @@ import { formatTokens } from "../../utils/format.js";
 interface HeaderProps {
   entries: Map<string, PREntry>;
   startTime: number;
-  lastCheck: string | null;
+  nextCheckIn: number | null;
   buttons: ToolbarButton[];
   selectedButton: number;
 }
@@ -21,11 +21,16 @@ function formatUptime(ms: number): string {
   return `${minutes}m`;
 }
 
-function formatCheckTime(iso: string): string {
-  return iso.split("T")[1]?.slice(0, 8) ?? iso;
+function formatCountdown(seconds: number): string {
+  if (seconds >= 60) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m${s.toString().padStart(2, "0")}s`;
+  }
+  return `${seconds}s`;
 }
 
-export function Header({ entries, startTime, lastCheck, buttons, selectedButton }: HeaderProps) {
+export function Header({ entries, startTime, nextCheckIn, buttons, selectedButton }: HeaderProps) {
   const theme = useTheme();
   const activeEntries = [...entries.values()].filter((e) => !e.mergedAt);
   const total = activeEntries.length;
@@ -68,7 +73,7 @@ export function Header({ entries, startTime, lastCheck, buttons, selectedButton 
         <Text color={theme.accent}> · </Text>
         <Text dimColor>{uptime}</Text>
         <Text color={theme.accent}> · </Text>
-        <Text dimColor>{lastCheck ? formatCheckTime(lastCheck) : "—"}</Text>
+        <Text dimColor>{nextCheckIn !== null ? `next ${formatCountdown(nextCheckIn)}` : "—"}</Text>
       </Text>
     </Box>
   );

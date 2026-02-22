@@ -6,6 +6,7 @@ import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
+import { useNextCheckCountdown } from "./hooks/useNextCheckCountdown.js";
 import { useTerminalFocus } from "./hooks/useTerminalFocus.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
@@ -34,7 +35,8 @@ export function App({ daemon, startTime }: AppProps) {
   const terminalFocused = useTerminalFocus();
   const renderPaused = !terminalFocused;
   const entries = useDaemonState(daemon, renderPaused);
-  const { entries: logEntries, lastTimestamp } = useLogBuffer(renderPaused);
+  const { entries: logEntries } = useLogBuffer(renderPaused);
+  const nextCheckIn = useNextCheckCountdown(daemon, renderPaused);
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
@@ -440,7 +442,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column" height={termHeight}>
-      <Header entries={entries} startTime={startTime} lastCheck={lastTimestamp} buttons={toolbarButtons} selectedButton={toolbarIndex} />
+      <Header entries={entries} startTime={startTime} nextCheckIn={nextCheckIn} buttons={toolbarButtons} selectedButton={toolbarIndex} />
       <SessionList
         entries={entries}
         selectedIndex={clampedSessionIndex}
