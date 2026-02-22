@@ -1,9 +1,14 @@
 {
-  "name": "orc",
+  "name": "@vaporsoft/orc",
   "version": "0.1.0",
   "description": "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
   "type": "module",
   "bin": "./dist/bin/orc.js",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -11,7 +16,31 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "yarn build"
+  },
+  "keywords": [
+    "github",
+    "pull-request",
+    "code-review",
+    "automation",
+    "claude",
+    "claude-code",
+    "ci",
+    "tui",
+    "terminal",
+    "ink"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vaporsoft/orc.git"
+  },
+  "homepage": "https://github.com/vaporsoft/orc#readme",
+  "bugs": {
+    "url": "https://github.com/vaporsoft/orc/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.0",

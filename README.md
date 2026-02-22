@@ -14,6 +14,20 @@ orc provides an interactive terminal dashboard to monitor your open pull request
 
 You can manually start/stop monitoring per PR or let it run automatically until each PR is clean.
 
+## How it works
+
+orc is designed to run as a background process on your machine while you work. The intended workflow:
+
+1. **You open PRs as usual.** Push your branch, create a PR on GitHub, request reviews.
+2. **Start orc.** Run `orc start my-branch` (or pass multiple branches). orc opens a terminal dashboard and begins polling.
+3. **Reviewers leave comments.** orc detects new review comments and CI failures on each poll cycle.
+4. **orc categorizes feedback.** Each comment is classified by severity — `must-fix`, `should-fix`, `nice-to-have`, or `false-positive` — so it knows what to act on and what to skip.
+5. **orc fixes issues autonomously.** For actionable comments, orc checks out the branch in an isolated git worktree, invokes Claude Code with the review context and any repo-specific instructions from `ORC.md`, and applies the fix.
+6. **orc verifies and pushes.** After fixing, orc runs your configured verify commands (lint, typecheck, tests). If they pass, it pushes the fix and replies to the review thread. If they fail, it retries.
+7. **The loop repeats.** orc continues polling until there are no more actionable comments, the max loop count is reached, or you stop it manually.
+
+The net effect: you get a PR up, context-switch to other work, and come back to find review feedback already addressed. You stay in the loop via the dashboard and can intervene at any point.
+
 ## Tech Stack
 
 orc is built with:
@@ -28,11 +42,21 @@ This stack was chosen to provide a responsive terminal UI while leveraging prove
 
 ## Prerequisites
 
-- Node.js >= 20
+- Node.js >= 22
 - [GitHub CLI](https://cli.github.com/) (`gh`) — authenticated with repo access
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 
 ## Install
+
+```bash
+# Install globally
+npm install -g @vaporsoft/orc
+
+# Or run directly with npx
+npx @vaporsoft/orc start my-branch
+```
+
+### From source
 
 ```bash
 yarn install
@@ -69,13 +93,13 @@ The configuration allows you to:
 
 ```bash
 # Start interactive TUI dashboard for one or more branches
-npx orc start my-feature-branch
+orc start my-feature-branch
 
 # Watch multiple branches in TUI
-npx orc start branch-a branch-b
+orc start branch-a branch-b
 
 # With options
-npx orc start my-branch \
+orc start my-branch \
   --poll-interval 60 \
   --max-loops 5 \
   --confidence 0.8 \

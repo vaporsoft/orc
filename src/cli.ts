@@ -2,15 +2,19 @@
  * CLI setup using Commander.
  */
 
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json") as { version: string };
 
 export const cli = new Command()
   .name("orc")
   .description(
     "Automate PR feedback loops — fetch review comments, fix with Claude Code, push, repeat.",
   )
-  .version("0.1.0")
+  .version(pkg.version)
   .option("--poll-interval <n>", "Seconds between polls", parseInt)
   .option(
     "--confidence <n>",
