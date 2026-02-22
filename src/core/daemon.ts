@@ -334,6 +334,10 @@ export class Daemon extends EventEmitter {
       this.emit("sessionUpdate", b, controller.getState());
     });
 
+    controller.on("sessionUpdate", (b: string, state: BranchState) => {
+      this.emit("sessionUpdate", b, state);
+    });
+
     controller.on("pushed", (b: string) => {
       this.syncMainRepo(b).catch((err) => {
         logger.debug(`Main repo sync failed for ${b}: ${err}`);
@@ -396,14 +400,8 @@ export class Daemon extends EventEmitter {
         const ok = await gitManager.pullRebase(pr.baseRefName);
         if (!ok) {
           logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
-          // Temporarily remove session to allow conflict status update
-          const session = this.sessions.get(branch);
-          this.sessions.delete(branch);
           // Refresh conflict status so TUI shows them
           await this.updateConflictStatuses([pr]);
-          // Restore session
-          if (session) this.sessions.set(branch, session);
-          this.emit("conflictStatusUpdate", branch);
           return;
         }
 
@@ -655,6 +653,10 @@ export class Daemon extends EventEmitter {
       this.emit("sessionUpdate", b, controller.getState());
     });
 
+    controller.on("sessionUpdate", (b: string, state: BranchState) => {
+      this.emit("sessionUpdate", b, state);
+    });
+
     controller.on("pushed", (b: string) => {
       this.syncMainRepo(b).catch((err) => {
         logger.debug(`Main repo sync failed for ${b}: ${err}`);
@@ -866,12 +868,11 @@ export class Daemon extends EventEmitter {
 
   /** Detect merge conflicts with base branch for all discovered PRs not actively running. */
   private async updateConflictStatuses(prs: GHPullRequest[]): Promise<void> {
-    const activePRs = prs.filter(pr => !this.sessions.has(pr.headRefName));
-    if (activePRs.length === 0) return;
+    if (prs.length === 0) return;
 
     // Batch unique refs to fetch only once to prevent git lock contention
     const allRefs = new Set<string>();
-    for (const pr of activePRs) {
+    for (const pr of prs) {
       allRefs.add(pr.baseRefName);
       allRefs.add(pr.headRefName);
     }
@@ -886,8 +887,8 @@ export class Daemon extends EventEmitter {
       logger.debug(`Failed to fetch refs: ${err}`);
     }
 
-    // Now check conflicts for each PR sequentially
-    await Promise.all(activePRs.map(async (pr) => {
+    // Check conflicts for each PR
+    await Promise.all(prs.map(async (pr) => {
       try {
         const { stdout, exitCode } = await exec("git", [
           "merge-tree", "--write-tree", `origin/${pr.headRefName}`, `origin/${pr.baseRefName}`,
@@ -910,6 +911,24 @@ export class Daemon extends EventEmitter {
         this.conflictStatuses.set(pr.headRefName, conflictPaths);
         const changed = !prev || prev.length !== conflictPaths.length ||
           prev.some((p, i) => p !== conflictPaths[i]);
+
+        // Propagate to active sessions in passive states (watching/stopped)
+        // so the TUI picks up daemon-polled conflict data.
+        // This must happen even when `changed` is false, since conflicts may have
+        // been detected while the session was in an active state (fixing/pushing).
+        const session = this.sessions.get(pr.headRefName);
+        if (session?.controller) {
+          const state = session.controller.getState();
+          if (state.status === "watching" || state.status === "stopped") {
+            const controllerConflicts = state.conflicted;
+            const needsSync = controllerConflicts.length !== conflictPaths.length ||
+              controllerConflicts.some((p, i) => p !== conflictPaths[i]);
+            if (needsSync) {
+              session.controller.setConflicted(conflictPaths);
+            }
+          }
+        }
+
         if (changed) {
           this.emit("conflictStatusUpdate", pr.headRefName, conflictPaths);
         }
