@@ -660,9 +660,7 @@ export class SessionController extends EventEmitter {
       }
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
-      // Skip in "once" mode — the daemon's background polling will pick up CI
-      // status changes and transition the branch to "ready" when appropriate.
-      if (pushed && this.mode === "watch") {
+      if (pushed) {
         this.setStatus("watching");
         await this.checkAndFixCI(baseBranch);
       }
