@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { logger, type LogEntry } from "../../utils/logger.js";
+import { processLogBatch } from "./logFlushUtils.js";
 
 const MAX_ENTRIES = 200;
 const THROTTLE_MS = 150;
@@ -26,13 +27,7 @@ export function useLogBuffer(paused = false): LogBufferState {
       if (pausedRef.current || bufferRef.current.length === 0) return;
       const batch = bufferRef.current;
       bufferRef.current = [];
-      setState((prev) => {
-        const next = [...prev.entries, ...batch];
-        return {
-          entries: next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next,
-          lastTimestamp: batch[batch.length - 1].timestamp,
-        };
-      });
+      setState((prev) => processLogBatch(prev, batch, MAX_ENTRIES));
     };
 
     const onLog = (entry: LogEntry) => {
@@ -60,13 +55,7 @@ export function useLogBuffer(paused = false): LogBufferState {
     if (!paused && bufferRef.current.length > 0) {
       const batch = bufferRef.current;
       bufferRef.current = [];
-      setState((prev) => {
-        const next = [...prev.entries, ...batch];
-        return {
-          entries: next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next,
-          lastTimestamp: batch[batch.length - 1].timestamp,
-        };
-      });
+      setState((prev) => processLogBatch(prev, batch, MAX_ENTRIES));
     }
   }, [paused]);
 
