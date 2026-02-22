@@ -848,7 +848,7 @@ export class Daemon extends EventEmitter {
 
       const lastState = this.lastStates.get(branch);
       const currentStatus = lastState?.status;
-      if (currentStatus !== "stopped" && currentStatus !== "listening") continue;
+      if (currentStatus !== "stopped" && currentStatus !== "watching") continue;
 
       lastState!.status = "ready";
       this.emit("prUpdate", branch);

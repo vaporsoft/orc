@@ -11,7 +11,7 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 const ACTIVE_STATUSES = new Set<BranchStatus>([
   "initializing",
-  "categorizing",
+  "triaging",
   "fixing",
   "verifying",
   "pushing",
@@ -21,8 +21,8 @@ const ACTIVE_STATUSES = new Set<BranchStatus>([
 const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> = {
   stopped:         { role: "muted",   label: "stopped" },
   initializing:    { role: "info",    label: "init" },
-  listening:       { role: "accent",  label: "watching" },
-  categorizing:    { role: "info",    label: "triaging" },
+  watching:        { role: "accent",  label: "watching" },
+  triaging:        { role: "info",    label: "triaging" },
   fixing:          { role: "info",    label: "fixing" },
   verifying:       { role: "info",    label: "verify" },
   pushing:         { role: "info",    label: "pushing" },
@@ -35,7 +35,7 @@ const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> =
 
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
   stopped:         "○",
-  listening:       "●",
+  watching:        "●",
   ready:           "✓",
   conflict_prompt: "!",
   error:           "✗",

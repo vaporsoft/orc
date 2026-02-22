@@ -140,7 +140,7 @@ export function DetailPanel({
 
   const { pr, state, commentCount, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
   const summary = state?.commentSummary ?? null;
-  const activeStatuses = ["fixing", "categorizing", "verifying", "pushing", "replying"];
+  const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
 
 
