@@ -55,24 +55,46 @@ export class FixExecutor {
     });
     logger.debug("Fix prompt:\n" + prompt);
 
-    const startTime = Date.now();
-    const abortController = new AbortController();
-    const timeoutMs = this.config.claudeTimeout * 1000;
-    const timeout = setTimeout(() => {
-      logger.info("Claude session timed out, aborting");
-      abortController.abort();
-    }, timeoutMs);
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "review");
+    const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session");
 
-    if (abortSignal) {
-      abortSignal.addEventListener("abort", () => abortController.abort());
-    }
+    // Add verify results for review feedback
+    result.verifyResults = await this.readVerifyResults(comments);
+    return result;
+  }
 
-    let systemSuffix =
-      `You are fixing PR review feedback. Make targeted, minimal changes.
+  /** Execute a conflict resolution fix, given context about the merge conflicts. */
+  async executeConflictFix(
+    conflictContext: string,
+    repoConfig: RepoConfig,
+    abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
+  ): Promise<FixResult> {
+    const prompt = this.buildConflictPrompt(conflictContext);
+    logger.info("Invoking Claude Code to resolve merge conflicts");
+    logger.debug("Conflict fix prompt:\n" + prompt);
+
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "conflict");
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude conflict resolution session");
+  }
+
+  /** Build system suffix based on execution mode and pilot config. */
+  private buildSystemSuffix(repoConfig: RepoConfig, mode: "review" | "ci" | "conflict"): string {
+    let systemSuffix = mode === "conflict"
+      ? `You are resolving merge conflicts during a git rebase. The rebase is paused with conflict markers (<<<<<<< / ======= / >>>>>>>) in the listed files. Read each conflicting file, understand both sides, and edit them to produce the correct merged result with all conflict markers removed.
+
+Do NOT run git commands (no git add, commit, rebase --continue, etc). Just edit the files. The orchestrator handles staging and continuing the rebase.`
+      : mode === "review"
+      ? `You are fixing PR review feedback. Make targeted, minimal changes.
 
 After making changes, commit them. Prefer fixup commits when you can confidently identify the parent commit that introduced the code being fixed: git commit --fixup=<sha>
 
 If you are not confident which commit to fixup against (e.g. the change spans multiple commits, or you're adding something new), make a regular descriptive commit instead.
+
+Do not push — the orchestrator handles that.`
+      : `You are fixing CI/CD pipeline failures. Analyze the logs, identify the root cause, and make targeted, minimal changes to fix the build/test failures.
+
+After making changes, commit them with a descriptive message prefixed with "fix(ci): ".
 
 Do not push — the orchestrator handles that.`;
 
@@ -80,10 +102,33 @@ Do not push — the orchestrator handles that.`;
       systemSuffix += `\n\n## Repo-Specific Instructions\n${repoConfig.instructions}`;
     }
 
-    if (repoConfig.verifyCommands.length > 0) {
+    if (repoConfig.verifyCommands.length > 0 && mode !== "conflict") {
       systemSuffix += `\n\nAfter making changes, run these verification commands:\n${repoConfig.verifyCommands.map((c) => `- \`${c}\``).join("\n")}`;
-    } else {
+    } else if (mode === "review") {
       systemSuffix += "\n\nRun lint and typecheck after changes if the project supports it.";
+    }
+
+    return systemSuffix;
+  }
+
+  /** Shared Claude SDK invocation logic. */
+  private async executeClaude(
+    prompt: string,
+    systemSuffix: string,
+    abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
+    sessionLabel = "Claude Code session"
+  ): Promise<FixResult> {
+    const startTime = Date.now();
+    const abortController = new AbortController();
+    const timeoutMs = this.config.claudeTimeout * 1000;
+    const timeout = setTimeout(() => {
+      logger.info(`${sessionLabel} timed out, aborting`);
+      abortController.abort();
+    }, timeoutMs);
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => abortController.abort());
     }
 
     let sessionId = "unknown";
@@ -139,7 +184,6 @@ Do not push — the orchestrator handles that.`;
 
       clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
-      const verifyResults = await this.readVerifyResults(comments);
 
       if (!resultMessage) {
         return {
@@ -149,7 +193,7 @@ Do not push — the orchestrator handles that.`;
           isError: true,
           changedFiles: [],
           errors: ["No result message received from Claude Code"],
-          verifyResults,
+          verifyResults: new Map(),
         };
       }
 
@@ -166,24 +210,66 @@ Do not push — the orchestrator handles that.`;
                 : `Session ended: ${resultMessage.subtype}`,
             ]
           : [],
-        verifyResults,
+        verifyResults: new Map(),
       };
     } catch (err) {
       clearTimeout(timeout);
       const durationMs = Date.now() - startTime;
-      const verifyResults = await this.readVerifyResults(comments);
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`Claude Code session failed: ${message}`);
+      logger.error(`${sessionLabel} failed: ${message}`);
       return {
         sessionId,
         costUsd: 0,
         durationMs,
-        isError: false,
+        isError: true,
         changedFiles: [],
         errors: [message],
-        verifyResults,
+        verifyResults: new Map(),
       };
     }
+  }
+
+  /** Execute a CI-specific fix cycle, given context about the failures. */
+  async executeCIFix(
+    ciContext: string,
+    repoConfig: RepoConfig,
+    abortSignal?: AbortSignal,
+    onActivity?: (line: string) => void,
+  ): Promise<FixResult> {
+    const prompt = this.buildCIPrompt(ciContext);
+    logger.info("Invoking Claude Code to fix CI failures");
+    logger.debug("CI fix prompt:\n" + prompt);
+
+    const systemSuffix = this.buildSystemSuffix(repoConfig, "ci");
+    return this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude CI fix session");
+  }
+
+  private buildConflictPrompt(conflictContext: string): string {
+    const sections: string[] = [];
+
+    sections.push(
+      "# Merge Conflict Resolution\n\nA git rebase is in progress and has paused due to conflicts. The conflicting files contain <<<<<<< / ======= / >>>>>>> markers. Read each file, understand both sides, and edit to produce the correct merged result.\n",
+    );
+
+    sections.push(conflictContext);
+
+    sections.push("\nEdit the files to remove all conflict markers. Do not run any git commands.\n");
+
+    return sections.join("\n");
+  }
+
+  private buildCIPrompt(ciContext: string): string {
+    const sections: string[] = [];
+
+    sections.push(
+      "# CI Failure Fix\n\nThe CI pipeline is failing after the latest push. Fix the failures described below.\n",
+    );
+
+    sections.push(ciContext);
+
+    sections.push("\nMake targeted fixes and create commits to resolve these CI failures.\n");
+
+    return sections.join("\n");
   }
 
   private buildPrompt(

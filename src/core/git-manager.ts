@@ -146,16 +146,61 @@ export class GitManager {
   }
 
   /** Fetch and rebase onto remote branch (works with detached HEAD). */
-  async pullRebase(): Promise<boolean> {
+  async pullRebase(targetBranch?: string): Promise<boolean> {
+    const branch = targetBranch || this.branch;
     try {
-      await this.git(["fetch", "origin", this.branch]);
-      await this.git(["rebase", `origin/${this.branch}`]);
+      await this.git(["fetch", "origin", branch]);
+      await this.git(["rebase", `origin/${branch}`]);
       return true;
     } catch {
-      logger.error(`Rebase onto origin/${this.branch} failed`, this.branch);
+      logger.error(`Rebase onto origin/${branch} failed`, this.branch);
       await this.git(["rebase", "--abort"]).catch(() => {});
       return false;
     }
+  }
+
+  /**
+   * Start a rebase that will conflict, leaving the worktree in conflict state.
+   * Returns the list of conflicting files, or null if the rebase succeeded (no conflicts).
+   */
+  async startConflictingRebase(targetBranch: string): Promise<string[] | null> {
+    await this.git(["fetch", "origin", targetBranch]);
+    try {
+      await this.git(["rebase", `origin/${targetBranch}`]);
+      return null; // No conflicts
+    } catch {
+      // Rebase stopped at a conflict — get the conflicting files
+      const result = await this.git(["diff", "--name-only", "--diff-filter=U"]);
+      const files = result.stdout.trim().split("\n").filter(Boolean);
+      if (files.length === 0) {
+        // Rebase failed for a non-conflict reason
+        await this.git(["rebase", "--abort"]).catch(() => {});
+        return [];
+      }
+      return files;
+    }
+  }
+
+  /** Stage all files and continue a paused rebase. Returns false if more conflicts arise. */
+  async continueRebase(): Promise<boolean> {
+    try {
+      await this.git(["add", "."]);
+      await this.git(["-c", "core.editor=true", "rebase", "--continue"]);
+      return true;
+    } catch {
+      // More conflicts in subsequent commits — check if still rebasing
+      const status = await this.git(["diff", "--name-only", "--diff-filter=U"]);
+      if (status.stdout.trim().length > 0) {
+        return false; // Still have conflicts
+      }
+      await this.git(["rebase", "--abort"]).catch(() => {});
+      return false;
+    }
+  }
+
+  /** Abort a rebase in progress. */
+  async abortRebase(): Promise<void> {
+    await this.git(["rebase", "--abort"]).catch(() => {});
   }
 
   /** Checkout the branch (ensuring we're on it). */

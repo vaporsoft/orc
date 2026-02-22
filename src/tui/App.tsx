@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
 import { openTerminal } from "../utils/open-terminal.js";
@@ -12,7 +12,7 @@ import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
-import { ActivityPane } from "./components/ActivityPane.js";
+
 import { HelpBar } from "./components/HelpBar.js";
 import { useThemeContext } from "./theme.js";
 
@@ -35,8 +35,8 @@ export function App({ daemon, startTime }: AppProps) {
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
-  const [showDetail, setShowDetail] = useState(false);
-  const [showBranchLogs, setShowBranchLogs] = useState(false);
+  const [detailMode, setDetailMode] = useState<"off" | "detail" | "logs">("off");
+  const [detailModeBeforeLogs, setDetailModeBeforeLogs] = useState<"off" | "detail" | "logs">("off");
   const [showHelp, setShowHelp] = useState(false);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
   const [toolbarIndex, setToolbarIndex] = useState(-1);
@@ -87,6 +87,34 @@ export function App({ daemon, startTime }: AppProps) {
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
 
+  // Auto-focus a session that enters conflict_prompt (only when newly entering that status)
+  const [prevConflictBranches, setPrevConflictBranches] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentConflictBranches = new Set<string>();
+    openBranches.forEach((b) => {
+      const e = entries.get(b);
+      if (e?.state?.status === "conflict_prompt") {
+        currentConflictBranches.add(b);
+      }
+    });
+
+    // Find branches that newly entered conflict_prompt
+    const newConflictBranches = [...currentConflictBranches].filter(b => !prevConflictBranches.has(b));
+
+    if (newConflictBranches.length > 0) {
+      // Focus on the first branch that newly entered conflict_prompt
+      const conflictIndex = openBranches.findIndex(b => b === newConflictBranches[0]);
+      if (conflictIndex >= 0) {
+        setSessionIndex(conflictIndex);
+        setDetailMode("detail");
+        setFocusedPane("sessions");
+      }
+    }
+
+    setPrevConflictBranches(currentConflictBranches);
+  }, [entries, openBranches]);
+
   const toolbarButtons: ToolbarButton[] = [
     { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
@@ -124,17 +152,57 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Retry/restart errored or stopped session
+    // Conflict resolution: R to resolve once, A to always auto-resolve
+    if (focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      const entry = branch ? entries.get(branch) : undefined;
+      if (entry?.state?.status === "conflict_prompt") {
+        if (input === "r" || input === "R") {
+          daemon.resolveConflicts(branch, false);
+          return;
+        }
+        if (input === "a" || input === "A") {
+          daemon.resolveConflicts(branch, true);
+          return;
+        }
+        if (key.escape) {
+          daemon.dismissConflictResolution(branch);
+          return;
+        }
+      }
+    }
+
+    // Plain git rebase (no Claude)
     if (input === "r" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch).catch(() => {});
+        daemon.rebaseBranchPlain(branch).catch(() => {});
+      }
+      return;
+    }
+
+    // Rebase + Claude conflict resolution
+    if (input === "f" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.rebaseBranch(branch).catch(() => {});
       }
       return;
     }
 
     if (key.tab) {
-      setFocusedPane((prev) => (prev === "sessions" ? "logs" : "sessions"));
+      setFocusedPane((prev) => {
+        if (prev === "sessions") {
+          // Switching to logs — save and hide detail views
+          setDetailModeBeforeLogs(detailMode);
+          setDetailMode("off");
+          return "logs";
+        } else {
+          // Switching back — restore detail state
+          setDetailMode(detailModeBeforeLogs);
+          return "sessions";
+        }
+      });
       return;
     }
 
@@ -168,13 +236,13 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Toggle detail pane for selected branch (handle both \r and \n)
     if ((key.return || input === "\n") && focusedPane === "sessions") {
-      setShowDetail((prev) => !prev);
+      setDetailMode((prev) => prev === "detail" ? "off" : "detail");
       return;
     }
 
-    // Toggle branch logs for selected branch
+    // Swap detail view with branch logs
     if (input === "l" && focusedPane === "sessions") {
-      setShowBranchLogs((prev) => !prev);
+      setDetailMode((prev) => prev === "logs" ? "off" : "logs");
       setBranchLogOffset(0);
       return;
     }
@@ -193,7 +261,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Watch selected branch (continuous)
-    if (input === "e" && focusedPane === "sessions") {
+    if (input === "w" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.watchBranch(branch).catch(() => {});
@@ -232,7 +300,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Open worktree shell in new terminal
-    if (input === "w" && focusedPane === "sessions") {
+    if (input === "e" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
@@ -258,7 +326,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     if (focusedPane === "sessions") {
-      if (showBranchLogs) {
+      if (detailMode === "logs") {
         // When branch logs are open, arrows scroll the branch log
         if (key.upArrow) {
           setBranchLogOffset((prev) => Math.min(prev + 1, Math.max(0, branchLogs.length - branchLogLines)));
@@ -297,15 +365,15 @@ export function App({ daemon, startTime }: AppProps) {
         mergedBranches={mergedBranches}
         renderPaused={renderPaused}
       />
-      <DetailPanel
-        entries={entries}
-        selectedBranch={selectedBranch}
-        showDetail={showDetail}
-      />
-      {activityLines.length > 0 && selectedBranch && (
-        <ActivityPane lines={activityLines} branch={selectedBranch} />
+      {detailMode !== "logs" && (
+        <DetailPanel
+          entries={entries}
+          selectedBranch={selectedBranch}
+          showDetail={detailMode === "detail"}
+          activityLines={activityLines}
+        />
       )}
-      {showBranchLogs && (
+      {detailMode === "logs" && (
         <LogPane
           entries={branchLogs}
           focused={focusedPane === "sessions"}

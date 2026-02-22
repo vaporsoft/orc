@@ -19,25 +19,27 @@ const ACTIVE_STATUSES = new Set<BranchStatus>([
 ]);
 
 const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> = {
-  stopped:      { role: "muted",        label: "stopped" },
-  initializing: { role: "accent",       label: "init" },
-  listening:    { role: "accent",       label: "listening" },
-  categorizing: { role: "warning",      label: "sorting" },
-  fixing:       { role: "accentBright", label: "fixing" },
-  verifying:    { role: "info",         label: "verify" },
-  pushing:      { role: "accentBright", label: "pushing" },
-  replying:     { role: "info",         label: "replying" },
-  done:         { role: "accent",       label: "done" },
-  error:        { role: "error",        label: "error" },
-  merged:       { role: "merged",       label: "merged" },
+  stopped:         { role: "muted",        label: "stopped" },
+  initializing:    { role: "accent",       label: "init" },
+  listening:       { role: "accent",       label: "listening" },
+  categorizing:    { role: "warning",      label: "sorting" },
+  fixing:          { role: "accentBright", label: "fixing" },
+  verifying:       { role: "info",         label: "verify" },
+  pushing:         { role: "accentBright", label: "pushing" },
+  replying:        { role: "info",         label: "replying" },
+  ready:           { role: "accent",       label: "ready" },
+  conflict_prompt: { role: "warning",      label: "conflict" },
+  error:           { role: "error",        label: "error" },
+  merged:          { role: "merged",       label: "merged" },
 };
 
 const STATIC_SYMBOLS: Partial<Record<BranchStatus, string>> = {
-  stopped:   "○",
-  listening: "●",
-  done:      "✓",
-  error:     "✗",
-  merged:    "◆",
+  stopped:         "○",
+  listening:       "●",
+  ready:           "✓",
+  conflict_prompt: "!",
+  error:           "✗",
+  merged:          "◆",
 };
 
 export function StatusBadge({ status, paused }: StatusBadgeProps & { paused?: boolean }) {

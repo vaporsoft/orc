@@ -2,8 +2,18 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
+export type Terminal =
+  | "ghostty"
+  | "iterm2"
+  | "terminal"
+  | "kitty"
+  | "wezterm"
+  | "alacritty";
+
 export interface UserSettings {
   theme: "dark" | "light";
+  terminal?: Terminal;
+  autoResolveConflicts?: boolean;
 }
 
 const settingsDir = join(homedir(), ".config", "orc");
@@ -18,7 +28,9 @@ export function loadSettings(): UserSettings | null {
   }
 }
 
-export function saveSettings(settings: UserSettings): void {
+export function saveSettings(settings: Partial<UserSettings>): void {
   mkdirSync(settingsDir, { recursive: true });
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  const existing = loadSettings() ?? {};
+  const merged = { ...existing, ...settings };
+  writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
 }

@@ -51,9 +51,9 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
       <Text dimColor>·</Text>
       <Key k="s" label="start/stop" accentColor={theme.accent} />
       <Text dimColor>·</Text>
-      <Key k="e" label="watch" accentColor={theme.accent} />
+      <Key k="w" label="watch" accentColor={theme.accent} />
       <Text dimColor>·</Text>
-      <Key k="r" label="retry" accentColor={theme.accent} />
+      <Key k="r" label="rebase" accentColor={theme.accent} />
       <Text dimColor>·</Text>
       <Key k="enter" label="details" accentColor={theme.accent} />
       <Text dimColor>·</Text>
@@ -61,7 +61,7 @@ export function HelpBar({ showingLogs, expanded }: HelpBarProps) {
       <Text dimColor>·</Text>
       <Key k="c" label="claude" accentColor={theme.accent} />
       <Text dimColor>·</Text>
-      <Key k="w" label="shell" accentColor={theme.accent} />
+      <Key k="e" label="shell" accentColor={theme.accent} />
       <Text dimColor>·</Text>
       <Key k="d" label="clear merged" accentColor={theme.accent} />
       <Text dimColor>·</Text>

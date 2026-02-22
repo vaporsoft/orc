@@ -1,6 +1,6 @@
 /**
  * Replies to review threads and PR conversation comments via GitHub API.
- * Does NOT auto-resolve threads — lets reviewers decide.
+ * Auto-resolves inline threads after successful "addressed" or "verified fixed" replies.
  */
 
 import { GHClient } from "../github/gh-client.js";
@@ -34,6 +34,13 @@ export class ThreadResponder {
           `Replied to addressed comment on ${comment.path}`,
           this.branch,
         );
+        if (comment.path !== "(conversation)") {
+          try {
+            await this.ghClient.resolveThread(comment.threadId);
+          } catch (err) {
+            logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
+          }
+        }
       } catch (err) {
         logger.warn(
           `Failed to reply to comment ${comment.threadId}: ${err}`,
@@ -62,6 +69,25 @@ export class ThreadResponder {
     }
   }
 
+  /** Reply to actionable comments that orc attempted but couldn't fix. */
+  async replyToFailed(comments: CategorizedComment[], reason: string): Promise<void> {
+    for (const comment of comments) {
+      const body = this.buildFailedReply(comment, reason);
+      try {
+        await this.reply(comment, body);
+        logger.info(
+          `Replied to failed comment on ${comment.path}`,
+          this.branch,
+        );
+      } catch (err) {
+        logger.warn(
+          `Failed to reply to failed comment ${comment.threadId}: ${err}`,
+          this.branch,
+        );
+      }
+    }
+  }
+
   /** Reply to verify_and_fix comments based on actual verification outcomes. */
   async replyToVerified(
     comments: CategorizedComment[],
@@ -82,6 +108,13 @@ export class ThreadResponder {
           `Replied to verified comment on ${comment.path} (${outcome?.status ?? "unknown"})`,
           this.branch,
         );
+        if (outcome?.status === "fixed" && comment.path !== "(conversation)") {
+          try {
+            await this.ghClient.resolveThread(comment.threadId);
+          } catch (err) {
+            logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
+          }
+        }
       } catch (err) {
         logger.warn(
           `Failed to reply to verified comment ${comment.threadId}: ${err}`,
@@ -127,10 +160,38 @@ export class ThreadResponder {
         .join("\n");
       parts.push(quotedBody);
       parts.push("");
-      parts.push(`@${comment.author} Skipped — ${comment.reasoning}`);
-    } else {
-      parts.push(`Skipped — ${comment.reasoning}`);
     }
+
+    const prefix = isConversation ? `@${comment.author} ` : "";
+
+    if (comment.category === "false_positive") {
+      parts.push(`${prefix}Won't fix — ${comment.reasoning}`);
+    } else {
+      parts.push(`${prefix}Won't fix — auto-fix for \`${comment.category}\` is disabled. ${comment.reasoning}`);
+    }
+
+    parts.push("");
+    parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
+
+    return parts.join("\n");
+  }
+
+  private buildFailedReply(comment: CategorizedComment, reason: string): string {
+    const isConversation = comment.path === "(conversation)";
+
+    const parts: string[] = [];
+
+    if (isConversation) {
+      const quotedBody = comment.body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      parts.push(quotedBody);
+      parts.push("");
+    }
+
+    const prefix = isConversation ? `@${comment.author} ` : "";
+    parts.push(`${prefix}Could not fix — ${reason}`);
 
     parts.push("");
     parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);

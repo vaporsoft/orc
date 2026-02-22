@@ -207,7 +207,7 @@ export class GHClient {
     return response.check_runs;
   }
 
-  /** Fetch failed CI run logs. */
+  /** Fetch failed CI run logs with smart truncation. */
   async getFailedRunLog(runId: number): Promise<string> {
     try {
       const { stdout } = await exec(
@@ -215,11 +215,49 @@ export class GHClient {
         ["run", "view", String(runId), "--log-failed"],
         { cwd: this.cwd },
       );
-      return stdout.slice(0, 15000);
+      return this.truncateLog(stdout);
     } catch {
       logger.warn(`Failed to fetch logs for run ${runId}`);
       return "(logs unavailable)";
     }
+  }
+
+  /** List workflow runs for the HEAD commit of a PR. */
+  async getWorkflowRuns(prNumber: number): Promise<Array<{ databaseId: number; name: string; conclusion: string | null; status: string }>> {
+    const { owner, repo } = await this.getRepoInfo();
+
+    const { stdout: shaOut } = await withRetry(
+      () =>
+        exec("gh", [
+          "api",
+          `repos/${owner}/${repo}/pulls/${prNumber}`,
+          "--jq",
+          ".head.sha",
+        ], { cwd: this.cwd }),
+      "fetch-pr-sha-for-runs",
+    );
+    const sha = shaOut.trim();
+
+    const { stdout } = await exec(
+      "gh",
+      ["run", "list", "--commit", sha, "--json", "databaseId,name,conclusion,status"],
+      { cwd: this.cwd },
+    );
+    return JSON.parse(stdout);
+  }
+
+  /** Truncate a log to the last portion, keeping errors visible. */
+  private truncateLog(log: string, maxLength = 30000): string {
+    if (log.length <= maxLength) return log;
+    const lines = log.split("\n");
+    const result: string[] = [];
+    let size = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      size += lines[i].length + 1;
+      if (size > maxLength) break;
+      result.unshift(lines[i]);
+    }
+    return `... (truncated ${lines.length - result.length} lines) ...\n` + result.join("\n");
   }
 
   /** Resolve a review thread via GraphQL mutation. */

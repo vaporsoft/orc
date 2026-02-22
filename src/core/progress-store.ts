@@ -6,8 +6,9 @@
  * (same location pattern as `orc.log`).
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import type { CycleRecord } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -24,12 +25,18 @@ interface ProgressData {
   prs: Record<string, PRProgress>;
 }
 
+/** Derive a stable directory name from the repo path. */
+function repoSlug(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
 export class ProgressStore {
   private filePath: string;
   private data: ProgressData = { version: 1, prs: {} };
 
   constructor(cwd: string) {
-    this.filePath = join(cwd, "orc-progress.json");
+    const dir = join(homedir(), ".config", "orc", "progress");
+    this.filePath = join(dir, `${repoSlug(cwd)}.json`);
   }
 
   async load(): Promise<void> {
@@ -44,6 +51,7 @@ export class ProgressStore {
 
   private async save(): Promise<void> {
     try {
+      await mkdir(join(this.filePath, ".."), { recursive: true });
       await writeFile(this.filePath, JSON.stringify(this.data, null, 2) + "\n");
     } catch (err) {
       logger.warn(`Failed to save progress: ${err}`);

@@ -6,18 +6,19 @@
 
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
-import { CommentFetcher } from "./comment-fetcher.js";
+import { CommentFetcher, type ThreadCounts } from "./comment-fetcher.js";
+import { GitManager } from "./git-manager.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
-import type { BranchState, ReviewThread, SessionMode } from "../types/index.js";
+import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, SessionMode } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 
 interface ActiveSession {
-  controller: SessionController;
+  controller: SessionController | null;
   promise: Promise<void>;
 }
 
@@ -31,8 +32,12 @@ export class Daemon extends EventEmitter {
   private discoveredPRs = new Map<string, GHPullRequest>();
   private commentCounts = new Map<string, number>();
   private commentThreads = new Map<string, ReviewThread[]>();
+  private threadCounts = new Map<string, ThreadCounts>();
   private lastStates = new Map<string, BranchState>();
   private mergedPRs = new Map<string, { pr: GHPullRequest; mergedAt: number }>();
+  private ciStatuses = new Map<string, CIStatus>();
+  private ciFailedChecks = new Map<string, FailedCheck[]>();
+  private conflictStatuses = new Map<string, string[]>();
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
@@ -53,7 +58,9 @@ export class Daemon extends EventEmitter {
   getSessions(): Map<string, SessionController> {
     const result = new Map<string, SessionController>();
     for (const [branch, session] of this.sessions) {
-      result.set(branch, session.controller);
+      if (session.controller) {
+        result.set(branch, session.controller);
+      }
     }
     return result;
   }
@@ -70,6 +77,10 @@ export class Daemon extends EventEmitter {
     return new Map(this.commentThreads);
   }
 
+  getThreadCounts(): Map<string, ThreadCounts> {
+    return new Map(this.threadCounts);
+  }
+
   getLastStates(): Map<string, BranchState> {
     return new Map(this.lastStates);
   }
@@ -81,6 +92,19 @@ export class Daemon extends EventEmitter {
   clearMergedPRs(): void {
     this.mergedPRs.clear();
     this.emit("prUpdate", "__merged__");
+  }
+
+  getCIStatuses(): Map<string, CIStatus> {
+    return new Map(this.ciStatuses);
+  }
+
+  getCIFailedChecks(): Map<string, FailedCheck[]> {
+    return new Map(this.ciFailedChecks);
+  }
+
+  getConflictStatuses(): Map<string, string[]> {
+    return new Map(this.conflictStatuses);
+
   }
 
   isRunning(branch: string): boolean {
@@ -121,6 +145,8 @@ export class Daemon extends EventEmitter {
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
 
+    this.setOptimisticStatus(branch, "initializing", mode);
+
     // Refuse to run on the branch that's currently checked out
     const currentBranch = await this.getCurrentBranch();
     if (currentBranch === branch) {
@@ -144,6 +170,10 @@ export class Daemon extends EventEmitter {
         workDir: null,
         sessionExpiresAt: null,
         ...lifetime,
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
       });
       this.emit("prUpdate", branch);
       return;
@@ -157,7 +187,15 @@ export class Daemon extends EventEmitter {
   }
 
   async stopBranch(branch: string): Promise<void> {
+    this.setOptimisticStatus(branch, "stopped");
     await this.teardownSession(branch);
+    // Cleanup saves the controller's final state (often "error" from abort),
+    // so force it back to "stopped"
+    const lastState = this.lastStates.get(branch);
+    if (lastState && lastState.status !== "stopped") {
+      lastState.status = "stopped";
+      lastState.error = null;
+    }
     if (this.discoveredPRs.has(branch)) {
       this.emit("prUpdate", branch);
     }
@@ -177,6 +215,148 @@ export class Daemon extends EventEmitter {
 
   async watchAll(): Promise<void> {
     await this.startAll("watch");
+  }
+
+  async rebaseBranch(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+
+    this.setOptimisticStatus(branch, "initializing");
+
+    const currentBranch = await this.getCurrentBranch();
+    if (currentBranch === branch) {
+      logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, "Cannot rebase — branch is checked out locally. Switch to main first.", "once"));
+      this.emit("prUpdate", branch);
+      return;
+    }
+
+    await this.worktreeManager.remove(branch);
+    this.lastStates.delete(branch);
+
+    let workDir: string;
+    try {
+      workDir = await this.worktreeManager.create(branch);
+    } catch (err) {
+      logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
+      this.emit("prUpdate", branch);
+      return;
+    }
+
+    const controller = new SessionController(branch, this.config, workDir, "once", this.progressStore);
+
+    controller.on("statusChange", (b: string, status: string) => {
+      logger.info(`Status: ${status}`, b);
+      this.emit("sessionUpdate", b, controller.getState());
+    });
+
+    controller.on("pushed", (b: string) => {
+      this.syncMainRepo(b).catch((err) => {
+        logger.debug(`Main repo sync failed for ${b}: ${err}`);
+      });
+    });
+
+    controller.on("ready", (b: string) => {
+      logger.info("Rebase session finished.", b);
+      const state = controller.getState();
+      if (state.status === "error") {
+        // Keep the worktree alive for manual intervention
+        this.lastStates.set(b, state);
+        this.sessions.delete(b);
+        this.emit("prUpdate", b);
+      } else {
+        this.cleanupSession(b).catch((err) => {
+          logger.warn(`Cleanup failed for ${b}: ${err}`);
+        });
+      }
+    });
+
+    const promise = controller.startRebase();
+    this.sessions.set(branch, { controller, promise });
+    this.emit("sessionUpdate", branch, controller.getState());
+  }
+
+  /** Plain git rebase — no Claude. Reports conflicts without resolving them. */
+  async rebaseBranchPlain(branch: string): Promise<void> {
+    if (this.sessions.has(branch)) return;
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+
+    this.setOptimisticStatus(branch, "initializing");
+
+    const currentBranch = await this.getCurrentBranch();
+    if (currentBranch === branch) {
+      logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, "Cannot rebase — branch is checked out locally. Switch to main first.", "once"));
+      this.emit("prUpdate", branch);
+      return;
+    }
+
+    await this.worktreeManager.remove(branch);
+
+    let workDir: string;
+    try {
+      workDir = await this.worktreeManager.create(branch);
+    } catch (err) {
+      logger.error(`Failed to create worktree for ${branch}: ${err}`);
+      this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
+      this.emit("prUpdate", branch);
+      return;
+    }
+
+    // Register a placeholder session to prevent concurrent operations
+    const placeholderPromise = (async () => {
+      try {
+        const gitManager = new GitManager(workDir, branch);
+        logger.info(`Plain rebase of ${branch} onto ${pr.baseRefName}`, branch);
+        const ok = await gitManager.pullRebase(pr.baseRefName);
+        if (!ok) {
+          logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
+          // Temporarily remove session to allow conflict status update
+          const session = this.sessions.get(branch);
+          this.sessions.delete(branch);
+          // Refresh conflict status so TUI shows them
+          await this.updateConflictStatuses([pr]);
+          // Restore session
+          if (session) this.sessions.set(branch, session);
+          this.emit("conflictStatusUpdate", branch);
+          return;
+        }
+
+        const pushed = await gitManager.forcePushWithLease();
+        if (pushed) {
+          logger.info("Rebase complete, pushed", branch);
+          this.syncMainRepo(branch).catch(() => {});
+        } else {
+          logger.error("Push failed after rebase", branch);
+        }
+      } catch (err) {
+        logger.error(`Plain rebase failed: ${err}`, branch);
+      } finally {
+        await this.worktreeManager.remove(branch).catch(() => {});
+        this.setOptimisticStatus(branch, "stopped");
+        this.sessions.delete(branch);
+      }
+    })();
+
+    this.sessions.set(branch, { controller: null, promise: placeholderPromise });
+    await placeholderPromise;
+  }
+
+  resolveConflicts(branch: string, always: boolean): void {
+    const session = this.sessions.get(branch);
+    if (session) {
+      session.controller?.acceptConflictResolution(always);
+    }
+  }
+
+  dismissConflictResolution(branch: string): void {
+    const session = this.sessions.get(branch);
+    if (session) {
+      session.controller?.dismissConflictResolution();
+    }
   }
 
   async stopAll(): Promise<void> {
@@ -236,8 +416,14 @@ export class Daemon extends EventEmitter {
       }
     }
 
-    // Fetch comment counts for all discovered PRs
-    await this.updateCommentCounts(prs);
+    // Extract CI statuses from PR data (no extra API calls)
+    this.updateCIStatusesFromPRs(prs);
+
+    // Fetch comment counts and conflict statuses in parallel
+    await Promise.all([
+      this.updateCommentCounts(prs),
+      this.updateConflictStatuses(prs),
+    ]);
 
     // Handle PRs that are no longer open (closed or merged)
     for (const branch of [...this.discoveredPRs.keys()]) {
@@ -262,6 +448,10 @@ export class Daemon extends EventEmitter {
         this.discoveredPRs.delete(branch);
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
+        this.threadCounts.delete(branch);
+        this.ciStatuses.delete(branch);
+        this.ciFailedChecks.delete(branch);
+        this.conflictStatuses.delete(branch);
         try {
           await this.teardownSession(branch);
         } catch (err) {
@@ -282,18 +472,16 @@ export class Daemon extends EventEmitter {
   private async updateCommentCounts(prs: GHPullRequest[]): Promise<void> {
     if (!this.botLogin) return;
 
-    for (const pr of prs) {
-      // Skip branches with active sessions — they manage their own comment state
-      if (this.sessions.has(pr.headRefName)) continue;
-
+    await Promise.all(prs.map(async (pr) => {
       try {
         const fetcher = new CommentFetcher(
-          this.ghClient, pr.number, this.botLogin, pr.headRefName,
+          this.ghClient, pr.number, this.botLogin!, pr.headRefName,
         );
-        const fetched = await fetcher.fetch();
+        const { comments: fetched, threadCounts } = await fetcher.fetchWithCounts();
         const count = fetched.length;
         const prev = this.commentCounts.get(pr.headRefName) ?? -1;
         this.commentCounts.set(pr.headRefName, count);
+        this.threadCounts.set(pr.headRefName, threadCounts);
         this.commentThreads.set(
           pr.headRefName,
           fetched.map((f) => f.thread),
@@ -305,7 +493,7 @@ export class Daemon extends EventEmitter {
       } catch (err) {
         logger.debug(`Failed to fetch comments for ${pr.headRefName}: ${err}`);
       }
-    }
+    }));
   }
 
   private async launchSession(pr: GHPullRequest, mode: SessionMode = "once"): Promise<void> {
@@ -343,6 +531,10 @@ export class Daemon extends EventEmitter {
         workDir: null,
         sessionExpiresAt: null,
         ...lifetime,
+        ciStatus: "unknown",
+        failedChecks: [],
+        ciFixAttempts: 0,
+        conflicted: [],
       });
       this.emit("prUpdate", branch);
       return;
@@ -361,7 +553,7 @@ export class Daemon extends EventEmitter {
       });
     });
 
-    controller.on("done", (b: string) => {
+    controller.on("ready", (b: string) => {
       logger.info("Session finished.", b);
       const state = controller.getState();
       if (state.status === "error") {
@@ -385,7 +577,7 @@ export class Daemon extends EventEmitter {
     const session = this.sessions.get(branch);
     if (!session) return;
 
-    session.controller.stop();
+    session.controller?.stop();
     await session.promise.catch(() => {});
     await this.cleanupSession(branch);
   }
@@ -393,7 +585,9 @@ export class Daemon extends EventEmitter {
   private async cleanupSession(branch: string): Promise<void> {
     const session = this.sessions.get(branch);
     if (session) {
-      this.lastStates.set(branch, session.controller.getState());
+      if (session.controller) {
+        this.lastStates.set(branch, session.controller.getState());
+      }
     }
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);
@@ -405,6 +599,64 @@ export class Daemon extends EventEmitter {
     }
   }
 
+  private setOptimisticStatus(branch: string, status: BranchStatus, mode: SessionMode = "once"): void {
+    const pr = this.discoveredPRs.get(branch);
+    if (!pr) return;
+    const lifetime = this.progressStore.getLifetimeStats(branch);
+    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
+    const prev = this.lastStates.get(branch);
+    this.lastStates.set(branch, {
+      branch,
+      prNumber: pr.number,
+      prUrl: pr.url,
+      status,
+      mode,
+      commentsAddressed: prev?.commentsAddressed ?? 0,
+      totalCostUsd,
+      error: null,
+      unresolvedCount: prev?.unresolvedCount ?? 0,
+      commentSummary: prev?.commentSummary ?? null,
+      lastPushAt: prev?.lastPushAt ?? null,
+      claudeActivity: [],
+      lastSessionId: prev?.lastSessionId ?? null,
+      workDir: prev?.workDir ?? null,
+      ...lifetime,
+      ciStatus: prev?.ciStatus ?? "unknown",
+      failedChecks: prev?.failedChecks ?? [],
+      ciFixAttempts: prev?.ciFixAttempts ?? 0,
+      conflicted: prev?.conflicted ?? [],
+      sessionExpiresAt: prev?.sessionExpiresAt ?? null,
+    });
+    this.emit("prUpdate", branch);
+  }
+
+  private makeErrorState(branch: string, pr: GHPullRequest, error: string, mode: SessionMode = "once"): BranchState {
+    const lifetime = this.progressStore.getLifetimeStats(branch);
+    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
+    return {
+      branch,
+      prNumber: pr.number,
+      prUrl: pr.url,
+      status: "error",
+      mode,
+      commentsAddressed: 0,
+      totalCostUsd,
+      error,
+      unresolvedCount: 0,
+      commentSummary: null,
+      lastPushAt: null,
+      claudeActivity: [],
+      lastSessionId: null,
+      workDir: this.cwd,
+      ...lifetime,
+      ciStatus: "unknown",
+      failedChecks: [],
+      ciFixAttempts: 0,
+      conflicted: [],
+      sessionExpiresAt: null,
+    };
+  }
+
   private async getCurrentBranch(): Promise<string | null> {
     try {
       const { stdout } = await exec("git", ["branch", "--show-current"], { cwd: this.cwd });
@@ -412,6 +664,110 @@ export class Daemon extends EventEmitter {
     } catch {
       return null;
     }
+  }
+
+  /** Extract CI check statuses from PR data (embedded in the discovery query). */
+  private updateCIStatusesFromPRs(prs: GHPullRequest[]): void {
+    for (const pr of prs) {
+      if (this.sessions.has(pr.headRefName)) continue;
+
+      const commitNode = pr.commits?.nodes?.[0];
+      const rollup = commitNode?.commit?.statusCheckRollup;
+      if (!rollup) {
+        this.updateCIStatus(pr.headRefName, "unknown", []);
+        continue;
+      }
+
+      const checks = rollup.contexts.nodes.filter((n) => n.name);
+      if (checks.length === 0) {
+        this.updateCIStatus(pr.headRefName, "unknown", []);
+        continue;
+      }
+
+      const allCompleted = checks.every((c) => c.status?.toUpperCase() === "COMPLETED");
+      if (!allCompleted) {
+        this.updateCIStatus(pr.headRefName, "pending", []);
+        continue;
+      }
+
+      const failed = checks.filter((c) => c.conclusion?.toUpperCase() === "FAILURE");
+      if (failed.length === 0) {
+        this.updateCIStatus(pr.headRefName, "passing", []);
+      } else {
+        const failedChecks: FailedCheck[] = failed.map((c) => ({
+          id: c.databaseId ?? 0,
+          name: c.name!,
+          htmlUrl: c.detailsUrl ?? "",
+          logSnippet: null,
+        }));
+        this.updateCIStatus(pr.headRefName, "failing", failedChecks);
+      }
+    }
+  }
+
+  private updateCIStatus(branch: string, status: CIStatus, failedChecks: FailedCheck[]): void {
+    const prev = this.ciStatuses.get(branch);
+
+    this.ciStatuses.set(branch, status);
+    this.ciFailedChecks.set(branch, failedChecks);
+    if (status !== prev) {
+      this.emit("ciStatusUpdate", branch, status, failedChecks);
+    }
+  }
+
+  /** Detect merge conflicts with base branch for all discovered PRs not actively running. */
+  private async updateConflictStatuses(prs: GHPullRequest[]): Promise<void> {
+    const activePRs = prs.filter(pr => !this.sessions.has(pr.headRefName));
+    if (activePRs.length === 0) return;
+
+    // Batch unique refs to fetch only once to prevent git lock contention
+    const allRefs = new Set<string>();
+    for (const pr of activePRs) {
+      allRefs.add(pr.baseRefName);
+      allRefs.add(pr.headRefName);
+    }
+
+    // Perform a single fetch operation for all refs
+    try {
+      await exec("git", ["fetch", "origin", ...Array.from(allRefs)], {
+        cwd: this.cwd,
+        allowFailure: true,
+      });
+    } catch (err) {
+      logger.debug(`Failed to fetch refs: ${err}`);
+    }
+
+    // Now check conflicts for each PR sequentially
+    await Promise.all(activePRs.map(async (pr) => {
+      try {
+        const { stdout, exitCode } = await exec("git", [
+          "merge-tree", "--write-tree", `origin/${pr.headRefName}`, `origin/${pr.baseRefName}`,
+        ], { cwd: this.cwd, allowFailure: true });
+
+        const conflictPaths: string[] = [];
+        if (exitCode !== 0) {
+          for (const line of stdout.split("\n")) {
+            const match = line.match(/^CONFLICT \([^)]+\): Merge conflict in (.+)$/);
+            if (match) {
+              conflictPaths.push(match[1]);
+            }
+          }
+          if (conflictPaths.length === 0) {
+            conflictPaths.push("(unknown)");
+          }
+        }
+
+        const prev = this.conflictStatuses.get(pr.headRefName);
+        this.conflictStatuses.set(pr.headRefName, conflictPaths);
+        const changed = !prev || prev.length !== conflictPaths.length ||
+          prev.some((p, i) => p !== conflictPaths[i]);
+        if (changed) {
+          this.emit("conflictStatusUpdate", pr.headRefName, conflictPaths);
+        }
+      } catch (err) {
+        logger.debug(`Failed to check conflicts for ${pr.headRefName}: ${err}`);
+      }
+    }));
   }
 
   /** Fetch the pushed branch and update the local ref so git log stays current. */
@@ -426,5 +782,12 @@ export class Daemon extends EventEmitter {
     });
 
     logger.info("Synced local branch ref with remote", branch);
+
+    // Push implies conflicts are resolved — clear stale status immediately
+    const prev = this.conflictStatuses.get(branch);
+    if (prev && prev.length > 0) {
+      this.conflictStatuses.set(branch, []);
+      this.emit("conflictStatusUpdate", branch, []);
+    }
   }
 }

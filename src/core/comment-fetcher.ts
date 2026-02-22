@@ -33,6 +33,11 @@ export interface FetchedComment {
   rawThread: GHReviewThread | null;
 }
 
+export interface ThreadCounts {
+  resolved: number;
+  total: number;
+}
+
 export class CommentFetcher {
   private ghClient: GHClient;
   private prNumber: number;
@@ -44,23 +49,37 @@ export class CommentFetcher {
     this.branch = branch;
   }
 
-  /** Fetch all actionable comments: unresolved review threads + PR conversation comments. */
-  async fetch(): Promise<FetchedComment[]> {
-    const [threadComments, prComments] = await Promise.all([
-      this.fetchReviewThreads(),
+  /** Fetch actionable comments and thread counts in a single pass. */
+  async fetchWithCounts(): Promise<{ comments: FetchedComment[]; threadCounts: ThreadCounts }> {
+    const [allThreads, prComments] = await Promise.all([
+      this.ghClient.getReviewThreads(this.prNumber),
       this.fetchPRConversationComments(),
     ]);
 
-    const results = [...threadComments, ...prComments];
+    // Count resolved/total from the full unfiltered list
+    let resolved = 0;
+    for (const thread of allThreads) {
+      if (thread.isResolved) resolved++;
+    }
+    const threadCounts: ThreadCounts = { resolved, total: allThreads.length };
+
+    // Filter to actionable threads (same logic as fetchReviewThreads)
+    const threadComments = this.filterActionableThreads(allThreads);
+    const comments = [...threadComments, ...prComments];
     logger.info(
-      `Fetched ${results.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
+      `Fetched ${comments.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
       this.branch,
     );
-    return results;
+    return { comments, threadCounts };
   }
 
-  private async fetchReviewThreads(): Promise<FetchedComment[]> {
-    const threads = await this.ghClient.getReviewThreads(this.prNumber);
+  /** Fetch all actionable comments: unresolved review threads + PR conversation comments. */
+  async fetch(): Promise<FetchedComment[]> {
+    const { comments } = await this.fetchWithCounts();
+    return comments;
+  }
+
+  private filterActionableThreads(threads: GHReviewThread[]): FetchedComment[] {
     const results: FetchedComment[] = [];
 
     for (const thread of threads) {

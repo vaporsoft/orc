@@ -50,8 +50,10 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       <Box width={8}><Text dimColor>pr</Text></Box>
       <Box width={16}><Text dimColor>status</Text></Box>
       <Box width={10}><Text dimColor>time left</Text></Box>
+      <Box width={4}><Text dimColor>ci</Text></Box>
+      <Box width={12}><Text dimColor>conflicts</Text></Box>
       <Box width={10}><Text dimColor>comments</Text></Box>
-      <Box width={12}><Text dimColor>progress</Text></Box>
+      <Box width={12}><Text dimColor>resolved</Text></Box>
       <Box width={10}><Text dimColor>cost</Text></Box>
       <Box width={10}><Text dimColor>last push</Text></Box>
     </Box>
@@ -60,7 +62,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
   // Tick to keep "time left" column updated — every 60s normally, every 1s in the final minute
   const activeExpiries = [...entries.values()]
     .filter((e) => e.state?.mode === "watch" && e.state.sessionExpiresAt
-      && !["stopped", "done", "error"].includes(e.state.status) && !e.mergedAt)
+      && !["stopped", "ready", "error"].includes(e.state.status) && !e.mergedAt)
     .map((e) => e.state!.sessionExpiresAt!);
   const soonestExpiry = activeExpiries.length > 0 ? Math.min(...activeExpiries) : null;
 

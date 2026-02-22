@@ -18,6 +18,9 @@ export const RETRY_BACKOFF_MS = [2000, 4000, 8000, 16000];
 /** Worktree base directory. */
 export const WORKTREE_BASE = "/tmp/orc";
 
+/** Maximum number of CI fix attempts per session cycle. */
+export const MAX_CI_FIX_ATTEMPTS = 2;
+
 /** Tools allowed in Claude Code sessions. */
 export const ALLOWED_TOOLS = [
   "Read",
@@ -37,4 +40,8 @@ export const ALLOWED_TOOLS = [
   "Bash(yarn lint *)",
   "Bash(yarn typecheck *)",
   "Bash(yarn test *)",
+  "Bash(git merge-tree *)",
+  "Bash(git rebase *)",
+  "Bash(git show *)",
+  "Bash(git checkout *)",
 ] as const;

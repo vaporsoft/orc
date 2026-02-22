@@ -33,10 +33,11 @@ export class CommentCategorizer {
     this.confidenceThreshold = confidenceThreshold;
   }
 
-  async categorize(comments: FetchedComment[]): Promise<CategorizedComment[]> {
+  async categorize(comments: FetchedComment[], abortSignal?: AbortSignal): Promise<CategorizedComment[]> {
     const results: CategorizedComment[] = [];
 
     for (const { thread } of comments) {
+      if (abortSignal?.aborted) break;
       // Conversation comments lack diff context — delegate verification to fix executor
       if (thread.path === "(conversation)") {
         results.push({
@@ -55,7 +56,7 @@ export class CommentCategorizer {
       }
 
       try {
-        const analysis = await this.classifyComment(thread);
+        const analysis = await this.classifyComment(thread, abortSignal);
 
         // Override low-confidence inline comments to verify_and_fix
         if (
@@ -107,6 +108,7 @@ export class CommentCategorizer {
 
   private async classifyComment(
     thread: FetchedComment["thread"],
+    abortSignal?: AbortSignal,
   ): Promise<Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction">> {
     const userMessage = `## File: ${thread.path}${thread.line ? ` (line ${thread.line})` : ""}
 
@@ -122,6 +124,11 @@ ${thread.body}`;
 
     let resultText = "";
 
+    const ac = new AbortController();
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => ac.abort(), { once: true });
+    }
+
     const stream = query({
       prompt,
       options: {
@@ -129,6 +136,7 @@ ${thread.body}`;
         allowedTools: [],
         permissionMode: "bypassPermissions",
         cwd: this.cwd,
+        abortController: ac,
       },
     });
 
