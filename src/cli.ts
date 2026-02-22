@@ -5,6 +5,7 @@
 import { createRequire } from "node:module";
 import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
+import { initCommand } from "./commands/init.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json") as { version: string };
@@ -36,3 +37,8 @@ export const cli = new Command()
   .option("--verbose", "Include detailed output")
   .option("--theme <mode>", "Color theme (dark, light)")
   .action(startCommand);
+
+cli
+  .command("init")
+  .description("Generate an ORC.md config for this repo")
+  .action(initCommand);

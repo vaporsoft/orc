@@ -1,5 +1,8 @@
 /** Default values and magic numbers. */
 
+import * as os from "node:os";
+import * as path from "node:path";
+
 /** Seconds between GitHub polls. */
 export const DEFAULT_POLL_INTERVAL = 60;
 
@@ -15,8 +18,8 @@ export const DEFAULT_SESSION_TIMEOUT = 0;
 /** Retry backoff intervals in milliseconds. */
 export const RETRY_BACKOFF_MS = [2000, 4000, 8000, 16000];
 
-/** Worktree base directory. */
-export const WORKTREE_BASE = "/tmp/orc";
+/** Worktree base directory. Supports ORC_WORKTREE_BASE env override. */
+export const WORKTREE_BASE = process.env.ORC_WORKTREE_BASE || path.join(os.tmpdir(), "orc");
 
 /** Maximum number of CI fix attempts per session cycle. */
 export const MAX_CI_FIX_ATTEMPTS = 2;

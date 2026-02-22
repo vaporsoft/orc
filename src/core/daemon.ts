@@ -20,6 +20,7 @@ import { mapWithConcurrency } from "../utils/concurrency.js";
 import { RateLimitError } from "../utils/retry.js";
 import { loadSettings } from "../utils/settings.js";
 import { notify } from "../utils/notify.js";
+import { loadRepoConfig } from "./repo-config.js";
 
 interface ActiveSession {
   controller: SessionController | null;
@@ -338,9 +339,11 @@ export class Daemon extends EventEmitter {
     await this.worktreeManager.remove(branch);
     this.lastStates.delete(branch);
 
+    const repoConfig = await loadRepoConfig(this.cwd);
+
     let workDir: string;
     try {
-      workDir = await this.worktreeManager.create(branch);
+      workDir = await this.worktreeManager.create(branch, repoConfig.setupCommands);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
@@ -403,9 +406,11 @@ export class Daemon extends EventEmitter {
 
     await this.worktreeManager.remove(branch);
 
+    const repoConfig = await loadRepoConfig(this.cwd);
+
     let workDir: string;
     try {
-      workDir = await this.worktreeManager.create(branch);
+      workDir = await this.worktreeManager.create(branch, repoConfig.setupCommands);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
@@ -632,9 +637,12 @@ export class Daemon extends EventEmitter {
       return;
     }
 
+    // Load repo config early so we can pass setup commands to worktree creation
+    const repoConfig = await loadRepoConfig(this.cwd);
+
     let workDir: string;
     try {
-      workDir = await this.worktreeManager.create(branch);
+      workDir = await this.worktreeManager.create(branch, repoConfig.setupCommands);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       const lifetime = this.progressStore.getLifetimeStats(branch);

@@ -61,7 +61,9 @@ export interface CycleRecord {
 
 export interface RepoConfig {
   instructions: string;
+  setupCommands: string[];
   verifyCommands: string[];
+  allowedCommands: string[];
   autoFix: {
     must_fix: boolean;
     should_fix: boolean;

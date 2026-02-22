@@ -21,7 +21,9 @@ import { logger } from "../utils/logger.js";
 
 const DEFAULT_CONFIG: RepoConfig = {
   instructions: "",
+  setupCommands: [],
   verifyCommands: [],
+  allowedCommands: [],
   autoFix: {
     must_fix: true,
     should_fix: true,
@@ -64,12 +66,30 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
 
   const instructions = (sections.get("instructions") ?? "").trim();
 
+  const setupCommands: string[] = [];
+  const setupSection = sections.get("setup") ?? "";
+  for (const line of setupSection.split("\n")) {
+    const match = line.match(/^-\s*`(.+)`/);
+    if (match) {
+      setupCommands.push(match[1]);
+    }
+  }
+
   const verifyCommands: string[] = [];
   const verifySection = sections.get("verify") ?? "";
   for (const line of verifySection.split("\n")) {
     const match = line.match(/^-\s*`(.+)`/);
     if (match) {
       verifyCommands.push(match[1]);
+    }
+  }
+
+  const allowedCommands: string[] = [];
+  const allowedSection = sections.get("allowed commands") ?? "";
+  for (const line of allowedSection.split("\n")) {
+    const match = line.match(/^-\s*`(.+)`/);
+    if (match) {
+      allowedCommands.push(match[1]);
     }
   }
 
@@ -82,5 +102,5 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
     }
   }
 
-  return { instructions, verifyCommands, autoFix };
+  return { instructions, setupCommands, verifyCommands, allowedCommands, autoFix };
 }
