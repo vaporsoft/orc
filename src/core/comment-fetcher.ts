@@ -13,11 +13,11 @@ import type { GHReviewThread } from "../github/types.js";
 import type { ReviewThread } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
-/** Signature Orc leaves in every reply. */
-const BOT_SIGNATURE = "Orc";
+/** Signature Orc leaves in every reply — e.g. "*Orc — bug_fix (confidence: 0.95)*" */
+const BOT_SIGNATURE_RE = /^\*Orc — .+ \(confidence: [\d.]+\)\*$/m;
 
 function isOrcReply(body: string): boolean {
-  return body.includes(BOT_SIGNATURE);
+  return BOT_SIGNATURE_RE.test(body);
 }
 
 /** Comments that are just bot mentions/commands (e.g. "@cursor review"). Not review feedback. */
