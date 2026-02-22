@@ -709,12 +709,6 @@ export class Daemon extends EventEmitter {
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);
 
-    // Refresh CI status for this branch since it was skipped during active session
-    const pr = this.discoveredPRs.get(branch);
-    if (pr) {
-      this.updateCIStatusesFromPRs([pr]);
-    }
-
     // Check if this branch is now ready to merge
     this.updateReadyStatuses();
 
@@ -805,8 +799,6 @@ export class Daemon extends EventEmitter {
   /** Extract CI check statuses from PR data (embedded in the discovery query). */
   private updateCIStatusesFromPRs(prs: GHPullRequest[]): void {
     for (const pr of prs) {
-      if (this.sessions.has(pr.headRefName)) continue;
-
       const commitNode = pr.commits?.nodes?.[0];
       const rollup = commitNode?.commit?.statusCheckRollup;
       if (!rollup) {
