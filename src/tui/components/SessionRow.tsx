@@ -45,7 +45,10 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
   const status = entry.mergedAt ? "merged" as const : (state?.status ?? "stopped");
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
-  const ci = CI_INDICATORS[ciStatus];
+  // If CI is unknown but we pushed recently, show yellow dash (waiting for checks to start)
+  const pushAge = state?.lastPushAt ? Date.now() - new Date(state.lastPushAt).getTime() : Infinity;
+  const ciWaiting = ciStatus === "unknown" && pushAge < 5 * 60_000;
+  const ci = ciWaiting ? { symbol: "—", color: "yellow" } : CI_INDICATORS[ciStatus];
 
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
