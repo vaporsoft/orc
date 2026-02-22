@@ -61,6 +61,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
           failedChecks: [],
           ciFixAttempts: 0,
           conflicted: [],
+          hasFixupCommits: false,
           sessionExpiresAt: null,
         };
       }

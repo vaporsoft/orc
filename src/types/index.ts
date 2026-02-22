@@ -119,6 +119,7 @@ export interface BranchState {
   failedChecks: FailedCheck[];
   ciFixAttempts: number;
   conflicted: string[];
+  hasFixupCommits: boolean;
 }
 
 export interface SessionControllerEvents {

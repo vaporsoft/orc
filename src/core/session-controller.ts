@@ -39,9 +39,6 @@ const LOCKFILE_NAMES = new Set([
   "bun.lock",
 ]);
 
-/** Error message used when rebase fails due to conflicts. */
-const REBASE_CONFLICT_ERROR = "Rebase conflict — manual intervention needed";
-
 export class SessionController extends EventEmitter {
   private config: Config;
   private branch: string;
@@ -105,6 +102,7 @@ export class SessionController extends EventEmitter {
       failedChecks: [],
       ciFixAttempts: 0,
       conflicted: [],
+      hasFixupCommits: false,
     };
   }
 
@@ -254,6 +252,15 @@ export class SessionController extends EventEmitter {
         }
       }
       this.state.conflicted = [];
+
+      // Autosquash any fixup commits before pushing
+      const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+      if (!rebased) {
+        logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+        this.state.hasFixupCommits = true;
+      } else {
+        this.state.hasFixupCommits = false;
+      }
 
       // Push the rebased branch
       this.setStatus("pushing");
@@ -594,11 +601,11 @@ export class SessionController extends EventEmitter {
       if (!pushAborted) {
         const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
         if (!rebased) {
-          logger.error("Rebase failed — manual intervention needed", this.branch);
-          this.state.error = REBASE_CONFLICT_ERROR;
-          this.setStatus("error");
-          this.running = false;
-          pushAborted = true;
+          logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+          this.state.hasFixupCommits = true;
+        } else {
+          // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
+          this.state.hasFixupCommits = false;
         }
       }
 
@@ -628,11 +635,7 @@ export class SessionController extends EventEmitter {
     const getFailureReason = (): string | null => {
       if (!fixResult.isError && madeCommits && pushed) return null;
       if (fixResult.isError) return "fix session encountered an error.";
-      if (madeCommits && !pushed) {
-        return this.state.error === REBASE_CONFLICT_ERROR
-          ? "commits were made but a rebase conflict prevented pushing. Manual intervention needed."
-          : "commits were made but push failed.";
-      }
+      if (madeCommits && !pushed) return "commits were made but push failed.";
       return "fix session produced no changes.";
     };
 
@@ -946,14 +949,17 @@ export class SessionController extends EventEmitter {
         }
         if (pushSucceeded) {
           const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-          if (rebased) {
-            const pushed = await this.gitManager.forcePushWithLease();
-            if (pushed) {
-              this.state.lastPushAt = new Date().toISOString();
-              this.emit("pushed", this.branch);
-            } else {
-              pushSucceeded = false;
-            }
+          if (!rebased) {
+            logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+            this.state.hasFixupCommits = true;
+          } else {
+            // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
+            this.state.hasFixupCommits = false;
+          }
+          const pushed = await this.gitManager.forcePushWithLease();
+          if (pushed) {
+            this.state.lastPushAt = new Date().toISOString();
+            this.emit("pushed", this.branch);
           } else {
             pushSucceeded = false;
           }
