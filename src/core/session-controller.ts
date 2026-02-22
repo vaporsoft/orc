@@ -655,7 +655,7 @@ export class SessionController extends EventEmitter {
       const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
       if (regularComments.length > 0) {
-        await this.responder.replyToAddressed(regularComments, currentSha);
+        await this.responder.replyToAddressed(regularComments, currentSha, fixResult.fixSummaries);
       }
       if (verifyComments.length > 0) {
         await this.responder.replyToVerified(verifyComments, fixResult.verifyResults, currentSha);

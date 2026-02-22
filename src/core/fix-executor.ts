@@ -34,6 +34,8 @@ export interface FixResult {
   changedFiles: string[];
   errors: string[];
   verifyResults: Map<string, VerifyOutcome>;
+  /** Short description of what was done for each addressed comment, keyed by threadId. */
+  fixSummaries: Map<string, string>;
 }
 
 export class FixExecutor {
@@ -60,8 +62,9 @@ export class FixExecutor {
     const systemSuffix = this.buildSystemSuffix(repoConfig, "review");
     const result = await this.executeClaude(prompt, systemSuffix, abortSignal, onActivity, "Claude session");
 
-    // Add verify results for review feedback
+    // Add verify results and fix summaries for review feedback
     result.verifyResults = await this.readVerifyResults(comments);
+    result.fixSummaries = await this.readFixSummaries(comments);
     return result;
   }
 
@@ -198,6 +201,7 @@ Do not push — the orchestrator handles that.`;
           changedFiles: [],
           errors: ["No result message received from Claude Code"],
           verifyResults: new Map(),
+          fixSummaries: new Map(),
         };
       }
 
@@ -217,6 +221,7 @@ Do not push — the orchestrator handles that.`;
             ]
           : [],
         verifyResults: new Map(),
+        fixSummaries: new Map(),
       };
     } catch (err) {
       clearTimeout(timeout);
@@ -233,6 +238,7 @@ Do not push — the orchestrator handles that.`;
         changedFiles: [],
         errors: [message],
         verifyResults: new Map(),
+        fixSummaries: new Map(),
       };
     }
   }
@@ -366,6 +372,28 @@ The thread IDs are:\n`,
       sections.push("");
     }
 
+    // Fix summary file instruction for regular (non-verify) comments
+    const regularComments = [...mustFix, ...shouldFix, ...niceToHave];
+    if (regularComments.length > 0) {
+      sections.push(`## Fix Summaries\n`);
+      sections.push(
+        `After addressing the review comments above, write a JSON file \`.orc-fix-summary.json\`
+at the repo root mapping each comment's thread ID to a short (one sentence) description of what you changed. Write it as if you're briefly telling the reviewer what you did, e.g. "Renamed the variable to use camelCase" or "Switched to a Map to avoid the linear lookup".
+\`\`\`json
+{
+  "<threadId>": "<short description of the change you made>"
+}
+\`\`\`
+Include an entry for every comment above. Do not skip any.
+IMPORTANT: Do not add or commit the \`.orc-fix-summary.json\` file to git — it's a temporary file that will be automatically cleaned up.
+The thread IDs are:\n`,
+      );
+      for (const comment of regularComments) {
+        sections.push(`- \`${comment.threadId}\` — ${comment.path}${comment.line ? `:${comment.line}` : ""}: ${comment.body.slice(0, 80)}${comment.body.length > 80 ? "..." : ""}`);
+      }
+      sections.push("");
+    }
+
     if (repoConfig.instructions) {
       sections.push(`## Additional Context\n\n${repoConfig.instructions}\n`);
     }
@@ -424,6 +452,33 @@ The thread IDs are:\n`,
         results.set(comment.threadId, { status: "unknown", reason: "Verification results not found" });
       }
       return results;
+    }
+  }
+
+  private async readFixSummaries(
+    comments: CategorizedComment[],
+  ): Promise<Map<string, string>> {
+    const regular = comments.filter((c) => c.category !== "verify_and_fix");
+    if (regular.length === 0) return new Map();
+
+    const filePath = join(this.cwd, ".orc-fix-summary.json");
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const parsed = JSON.parse(raw) as Record<string, string>;
+
+      // Clean up the file
+      await unlink(filePath).catch(() => {});
+
+      const results = new Map<string, string>();
+      for (const [threadId, summary] of Object.entries(parsed)) {
+        if (typeof summary === "string" && summary.length > 0) {
+          results.set(threadId, summary);
+        }
+      }
+      return results;
+    } catch {
+      logger.debug("No .orc-fix-summary.json found or failed to parse");
+      return new Map();
     }
   }
 }
