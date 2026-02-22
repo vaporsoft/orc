@@ -57,6 +57,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
           failedChecks: [],
           ciFixAttempts: 0,
           conflicted: [],
+          sessionExpiresAt: null,
         };
       }
     }

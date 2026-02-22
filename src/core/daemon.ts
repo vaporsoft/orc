@@ -250,6 +250,7 @@ export class Daemon extends EventEmitter {
         failedChecks: [],
         ciFixAttempts: 0,
         conflicted: [],
+        sessionExpiresAt: null,
       });
       this.emit("prUpdate", branch);
       return;
@@ -286,6 +287,7 @@ export class Daemon extends EventEmitter {
         failedChecks: [],
         ciFixAttempts: 0,
         conflicted: [],
+        sessionExpiresAt: null,
       });
       this.emit("prUpdate", branch);
       return;
@@ -664,6 +666,7 @@ export class Daemon extends EventEmitter {
       failedChecks: prev?.failedChecks ?? [],
       ciFixAttempts: prev?.ciFixAttempts ?? 0,
       conflicted: prev?.conflicted ?? [],
+      sessionExpiresAt: prev?.sessionExpiresAt ?? null,
     });
     this.emit("prUpdate", branch);
   }
