@@ -7,7 +7,6 @@
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
 import { CommentFetcher, type ThreadCounts } from "./comment-fetcher.js";
-import { GitManager } from "./git-manager.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
