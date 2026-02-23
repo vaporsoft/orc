@@ -43,6 +43,8 @@ export class Daemon extends EventEmitter {
   private ciStatuses = new Map<string, CIStatus>();
   private ciFailedChecks = new Map<string, FailedCheck[]>();
   private conflictStatuses = new Map<string, string[]>();
+  /** Tracks resolved threads with ORC replies per branch for deleted-reply detection. */
+  private orcResolvedThreads = new Map<string, Set<string>>();
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
@@ -487,6 +489,7 @@ export class Daemon extends EventEmitter {
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
         this.threadCounts.delete(branch);
+        this.orcResolvedThreads.delete(branch);
         this.ciStatuses.delete(branch);
         this.ciFailedChecks.delete(branch);
         this.conflictStatuses.delete(branch);
@@ -518,14 +521,59 @@ export class Daemon extends EventEmitter {
         const fetcher = new CommentFetcher(
           this.ghClient, pr.number, this.botLogin!, pr.headRefName,
         );
-        const { comments: fetched, threadCounts } = await fetcher.fetchWithCounts();
-        const count = fetched.length;
+        const {
+          comments: fetched,
+          threadCounts,
+          orcRepliedResolvedThreadIds,
+          resolvedNoOrcReplyThreadIds,
+        } = await fetcher.fetchWithCounts();
+
+        // Detect deleted ORC replies: threads that were previously resolved with
+        // an ORC reply but are now resolved without one → unresolve them so the
+        // TUI shows them as needing attention again.
+        const prevOrcResolved = this.orcResolvedThreads.get(pr.headRefName);
+        const failedUnresolveThreadIds: string[] = [];
+        let unresolvedCount = 0;
+        if (prevOrcResolved) {
+          const resolvedNoOrcReply = new Set(resolvedNoOrcReplyThreadIds);
+          for (const threadId of prevOrcResolved) {
+            if (resolvedNoOrcReply.has(threadId)) {
+              try {
+                await this.ghClient.unresolveThread(threadId);
+                logger.info(`Unresolved thread ${threadId} — ORC reply was deleted`, pr.headRefName);
+                unresolvedCount++;
+              } catch (err) {
+                logger.warn(`Failed to unresolve thread ${threadId}: ${err}`, pr.headRefName);
+                failedUnresolveThreadIds.push(threadId);
+              }
+            }
+          }
+        }
+        // Re-fetch if we unresolved any threads so TUI shows fresh state
+        let finalFetched = fetched;
+        let finalThreadCounts = threadCounts;
+        let finalOrcRepliedResolvedThreadIds = orcRepliedResolvedThreadIds;
+        if (unresolvedCount > 0) {
+          const refreshed = await fetcher.fetchWithCounts();
+          finalFetched = refreshed.comments;
+          finalThreadCounts = refreshed.threadCounts;
+          finalOrcRepliedResolvedThreadIds = refreshed.orcRepliedResolvedThreadIds;
+        }
+
+        // Preserve failed thread IDs so unresolve can be retried on the next cycle
+        const updatedOrcResolved = new Set(finalOrcRepliedResolvedThreadIds);
+        for (const threadId of failedUnresolveThreadIds) {
+          updatedOrcResolved.add(threadId);
+        }
+        this.orcResolvedThreads.set(pr.headRefName, updatedOrcResolved);
+
+        const count = finalFetched.length;
         const prev = this.commentCounts.get(pr.headRefName) ?? -1;
         this.commentCounts.set(pr.headRefName, count);
-        this.threadCounts.set(pr.headRefName, threadCounts);
+        this.threadCounts.set(pr.headRefName, finalThreadCounts);
         this.commentThreads.set(
           pr.headRefName,
-          fetched.map((f) => f.thread),
+          finalFetched.map((f) => f.thread),
         );
 
         if (count !== prev) {

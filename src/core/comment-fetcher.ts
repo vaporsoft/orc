@@ -52,7 +52,14 @@ export class CommentFetcher {
   }
 
   /** Fetch actionable comments and thread counts in a single pass. */
-  async fetchWithCounts(): Promise<{ comments: FetchedComment[]; threadCounts: ThreadCounts }> {
+  async fetchWithCounts(): Promise<{
+    comments: FetchedComment[];
+    threadCounts: ThreadCounts;
+    /** Resolved thread IDs that still contain an ORC reply (for deleted-reply detection). */
+    orcRepliedResolvedThreadIds: string[];
+    /** Resolved thread IDs that do NOT contain an ORC reply. */
+    resolvedNoOrcReplyThreadIds: string[];
+  }> {
     const [allThreads, prComments] = await Promise.all([
       this.ghClient.getReviewThreads(this.prNumber),
       this.fetchPRConversationComments(),
@@ -60,8 +67,23 @@ export class CommentFetcher {
 
     // Count resolved/total from the full unfiltered list
     let resolved = 0;
+    const orcRepliedResolvedThreadIds: string[] = [];
+    const resolvedNoOrcReplyThreadIds: string[] = [];
     for (const thread of allThreads) {
-      if (thread.isResolved) resolved++;
+      if (thread.isResolved) {
+        resolved++;
+        // Skip threads with truncated comments (>100) — we can't reliably detect
+        // ORC replies beyond the first 100, so treat them as unknown to avoid
+        // false unresolves.
+        if (thread.comments.pageInfo.hasNextPage) {
+          continue;
+        }
+        if (thread.comments.nodes.some((c) => isOrcReply(c.body))) {
+          orcRepliedResolvedThreadIds.push(thread.id);
+        } else {
+          resolvedNoOrcReplyThreadIds.push(thread.id);
+        }
+      }
     }
     const threadCounts: ThreadCounts = { resolved, total: allThreads.length };
 
@@ -72,7 +94,7 @@ export class CommentFetcher {
       `Fetched ${comments.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
       this.branch,
     );
-    return { comments, threadCounts };
+    return { comments, threadCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds };
   }
 
   /** Fetch all actionable comments: unresolved review threads + PR conversation comments. */

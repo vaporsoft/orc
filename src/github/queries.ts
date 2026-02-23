@@ -14,6 +14,9 @@ query ReviewThreads($owner: String!, $repo: String!, $prNumber: Int!, $cursor: S
           isResolved
           isOutdated
           comments(first: 100) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               id
               databaseId
@@ -37,6 +40,17 @@ query ReviewThreads($owner: String!, $repo: String!, $prNumber: Int!, $cursor: S
 export const RESOLVE_THREAD_MUTATION = `
 mutation ResolveThread($threadId: ID!) {
   resolveReviewThread(input: { threadId: $threadId }) {
+    thread {
+      id
+      isResolved
+    }
+  }
+}
+`;
+
+export const UNRESOLVE_THREAD_MUTATION = `
+mutation UnresolveThread($threadId: ID!) {
+  unresolveReviewThread(input: { threadId: $threadId }) {
     thread {
       id
       isResolved

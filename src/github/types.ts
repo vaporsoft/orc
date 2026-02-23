@@ -44,6 +44,7 @@ export interface GHReviewThread {
   isResolved: boolean;
   isOutdated: boolean;
   comments: {
+    pageInfo: { hasNextPage: boolean };
     nodes: GHReviewComment[];
   };
 }

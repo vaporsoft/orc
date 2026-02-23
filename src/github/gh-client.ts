@@ -9,6 +9,7 @@ import { logger } from "../utils/logger.js";
 import {
   REVIEW_THREADS_QUERY,
   RESOLVE_THREAD_MUTATION,
+  UNRESOLVE_THREAD_MUTATION,
   PR_COMMENTS_QUERY,
   PR_FOR_BRANCH_QUERY,
   MY_OPEN_PRS_QUERY,
@@ -328,6 +329,11 @@ export class GHClient {
   /** Resolve a review thread via GraphQL mutation. */
   async resolveThread(threadId: string): Promise<void> {
     await this.graphql(RESOLVE_THREAD_MUTATION, { threadId });
+  }
+
+  /** Unresolve a review thread via GraphQL mutation. */
+  async unresolveThread(threadId: string): Promise<void> {
+    await this.graphql(UNRESOLVE_THREAD_MUTATION, { threadId });
   }
 
   /** Add a reply comment to a PR review thread. */
