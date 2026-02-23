@@ -577,8 +577,11 @@ export class SessionController extends EventEmitter {
       }
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
-      if (this.mode === "watch") this.setStatus("watching");
-      await this.checkAndFixCI(baseBranch);
+      // In once mode, skip — daemon polls CI, user can press f again if needed
+      if (this.mode === "watch") {
+        this.setStatus("watching");
+        await this.checkAndFixCI(baseBranch);
+      }
     }
 
     // Update running totals - only count comments as fixed when commits are made and pushed successfully
