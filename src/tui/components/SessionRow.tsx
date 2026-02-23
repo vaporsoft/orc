@@ -10,7 +10,6 @@ interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
   dimmed?: boolean;
-  renderPaused?: boolean;
 }
 
 
@@ -34,7 +33,7 @@ const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
   unknown: { symbol: "—", color: "gray" },
 };
 
-export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRowProps) {
+export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount, ciStatus, conflicted } = entry;
   const branch = entry.branch.length > 26
@@ -74,7 +73,7 @@ export function SessionRow({ entry, selected, dimmed, renderPaused }: SessionRow
         <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={16}>
-        <StatusBadge status={status} paused={renderPaused} />
+        <StatusBadge status={status} />
         {isActive && <Text color={theme.info}> ⟳</Text>}
       </Box>
       <Box width={10}>

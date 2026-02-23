@@ -103,31 +103,21 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
 
 const THROTTLE_MS = 100;
 
-export function useDaemonState(daemon: Daemon, paused = false): Map<string, PREntry> {
+export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
   const [entries, setEntries] = useState<Map<string, PREntry>>(() => buildEntries(daemon));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef(false);
-  const pausedRef = useRef(paused);
-  pausedRef.current = paused;
 
   const flush = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    if (pausedRef.current) {
-      pendingRef.current = true;
-      return;
-    }
     pendingRef.current = false;
     setEntries(buildEntries(daemon));
   }, [daemon]);
 
   const rebuild = useCallback(() => {
-    if (pausedRef.current) {
-      pendingRef.current = true;
-      return;
-    }
     if (timerRef.current) {
       pendingRef.current = true;
       return;
@@ -141,13 +131,6 @@ export function useDaemonState(daemon: Daemon, paused = false): Map<string, PREn
       }
     }, THROTTLE_MS);
   }, [flush]);
-
-  // Flush pending updates when unpaused
-  useEffect(() => {
-    if (!paused && pendingRef.current) {
-      flush();
-    }
-  }, [paused, flush]);
 
   useEffect(() => {
     daemon.on("prDiscovered", rebuild);
