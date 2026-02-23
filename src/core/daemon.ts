@@ -660,10 +660,18 @@ export class Daemon extends EventEmitter {
     this.sessions.delete(branch);
     await this.worktreeManager.remove(branch);
 
-    // Refresh CI status for this branch since it was skipped during active session
-    const pr = this.discoveredPRs.get(branch);
-    if (pr) {
-      this.updateCIStatusesFromPRs([pr]);
+    // Refresh CI status for this branch since it was skipped during active session.
+    // If the session pushed, the cached PR data is stale (old commit's checks) — set
+    // to "pending" so the next poll cycle picks up the new commit's checks instead of
+    // flashing the old failure status.
+    const lastState = this.lastStates.get(branch);
+    if (lastState?.lastPushAt) {
+      this.updateCIStatus(branch, "pending", []);
+    } else {
+      const pr = this.discoveredPRs.get(branch);
+      if (pr) {
+        this.updateCIStatusesFromPRs([pr]);
+      }
     }
 
     // Check if this branch is now ready to merge
