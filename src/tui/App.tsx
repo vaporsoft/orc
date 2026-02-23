@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
 import { openTerminal, shellEscape } from "../utils/open-terminal.js";
@@ -83,7 +83,8 @@ export function App({ daemon, startTime }: AppProps) {
   }, [sessionIndex, openCount]);
 
   // Update sessionIndex state when it gets clamped to keep state in sync
-  React.useEffect(() => {
+  // useLayoutEffect prevents a flickering frame with the stale out-of-bounds index
+  React.useLayoutEffect(() => {
     if (clampedSessionIndex !== sessionIndex) {
       setSessionIndex(clampedSessionIndex);
     }
@@ -92,8 +93,9 @@ export function App({ daemon, startTime }: AppProps) {
   const selectedBranch = openBranches[clampedSessionIndex] ?? null;
 
   // Track previous selected branch to detect when it changes (e.g., due to sorting shifts)
+  // useLayoutEffect prevents the detail panel from flickering with stale section state
   const prevSelectedBranchRef = React.useRef<string | null>(selectedBranch);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (prevSelectedBranchRef.current !== selectedBranch) {
       // Branch changed (even if index stayed same due to list reordering)
       setFocusedSection(null);
@@ -111,7 +113,8 @@ export function App({ daemon, startTime }: AppProps) {
   // Auto-focus a session that enters conflict_prompt (only when newly entering that status)
   const [prevConflictBranches, setPrevConflictBranches] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  // useLayoutEffect prevents flickering the old view before switching focus to the conflict branch
+  useLayoutEffect(() => {
     const currentConflictBranches = new Set<string>();
     openBranches.forEach((b) => {
       const e = entries.get(b);

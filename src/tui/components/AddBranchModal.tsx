@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../theme.js";
 import type { Daemon } from "../../core/daemon.js";
@@ -98,7 +98,8 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
     currentData?.prs.filter((pr) => !discovered.has(pr.headRefName)) ?? [];
 
   // Clamp selection when display list changes
-  useEffect(() => {
+  // useLayoutEffect prevents flickering a stale selection before clamping
+  useLayoutEffect(() => {
     const max = Math.max(0, displayPRs.length - 1);
     if (selectedIndex > max) {
       setSelectedIndex(max);
