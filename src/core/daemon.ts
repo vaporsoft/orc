@@ -347,69 +347,6 @@ export class Daemon extends EventEmitter {
     await this.startAll("watch");
   }
 
-  /** Plain git rebase — no Claude. Reports conflicts without resolving them. */
-  async rebaseBranchPlain(branch: string): Promise<void> {
-    if (this.sessions.has(branch)) return;
-    const pr = this.discoveredPRs.get(branch);
-    if (!pr) return;
-
-    this.setOptimisticStatus(branch, "initializing");
-
-    const currentBranch = await this.getCurrentBranch();
-    if (currentBranch === branch) {
-      logger.warn("Cannot rebase — branch is checked out locally. Switch to main first.", branch);
-      this.lastStates.set(branch, this.makeErrorState(branch, pr, "Cannot rebase — branch is checked out locally. Switch to main first.", "once"));
-      this.emit("prUpdate", branch);
-      return;
-    }
-
-    await this.worktreeManager.remove(branch);
-
-    const repoConfig = await loadRepoConfig(this.cwd);
-
-    let workDir: string;
-    try {
-      workDir = await this.worktreeManager.create(branch, repoConfig.setupCommands);
-    } catch (err) {
-      logger.error(`Failed to create worktree for ${branch}: ${err}`);
-      this.lastStates.set(branch, this.makeErrorState(branch, pr, `Failed to create worktree: ${err}`, "once"));
-      this.emit("prUpdate", branch);
-      return;
-    }
-
-    // Register a placeholder session to prevent concurrent operations
-    const placeholderPromise = (async () => {
-      try {
-        const gitManager = new GitManager(workDir, branch);
-        logger.info(`Plain rebase of ${branch} onto ${pr.baseRefName}`, branch);
-        const ok = await gitManager.pullRebase(pr.baseRefName);
-        if (!ok) {
-          logger.warn("Rebase has conflicts — use R to rebase with Claude", branch);
-          // Refresh conflict status so TUI shows them
-          await this.updateConflictStatuses([pr]);
-          return;
-        }
-
-        const pushed = await gitManager.forcePushWithLease();
-        if (pushed) {
-          logger.info("Rebase complete, pushed", branch);
-          this.syncMainRepo(branch).catch(() => {});
-        } else {
-          logger.error("Push failed after rebase", branch);
-        }
-      } catch (err) {
-        logger.error(`Plain rebase failed: ${err}`, branch);
-      } finally {
-        await this.worktreeManager.remove(branch).catch(() => {});
-        this.setOptimisticStatus(branch, "stopped");
-        this.sessions.delete(branch);
-      }
-    })();
-
-    this.sessions.set(branch, { controller: null, promise: placeholderPromise });
-    await placeholderPromise;
-  }
-
   resolveConflicts(branch: string, always: boolean): void {
     const session = this.sessions.get(branch);
     if (session) {
