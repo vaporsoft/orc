@@ -409,11 +409,34 @@ export class SessionController extends EventEmitter {
     if (fetchedComments.length === 0) {
       this.state.unresolvedCount = 0;
 
+      // Check CI even when there are no comments to fix
+      if (!this.config.dryRun) {
+        this.setStatus("watching");
+        await this.checkAndFixCI(baseBranch);
+      }
+
       if (this.mode === "once") {
         logger.info("No comments to address", this.branch);
+        // Record a CI-only cycle (no comments seen, but we may have fixed CI)
+        await this.progressStore.recordCycleStart(this.branch, this.state.prNumber!, []);
+        const ciOnlyCycleCost = this.state.totalCostUsd - cycleStartCost;
+        const ciOnlyCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+        const ciOnlyCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+        await this.progressStore.recordCycleEnd(this.branch, 0, ciOnlyCycleCost, ciOnlyCycleInput, ciOnlyCycleOutput);
+        this.syncLifetimeStats();
         this.setStatus("stopped");
         this.running = false;
         return;
+      }
+
+      // Record CI-only cycle costs for watch mode too (mirroring once mode above)
+      const watchCiCycleCost = this.state.totalCostUsd - cycleStartCost;
+      const watchCiCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+      const watchCiCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+      if (watchCiCycleCost > 0 || watchCiCycleInput > 0 || watchCiCycleOutput > 0) {
+        await this.progressStore.recordCycleStart(this.branch, this.state.prNumber!, []);
+        await this.progressStore.recordCycleEnd(this.branch, 0, watchCiCycleCost, watchCiCycleInput, watchCiCycleOutput);
+        this.syncLifetimeStats();
       }
 
       logger.info("No comments found — awaiting review feedback", this.branch);
@@ -534,6 +557,13 @@ export class SessionController extends EventEmitter {
 
     if (actionable.length === 0) {
       logger.info("No actionable comments after filtering", this.branch);
+
+      // Check CI even when there are no actionable comments to fix
+      if (!this.config.dryRun) {
+        this.setStatus("watching");
+        await this.checkAndFixCI(baseBranch);
+      }
+
       const noActionCycleCost = this.state.totalCostUsd - cycleStartCost;
       const noActionCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
       const noActionCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
