@@ -588,7 +588,6 @@ export class SessionController extends EventEmitter {
     const madeCommits = headAfter !== headBefore;
 
     let pushed = false;
-    let pushAborted = false;
     if (fixResult.isError) {
       logger.warn("Fix session had errors, skipping push", this.branch);
     } else if (madeCommits) {
@@ -607,36 +606,25 @@ export class SessionController extends EventEmitter {
       }
 
       // 6. PUSH
+      // We already rebased onto base at the top of the cycle, so divergence
+      // from the remote branch is expected (rebase rewrites SHAs). Go straight
+      // to autosquash + force-push-with-lease.
       this.setStatus("pushing");
 
-      const diverged = await this.gitManager.checkDivergence();
-      if (diverged) {
-        const pulled = await this.gitManager.pullRebase();
-        if (!pulled) {
-          logger.error("Could not pull --rebase, skipping push", this.branch);
-          pushAborted = true;
-        }
+      const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+      if (!rebased) {
+        logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+        this.state.hasFixupCommits = true;
+      } else {
+        this.state.hasFixupCommits = false;
       }
 
-      if (!pushAborted) {
-        const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-        if (!rebased) {
-          logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
-          this.state.hasFixupCommits = true;
-        } else {
-          // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
-          this.state.hasFixupCommits = false;
-        }
-      }
-
-      if (!pushAborted) {
-        pushed = await this.gitManager.forcePushWithLease();
-        if (pushed) {
-          this.state.lastPushAt = new Date().toISOString();
-          this.emit("pushed", this.branch);
-        } else {
-          logger.error("Push failed", this.branch);
-        }
+      pushed = await this.gitManager.forcePushWithLease();
+      if (pushed) {
+        this.state.lastPushAt = new Date().toISOString();
+        this.emit("pushed", this.branch);
+      } else {
+        logger.error("Push failed", this.branch);
       }
     } else {
       logger.info("No commits made — skipping push", this.branch);
@@ -663,7 +651,7 @@ export class SessionController extends EventEmitter {
     }
 
     // 8. RE-REQUEST review and CI check only after successful push
-    if (!pushAborted) {
+    if (pushed) {
       if (this.state.prNumber && madeCommits) {
         const uniqueAuthors = [...new Set(actionable.map((c) => c.author))]
           .filter((a) => a !== this.prAuthor);
@@ -673,10 +661,8 @@ export class SessionController extends EventEmitter {
       }
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
-      if (pushed) {
-        this.setStatus("watching");
-        await this.checkAndFixCI(baseBranch);
-      }
+      this.setStatus("watching");
+      await this.checkAndFixCI(baseBranch);
     }
 
     // Update running totals - only count comments as fixed when commits are made and pushed successfully
@@ -944,30 +930,19 @@ export class SessionController extends EventEmitter {
 
       if (!ciFixResult.isError && headAfterCIFix !== headBeforeCIFix) {
         this.setStatus("pushing");
-        const diverged = await this.gitManager.checkDivergence();
-        if (diverged) {
-          const pulled = await this.gitManager.pullRebase();
-          if (!pulled) {
-            logger.error("Could not pull --rebase during CI fix, skipping push", this.branch);
-            pushSucceeded = false;
-          }
+        const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
+        if (!rebased) {
+          logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
+          this.state.hasFixupCommits = true;
+        } else {
+          this.state.hasFixupCommits = false;
         }
-        if (pushSucceeded) {
-          const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
-          if (!rebased) {
-            logger.warn("Autosquash rebase failed — pushing with unsquashed fixup commits", this.branch);
-            this.state.hasFixupCommits = true;
-          } else {
-            // Clear the flag if autosquash succeeded (may have been set in a previous cycle)
-            this.state.hasFixupCommits = false;
-          }
-          const pushed = await this.gitManager.forcePushWithLease();
-          if (pushed) {
-            this.state.lastPushAt = new Date().toISOString();
-            this.emit("pushed", this.branch);
-          } else {
-            pushSucceeded = false;
-          }
+        const pushed = await this.gitManager.forcePushWithLease();
+        if (pushed) {
+          this.state.lastPushAt = new Date().toISOString();
+          this.emit("pushed", this.branch);
+        } else {
+          pushSucceeded = false;
         }
       }
 
