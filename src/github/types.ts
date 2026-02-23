@@ -8,7 +8,7 @@ export interface GHPullRequest {
   headRefName: string;
   baseRefName: string;
   headRefOid: string;
-  author: { login: string };
+  author: { login: string } | null;
   commits?: {
     nodes: {
       commit: {
@@ -95,6 +95,12 @@ export interface GHPRCommentsResponse {
       };
     };
   };
+}
+
+export interface PRPage {
+  prs: GHPullRequest[];
+  hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 export type GHReviewState =

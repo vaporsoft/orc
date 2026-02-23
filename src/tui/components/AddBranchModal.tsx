@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../theme.js";
-import { fuzzyFilter } from "../../utils/fuzzy.js";
 import type { Daemon } from "../../core/daemon.js";
-import type { GHPullRequest } from "../../github/types.js";
+import type { GHPullRequest, PRPage } from "../../github/types.js";
 import { logger } from "../../utils/logger.js";
 
 interface AddBranchModalProps {
@@ -14,65 +13,105 @@ interface AddBranchModalProps {
 type LoadState = "loading" | "loaded" | "error";
 
 const MAX_VISIBLE = 8;
+const DEBOUNCE_MS = 300;
+
+interface CachedPage {
+  prs: GHPullRequest[];
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
 
 export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
   const theme = useTheme();
   const [query, setQuery] = useState("");
-  const [allPRs, setAllPRs] = useState<GHPullRequest[]>([]);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageCache, setPageCache] = useState<CachedPage[]>([]);
+  const fetchIdRef = useRef(0);
+  const targetPageRef = useRef(0);
 
-  // Fetch all open PRs on mount
+  // Debounce search input — immediate for empty (browse mode), 300ms for search
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
+    const delay = query.length === 0 ? 0 : DEBOUNCE_MS;
+    const timer = setTimeout(() => setDebouncedQuery(query), delay);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const fetchPage = useCallback(
+    async (searchQuery: string, page: number, cursor: string | null) => {
+      const fetchId = ++fetchIdRef.current;
+      targetPageRef.current = page;
+      setLoadState("loading");
+
       try {
         const ghClient = daemon.getGHClient();
-        const prs = await ghClient.getAllOpenPRs();
-        if (cancelled) return;
+        let result: PRPage;
 
-        // Filter out branches already tracked
-        const discovered = daemon.getDiscoveredPRs();
-        const filtered = prs.filter((pr) => !discovered.has(pr.headRefName));
-        setAllPRs(filtered);
+        if (searchQuery.length === 0) {
+          result = await ghClient.browseOpenPRs(cursor);
+        } else {
+          result = await ghClient.searchOpenPRs(searchQuery, cursor);
+        }
+
+        // Discard result if another fetch started OR user navigated away
+        if (fetchIdRef.current !== fetchId || targetPageRef.current !== page) return;
+
+        const cached: CachedPage = {
+          prs: result.prs,
+          hasNextPage: result.hasNextPage,
+          endCursor: result.endCursor,
+        };
+
+        setPageCache((prev) => {
+          const next = [...prev];
+          next[page] = cached;
+          return next;
+        });
+        setCurrentPage(page);
+        setSelectedIndex(0);
+        setScrollOffset(0);
         setLoadState("loaded");
       } catch (err) {
-        if (cancelled) return;
-        logger.error(`Failed to fetch open PRs: ${err}`);
+        // Discard error if another fetch started OR user navigated away
+        if (fetchIdRef.current !== fetchId || targetPageRef.current !== page) return;
+        logger.error(`Failed to fetch PRs: ${err}`);
         setLoadState("error");
       }
-    })();
-    return () => { cancelled = true; };
-  }, [daemon]);
+    },
+    [daemon],
+  );
 
-  // Fuzzy-filtered results
-  const branchNames = allPRs.map((pr) => pr.headRefName);
-  const filtered = fuzzyFilter(query, branchNames);
-  const prByBranch = new Map(allPRs.map((pr) => [pr.headRefName, pr]));
-
-  // Clamp selection when filtered list changes
-  const clampedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1));
-  if (clampedIndex !== selectedIndex) {
-    // Can't call setState in render, so we handle this in the effect below
-  }
-
+  // When debounced query changes, reset pagination and fetch page 0
   useEffect(() => {
-    const max = Math.max(0, filtered.length - 1);
+    setPageCache([]);
+    setCurrentPage(0);
+    fetchPage(debouncedQuery, 0, null);
+  }, [debouncedQuery, fetchPage]);
+
+  // Current page data, filtering out already-tracked branches
+  const currentData = pageCache[currentPage] ?? null;
+  const discovered = daemon.getDiscoveredPRs();
+  const displayPRs =
+    currentData?.prs.filter((pr) => !discovered.has(pr.headRefName)) ?? [];
+
+  // Clamp selection when display list changes
+  useEffect(() => {
+    const max = Math.max(0, displayPRs.length - 1);
     if (selectedIndex > max) {
       setSelectedIndex(max);
       setScrollOffset(Math.max(0, max - MAX_VISIBLE + 1));
     }
-  }, [filtered.length, selectedIndex]);
+  }, [displayPRs.length, selectedIndex]);
 
   const addBranch = useCallback(
-    async (branch: string) => {
-      const pr = prByBranch.get(branch);
-      if (!pr) return;
+    async (pr: GHPullRequest) => {
       await daemon.addExternalBranch(pr);
       onClose();
     },
-    [daemon, onClose, prByBranch],
+    [daemon, onClose],
   );
 
   useInput((input, key) => {
@@ -81,11 +120,41 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
       return;
     }
 
-    if (key.return && filtered.length > 0) {
-      const effectiveIndex = Math.min(clampedIndex, filtered.length - 1);
-      const branch = filtered[effectiveIndex];
-      if (branch) {
-        addBranch(branch).catch(() => {});
+    if (key.return && displayPRs.length > 0) {
+      const effectiveIndex = Math.min(selectedIndex, displayPRs.length - 1);
+      const pr = displayPRs[effectiveIndex];
+      if (pr) {
+        addBranch(pr).catch(() => {});
+      }
+      return;
+    }
+
+    // Page navigation with left/right arrows
+    if (key.rightArrow) {
+      if (currentData?.hasNextPage && currentData.endCursor) {
+        const nextPage = currentPage + 1;
+        if (pageCache[nextPage]) {
+          // Use cached page
+          targetPageRef.current = nextPage;
+          setCurrentPage(nextPage);
+          setSelectedIndex(0);
+          setScrollOffset(0);
+          setLoadState("loaded");
+        } else {
+          fetchPage(debouncedQuery, nextPage, currentData.endCursor);
+        }
+      }
+      return;
+    }
+
+    if (key.leftArrow) {
+      if (currentPage > 0) {
+        const prevPage = currentPage - 1;
+        targetPageRef.current = prevPage;
+        setCurrentPage(prevPage);
+        setSelectedIndex(0);
+        setScrollOffset(0);
+        setLoadState("loaded");
       }
       return;
     }
@@ -101,9 +170,10 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
 
     if (key.downArrow) {
       setSelectedIndex((prev) => {
-        const max = Math.max(0, filtered.length - 1);
+        const max = Math.max(0, displayPRs.length - 1);
         const next = Math.min(max, prev + 1);
-        if (next >= scrollOffset + MAX_VISIBLE) setScrollOffset(next - MAX_VISIBLE + 1);
+        if (next >= scrollOffset + MAX_VISIBLE)
+          setScrollOffset(next - MAX_VISIBLE + 1);
         return next;
       });
       return;
@@ -125,9 +195,16 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
     }
   });
 
-  const visibleItems = filtered.slice(scrollOffset, scrollOffset + MAX_VISIBLE);
-  const hasMore = filtered.length > scrollOffset + MAX_VISIBLE;
+  const visibleItems = displayPRs.slice(
+    scrollOffset,
+    scrollOffset + MAX_VISIBLE,
+  );
+  const hasMore = displayPRs.length > scrollOffset + MAX_VISIBLE;
   const hasAbove = scrollOffset > 0;
+
+  const canGoLeft = currentPage > 0;
+  const canGoRight = currentData?.hasNextPage ?? false;
+  const pageLabel = `Page ${currentPage + 1}`;
 
   return (
     <Box
@@ -145,63 +222,97 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
 
       {/* Search input */}
       <Box>
-        <Text color={theme.accent} bold>{"Search: "}</Text>
+        <Text color={theme.accent} bold>
+          {"Search: "}
+        </Text>
         <Text color={theme.text}>{query}</Text>
         <Text color={theme.accent}>{"█"}</Text>
       </Box>
 
       <Box marginTop={1} flexDirection="column">
         {loadState === "loading" && (
-          <Text color={theme.muted}>Fetching open pull requests...</Text>
+          <Text color={theme.muted}>
+            {query.length > 0
+              ? "Searching open pull requests..."
+              : "Fetching open pull requests..."}
+          </Text>
         )}
 
         {loadState === "error" && (
-          <Text color={theme.error}>Failed to fetch pull requests. Press Esc to close.</Text>
+          <Text color={theme.error}>
+            Failed to fetch pull requests. Press Esc to close.
+          </Text>
         )}
 
-        {loadState === "loaded" && allPRs.length === 0 && (
-          <Text color={theme.muted}>No other open pull requests found.</Text>
+        {loadState === "loaded" && displayPRs.length === 0 && (
+          <Text color={theme.muted}>
+            {query.length > 0
+              ? "No matching pull requests."
+              : "No other open pull requests found."}
+          </Text>
         )}
 
-        {loadState === "loaded" && allPRs.length > 0 && filtered.length === 0 && (
-          <Text color={theme.muted}>No matching branches.</Text>
-        )}
-
-        {loadState === "loaded" && filtered.length > 0 && (
+        {loadState === "loaded" && displayPRs.length > 0 && (
           <>
             {hasAbove && (
-              <Text color={theme.muted} dimColor>  ↑ {scrollOffset} more</Text>
+              <Text color={theme.muted} dimColor>
+                {"  ↑ "}
+                {scrollOffset}
+                {" more"}
+              </Text>
             )}
-            {visibleItems.map((branch, i) => {
+            {visibleItems.map((pr, i) => {
               const actualIndex = i + scrollOffset;
-              const selected = actualIndex === clampedIndex;
-              const pr = prByBranch.get(branch);
+              const selected = actualIndex === selectedIndex;
               return (
-                <Box key={branch}>
+                <Box key={pr.number}>
                   <Text color={selected ? theme.accent : theme.muted}>
                     {selected ? " ▸ " : "   "}
                   </Text>
-                  <Text color={selected ? theme.text : theme.muted} bold={selected}>
-                    {branch}
+                  <Text
+                    color={selected ? theme.text : theme.muted}
+                    bold={selected}
+                  >
+                    {pr.headRefName}
                   </Text>
-                  {pr && (
-                    <Text dimColor color={theme.muted}>
-                      {`  #${pr.number} ${pr.author.login}`}
-                    </Text>
-                  )}
+                  <Text dimColor color={theme.muted}>
+                    {`  #${pr.number} ${pr.author?.login ?? "ghost"}`}
+                  </Text>
                 </Box>
               );
             })}
             {hasMore && (
-              <Text color={theme.muted} dimColor>  ↓ {filtered.length - scrollOffset - MAX_VISIBLE} more</Text>
+              <Text color={theme.muted} dimColor>
+                {"  ↓ "}
+                {displayPRs.length - scrollOffset - MAX_VISIBLE}
+                {" more"}
+              </Text>
             )}
           </>
         )}
       </Box>
 
+      {/* Page indicator */}
+      {loadState === "loaded" && (
+        <Box marginTop={1} justifyContent="center">
+          <Text color={theme.muted}>
+            {canGoLeft && (
+              <Text color={theme.accent}>{"← "}</Text>
+            )}
+            <Text dimColor>{pageLabel}</Text>
+            {canGoRight && (
+              <Text color={theme.accent}>{" →"}</Text>
+            )}
+          </Text>
+        </Box>
+      )}
+
       <Box marginTop={1} justifyContent="center">
         <Text dimColor>
-          <Text color={theme.accent}>↑/↓</Text> select  <Text color={theme.accent}>enter</Text> add  <Text color={theme.accent}>esc</Text> cancel
+          <Text color={theme.accent}>↑/↓</Text> select{"  "}
+          <Text color={theme.accent}>←/→</Text> page{"  "}
+          <Text color={theme.accent}>enter</Text> add{"  "}
+          <Text color={theme.accent}>esc</Text> cancel
         </Text>
       </Box>
     </Box>

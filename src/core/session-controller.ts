@@ -145,7 +145,7 @@ export class SessionController extends EventEmitter {
 
       this.state.prNumber = pr.number;
       this.state.prUrl = pr.url;
-      this.prAuthor = pr.author.login;
+      this.prAuthor = pr.author?.login ?? "ghost";
 
       const botLogin = await this.ghClient.getCurrentUser();
       this.fetcher = new CommentFetcher(this.ghClient, pr.number, botLogin, this.branch);
