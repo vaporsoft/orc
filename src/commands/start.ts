@@ -22,6 +22,7 @@ export interface StartOptions {
   claudeTimeout?: number;
   dryRun?: boolean;
   verbose?: boolean;
+  writeLogs?: boolean;
   theme?: "dark" | "light";
 }
 
@@ -111,10 +112,11 @@ export async function startCommand(options: StartOptions): Promise<void> {
     claudeTimeout: options.claudeTimeout,
     dryRun: options.dryRun ?? false,
     verbose: options.verbose ?? false,
+    writeLogs: options.writeLogs ?? false,
     theme,
   });
 
-  logger.init("orc.log", config.verbose);
+  logger.init(config.writeLogs ? "orc.log" : undefined, config.verbose);
 
   // Clean up session log files from previous runs
   try {

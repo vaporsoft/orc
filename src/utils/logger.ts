@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const MAX_BRANCH_BUFFER = 500;
+const LOG_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const FLUSH_INTERVAL_MS = 60_000; // 1 minute
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -16,9 +18,15 @@ export interface LogEntry {
 
 /**
  * Structured logger that writes to a file and emits events for the UI.
+ *
+ * When a log path is provided (via --write-logs), entries are buffered in
+ * memory and periodically flushed to disk. Only the last 10 minutes of
+ * entries are kept — older entries are pruned on each flush.
  */
 class Logger extends EventEmitter {
-  private logFile: fs.WriteStream | null = null;
+  private logPath: string | null = null;
+  private entries: LogEntry[] = [];
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
   private verbose = false;
   private suppressConsole = false;
   private branchBuffers = new Map<string, LogEntry[]>();
@@ -32,7 +40,11 @@ class Logger extends EventEmitter {
     if (logPath) {
       const dir = path.dirname(logPath);
       fs.mkdirSync(dir, { recursive: true });
-      this.logFile = fs.createWriteStream(logPath, { flags: "w" });
+      this.logPath = logPath;
+      // Write an empty file to start fresh
+      fs.writeFileSync(logPath, "");
+      this.flushTimer = setInterval(() => this.flush(), FLUSH_INTERVAL_MS);
+      this.flushTimer.unref();
     }
   }
 
@@ -50,8 +62,10 @@ class Logger extends EventEmitter {
       data,
     };
 
-    // Write to log file
-    this.logFile?.write(JSON.stringify(entry) + "\n");
+    // Buffer entry for file logging
+    if (this.logPath) {
+      this.entries.push(entry);
+    }
 
     // Buffer per-branch logs for dump
     if (branch) {
@@ -99,8 +113,23 @@ class Logger extends EventEmitter {
     fs.writeFileSync(outputPath, lines.join("\n") + "\n");
   }
 
+  /** Prune entries older than 10 minutes and write the rest to disk. */
+  private flush(): void {
+    if (!this.logPath) return;
+    const cutoff = Date.now() - LOG_MAX_AGE_MS;
+    this.entries = this.entries.filter(
+      (e) => new Date(e.timestamp).getTime() >= cutoff,
+    );
+    const content = this.entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    fs.writeFileSync(this.logPath, content);
+  }
+
   close(): void {
-    this.logFile?.end();
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flush();
   }
 }
 
