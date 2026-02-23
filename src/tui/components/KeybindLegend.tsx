@@ -29,6 +29,7 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
     {
       title: "Actions",
       binds: [
+        { key: "+", label: "Add branch" },
         { key: "s", label: "Start / stop" },
         { key: "w", label: "Watch" },
         { key: "a", label: "Start all" },

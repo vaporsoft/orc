@@ -19,6 +19,7 @@ import { LogPane } from "./components/LogPane.js";
 import { HelpBar } from "./components/HelpBar.js";
 import { KeybindLegend } from "./components/KeybindLegend.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
+import { AddBranchModal } from "./components/AddBranchModal.js";
 import { useThemeContext } from "./theme.js";
 
 type Pane = "sessions" | "logs";
@@ -48,6 +49,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [toolbarIndex, setToolbarIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [showAddBranch, setShowAddBranch] = useState(false);
   const [focusedSection, setFocusedSection] = useState<DetailSection | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<DetailSection>>(new Set());
 
@@ -140,6 +142,7 @@ export function App({ daemon, startTime }: AppProps) {
   }, [entries, openBranches]);
 
   const toolbarButtons: ToolbarButton[] = [
+    { label: "Add Branch", action: () => setShowAddBranch(true) },
     { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
     { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
@@ -156,7 +159,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   useInput((input, key) => {
     // Modal panels — block all other keybindings when open
-    if (showSettings || showLegend) return;
+    if (showSettings || showLegend || showAddBranch) return;
 
     if (input === "q") {
       onQuit();
@@ -175,6 +178,11 @@ export function App({ daemon, startTime }: AppProps) {
 
     if (input === "t") {
       toggleTheme();
+      return;
+    }
+
+    if (input === "+") {
+      setShowAddBranch(true);
       return;
     }
 
@@ -492,6 +500,12 @@ export function App({ daemon, startTime }: AppProps) {
         <KeybindLegend
           showingLogs={showLogs}
           onClose={() => setShowLegend(false)}
+        />
+      )}
+      {showAddBranch && (
+        <AddBranchModal
+          daemon={daemon}
+          onClose={() => setShowAddBranch(false)}
         />
       )}
       {/* Spacer fills remaining height, borders connect the frame */}
