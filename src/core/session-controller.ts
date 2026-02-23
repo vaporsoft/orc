@@ -900,7 +900,7 @@ export class SessionController extends EventEmitter {
 
     // Keep retrying CI fixes up to MAX_CI_FIX_ATTEMPTS per cycle
     while (this.state.ciFixAttempts < MAX_CI_FIX_ATTEMPTS && this.running) {
-      const ciResult = await this.pollCIStatus();
+      const ciResult = await this.pollCIStatus(this.state.ciFixAttempts > 0);
       this.state.ciStatus = ciResult.status;
       this.state.failedChecks = ciResult.failedChecks;
       this.emit("sessionUpdate", this.branch, this.getState());
@@ -998,7 +998,7 @@ export class SessionController extends EventEmitter {
     // the final CI status. Without this, ciStatus stays "failing" from the
     // poll at the START of the last iteration.
     if (this.state.ciFixAttempts >= MAX_CI_FIX_ATTEMPTS && this.running) {
-      const finalResult = await this.pollCIStatus();
+      const finalResult = await this.pollCIStatus(true);
       this.state.ciStatus = finalResult.status;
       this.state.failedChecks = finalResult.failedChecks;
       this.emit("sessionUpdate", this.branch, this.getState());
@@ -1012,14 +1012,17 @@ export class SessionController extends EventEmitter {
     }
   }
 
-  /** Wait for CI checks to complete, then return aggregated status. */
-  private async pollCIStatus(): Promise<{ status: CIStatus; failedChecks: FailedCheck[] }> {
+  /** Wait for CI checks to complete, then return aggregated status.
+   *  @param afterPush Whether we just pushed and need to wait for new checks to register. */
+  private async pollCIStatus(afterPush = false): Promise<{ status: CIStatus; failedChecks: FailedCheck[] }> {
     if (!this.state.prNumber) return { status: "unknown", failedChecks: [] };
 
     // Wait for checks to start (GitHub needs time after push)
-    this.state.ciStatus = "pending";
-    this.emit("sessionUpdate", this.branch, this.getState());
-    await this.sleep(10_000);
+    if (afterPush) {
+      this.state.ciStatus = "pending";
+      this.emit("sessionUpdate", this.branch, this.getState());
+      await this.sleep(10_000);
+    }
 
     const maxWait = 10 * 60 * 1000; // 10 min max wait
     const pollInterval = 15_000;
