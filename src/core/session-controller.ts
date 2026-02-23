@@ -881,7 +881,9 @@ export class SessionController extends EventEmitter {
             this.state.lastPushAt = new Date().toISOString();
             this.emit("pushed", this.branch);
             // We pushed rebased code that may fix CI — break to let CI re-run
+            this.state.ciStatus = "pending";
             this.state.claudeActivity = [];
+            this.emit("sessionUpdate", this.branch, this.getState());
             if (this.mode === "watch") this.setStatus("watching");
             break;
           } else {

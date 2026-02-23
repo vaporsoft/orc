@@ -204,6 +204,29 @@ describe("SessionController CI fix loop", () => {
     expect(aheadSpy).not.toHaveBeenCalled();
   });
 
+  it("sets ciStatus to pending after pushing rebased branch", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
+    });
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
+    });
+
+    // Claude makes no commits
+    vi.spyOn(gitManager, "getHeadSha").mockResolvedValue("abc123");
+
+    // But local is ahead of remote
+    vi.spyOn(gitManager, "isAheadOfRemote").mockResolvedValue(true);
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    // ciStatus should be "pending" (not stale "failing") so daemon doesn't
+    // prematurely schedule another fix cycle
+    expect(ctrl.getState().ciStatus).toBe("pending");
+  });
+
   it("skips fix attempt entirely when CI is not failing", async () => {
     vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
       status: "passing",
