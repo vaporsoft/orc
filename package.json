@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "yarn build"
+    "prepublishOnly": "yarn build",
+    "publish:npm": "yarn lint && yarn typecheck && npm publish"
   },
   "keywords": [
     "github",
