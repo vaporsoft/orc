@@ -12,7 +12,8 @@ import {
   PR_COMMENTS_QUERY,
   PR_FOR_BRANCH_QUERY,
   MY_OPEN_PRS_QUERY,
-  ALL_OPEN_PRS_QUERY,
+  BROWSE_OPEN_PRS_QUERY,
+  SEARCH_OPEN_PRS_QUERY,
 } from "./queries.js";
 import type {
   GHReviewThreadsResponse,
@@ -22,6 +23,7 @@ import type {
   GHCheckRun,
   GHCheckRunsResponse,
   GHPullRequest,
+  PRPage,
 } from "./types.js";
 
 export interface RepoInfo {
@@ -96,20 +98,53 @@ export class GHClient {
     return result.data.search.nodes.filter((node) => node.number !== undefined);
   }
 
-  /** Find all open PRs in the repo (regardless of author). */
-  async getAllOpenPRs(): Promise<GHPullRequest[]> {
+  /** Browse open PRs sorted by recently updated, paginated (10 per page). */
+  async browseOpenPRs(cursor?: string | null): Promise<PRPage> {
     const { owner, repo } = await this.getRepoInfo();
+    const variables: Record<string, unknown> = { owner, repo };
+    if (cursor) variables.cursor = cursor;
 
-    const searchQuery = `repo:${owner}/${repo} is:pr is:open`;
+    const result = await this.graphql<{
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: boolean; endCursor: string | null };
+            nodes: GHPullRequest[];
+          };
+        };
+      };
+    }>(BROWSE_OPEN_PRS_QUERY, variables);
+
+    const connection = result.data.repository.pullRequests;
+    return {
+      prs: connection.nodes.filter((n) => n.number !== undefined),
+      hasNextPage: connection.pageInfo.hasNextPage,
+      endCursor: connection.pageInfo.endCursor,
+    };
+  }
+
+  /** Search open PRs by branch name, sorted by recently updated, paginated (10 per page). */
+  async searchOpenPRs(query: string, cursor?: string | null): Promise<PRPage> {
+    const { owner, repo } = await this.getRepoInfo();
+    const searchQuery = `repo:${owner}/${repo} is:pr is:open sort:updated-desc head:"${query}"`;
+    const variables: Record<string, unknown> = { searchQuery };
+    if (cursor) variables.cursor = cursor;
+
     const result = await this.graphql<{
       data: {
         search: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
           nodes: GHPullRequest[];
         };
       };
-    }>(ALL_OPEN_PRS_QUERY, { searchQuery });
+    }>(SEARCH_OPEN_PRS_QUERY, variables);
 
-    return result.data.search.nodes.filter((node) => node.number !== undefined);
+    const connection = result.data.search;
+    return {
+      prs: connection.nodes.filter((n) => n.number !== undefined),
+      hasNextPage: connection.pageInfo.hasNextPage,
+      endCursor: connection.pageInfo.endCursor,
+    };
   }
 
   /** Execute a GraphQL query via `gh api graphql`. */

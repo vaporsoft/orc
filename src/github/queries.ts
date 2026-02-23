@@ -137,9 +137,55 @@ query PRComments($owner: String!, $repo: String!, $prNumber: Int!, $cursor: Stri
 }
 `;
 
-export const ALL_OPEN_PRS_QUERY = `
-query AllOpenPRs($searchQuery: String!) {
-  search(query: $searchQuery, type: ISSUE, first: 50) {
+export const BROWSE_OPEN_PRS_QUERY = `
+query BrowseOpenPRs($owner: String!, $repo: String!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}, first: 10, after: $cursor) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        number
+        url
+        title
+        state
+        headRefName
+        baseRefName
+        headRefOid
+        author { login }
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 50) {
+                  nodes {
+                    ... on CheckRun {
+                      databaseId
+                      name
+                      status
+                      conclusion
+                      detailsUrl
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+export const SEARCH_OPEN_PRS_QUERY = `
+query SearchOpenPRs($searchQuery: String!, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: 10, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
     nodes {
       ... on PullRequest {
         number
