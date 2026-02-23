@@ -3,7 +3,6 @@
  * - Rebase with autosquash
  * - Force-push with lease
  * - Discard partial changes on failure
- * - Detect divergence
  */
 
 import { exec, type ExecResult } from "../utils/process.js";
@@ -73,22 +72,13 @@ export class GitManager {
         `HEAD:${this.branch}`,
       ]);
       return true;
-    } catch (_err) {
-      logger.warn(`Push rejected, fetching and retrying`, this.branch);
-
-      try {
-        await this.git(["fetch", "origin", this.branch]);
-        await this.git([
-          "push",
-          "--force-with-lease",
-          "origin",
-          `HEAD:${this.branch}`,
-        ]);
-        return true;
-      } catch {
-        logger.error(`Push failed after retry`, this.branch);
-        return false;
-      }
+    } catch {
+      // Do NOT fetch and retry here. The lease rejection means someone else
+      // pushed to the branch, and retrying after fetch would update the
+      // tracking ref, causing the second push to succeed and overwrite their
+      // commits. Let the push fail so the next cycle can handle the divergence.
+      logger.error(`Push rejected by --force-with-lease`, this.branch);
+      return false;
     }
   }
 
@@ -120,30 +110,6 @@ export class GitManager {
       "HEAD",
     ]);
     return result.stdout.trim().split("\n").filter(Boolean);
-  }
-
-  /** Fetch the remote branch and check for divergence. */
-  async checkDivergence(): Promise<boolean> {
-    try {
-      await this.git(["fetch", "origin", this.branch]);
-      const result = await this.git([
-        "rev-list",
-        "--left-right",
-        "--count",
-        `HEAD...origin/${this.branch}`,
-      ]);
-      const [_ahead, behind] = result.stdout.trim().split("\t").map(Number);
-      if (behind > 0) {
-        logger.warn(
-          `Branch ${this.branch} is ${behind} commits behind remote`,
-          this.branch,
-        );
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
   }
 
   /** Stash any uncommitted changes. Returns true if something was stashed. */
