@@ -19,6 +19,13 @@ if [[ -z "$BUMP" || ! "$BUMP" =~ ^(patch|minor|major)$ ]]; then
   exit 1
 fi
 
+# Confirmation prompt
+read -r -p "This will publish a new $BUMP revision to npm and GitHub. Are you sure you want to proceed? [y/N] " CONFIRM
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+  echo "Aborted."
+  exit 0
+fi
+
 # Ensure clean working tree
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Error: working tree is not clean. Commit or stash changes first."
