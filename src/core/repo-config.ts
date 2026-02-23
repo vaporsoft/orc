@@ -43,8 +43,23 @@ const DEFAULT_CONFIG: RepoConfig = {
 };
 
 export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
-  const instructions = await loadInstructions(cwd);
-  const jsonConfig = await loadJsonConfig(cwd);
+  const { instructions, orcMdContent } = await loadInstructions(cwd);
+  const { config: jsonConfig, jsonConfigExists } = await loadJsonConfig(cwd);
+
+  // If no orc.config.json, try parsing legacy ORC.md sections for backwards compatibility
+  if (!jsonConfigExists && orcMdContent) {
+    const legacyConfig = parseLegacyOrcMdSections(orcMdContent);
+    if (legacyConfig) {
+      logger.info("Using legacy ORC.md sections (## Verify, ## Auto-fix, etc.) for config");
+      return {
+        instructions,
+        setupCommands: legacyConfig.setupCommands,
+        verifyCommands: legacyConfig.verifyCommands,
+        allowedCommands: legacyConfig.allowedCommands,
+        autoFix: legacyConfig.autoFix,
+      };
+    }
+  }
 
   return {
     instructions,
@@ -56,27 +71,108 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
 }
 
 /** Read freeform instructions from ORC.md. */
-async function loadInstructions(cwd: string): Promise<string> {
+async function loadInstructions(cwd: string): Promise<{ instructions: string; orcMdContent: string | null }> {
   const filePath = join(cwd, "ORC.md");
   try {
     const content = await readFile(filePath, "utf-8");
     logger.info("Loaded ORC.md instructions");
-    return content.trim();
+    return { instructions: content.trim(), orcMdContent: content };
   } catch {
     logger.debug("No ORC.md found");
-    return DEFAULT_CONFIG.instructions;
+    return { instructions: DEFAULT_CONFIG.instructions, orcMdContent: null };
   }
 }
 
+interface LegacyOrcConfig {
+  setupCommands: string[];
+  verifyCommands: string[];
+  allowedCommands: string[];
+  autoFix: RepoConfig["autoFix"];
+}
+
+/**
+ * Parse legacy ORC.md sections (## Verify, ## Auto-fix, etc.)
+ * for backwards compatibility with users who haven't migrated to orc.config.json.
+ */
+function parseLegacyOrcMdSections(content: string): LegacyOrcConfig | null {
+  const sections = new Map<string, string>();
+  let currentHeading = "";
+  const lines = content.split("\n");
+
+  for (const line of lines) {
+    const h2Match = line.match(/^## (.+)/);
+    if (h2Match) {
+      currentHeading = h2Match[1].trim().toLowerCase();
+      continue;
+    }
+    if (line.match(/^# /)) continue;
+
+    if (currentHeading) {
+      const existing = sections.get(currentHeading) ?? "";
+      sections.set(currentHeading, existing + line + "\n");
+    }
+  }
+
+  // Check if any legacy sections exist
+  const hasLegacySections =
+    sections.has("verify") || sections.has("auto-fix") || sections.has("setup") || sections.has("allowed commands");
+
+  if (!hasLegacySections) {
+    return null;
+  }
+
+  const setupCommands: string[] = [];
+  const setupSection = sections.get("setup") ?? "";
+  for (const line of setupSection.split("\n")) {
+    const match = line.match(/^-\s*`(.+)`/);
+    if (match) {
+      setupCommands.push(match[1]);
+    }
+  }
+
+  const verifyCommands: string[] = [];
+  const verifySection = sections.get("verify") ?? "";
+  for (const line of verifySection.split("\n")) {
+    const match = line.match(/^-\s*`(.+)`/);
+    if (match) {
+      verifyCommands.push(match[1]);
+    }
+  }
+
+  const allowedCommands: string[] = [];
+  const allowedSection = sections.get("allowed commands") ?? "";
+  for (const line of allowedSection.split("\n")) {
+    const match = line.match(/^-\s*`(.+)`/);
+    if (match) {
+      allowedCommands.push(match[1]);
+    }
+  }
+
+  const autoFix = { ...DEFAULT_CONFIG.autoFix };
+  const autoFixSection = sections.get("auto-fix") ?? "";
+  for (const line of autoFixSection.split("\n")) {
+    const match = line.match(
+      /^-\s*(must_fix|should_fix|nice_to_have|verify_and_fix|needs_clarification)\s*:\s*(true|false)/
+    );
+    if (match) {
+      autoFix[match[1] as keyof typeof autoFix] = match[2] === "true";
+    }
+  }
+
+  return { setupCommands, verifyCommands, allowedCommands, autoFix };
+}
+
 /** Read structured config from orc.config.json, validated with Zod. */
-async function loadJsonConfig(cwd: string): Promise<z.infer<typeof OrcConfigSchema>> {
+async function loadJsonConfig(
+  cwd: string
+): Promise<{ config: z.infer<typeof OrcConfigSchema>; jsonConfigExists: boolean }> {
   const filePath = join(cwd, "orc.config.json");
   try {
     const raw = await readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     const config = OrcConfigSchema.parse(parsed);
     logger.info("Loaded orc.config.json");
-    return config;
+    return { config, jsonConfigExists: true };
   } catch (err) {
     if (err instanceof z.ZodError) {
       logger.warn(`Invalid orc.config.json: ${err.issues.map((i) => i.message).join(", ")}`);
@@ -87,6 +183,6 @@ async function loadJsonConfig(cwd: string): Promise<z.infer<typeof OrcConfigSche
     } else {
       logger.warn(`Failed to load orc.config.json: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return OrcConfigSchema.parse({});
+    return { config: OrcConfigSchema.parse({}), jsonConfigExists: false };
   }
 }
