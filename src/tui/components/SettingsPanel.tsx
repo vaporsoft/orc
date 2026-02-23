@@ -9,6 +9,22 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+const DURATION_OPTIONS = ["unlimited", "1h", "3h", "6h", "12h"];
+const DURATION_TO_HOURS: Record<string, number> = {
+  unlimited: 0,
+  "1h": 1,
+  "3h": 3,
+  "6h": 6,
+  "12h": 12,
+};
+const HOURS_TO_DURATION: Record<number, string> = {
+  0: "unlimited",
+  1: "1h",
+  3: "3h",
+  6: "6h",
+  12: "12h",
+};
+
 interface SettingDef {
   key: string;
   label: string;
@@ -74,6 +90,21 @@ const SETTINGS: SettingDef[] = [
       const n = parseInt(value, 10);
       saveSettings({ claudeTimeout: n });
       daemon.updateConfig({ claudeTimeout: n });
+    },
+  },
+  {
+    key: "sessionTimeout",
+    label: "Watch mode duration",
+    type: "enum",
+    options: DURATION_OPTIONS,
+    get: (s, daemon) => {
+      const hours = s.sessionTimeout ?? daemon.getConfig().sessionTimeout;
+      return HOURS_TO_DURATION[hours] ?? "unlimited";
+    },
+    apply: (value, daemon) => {
+      const hours = DURATION_TO_HOURS[value] ?? 0;
+      saveSettings({ sessionTimeout: hours });
+      daemon.updateConfig({ sessionTimeout: hours });
     },
   },
   {

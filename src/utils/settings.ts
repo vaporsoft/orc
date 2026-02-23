@@ -18,6 +18,7 @@ export interface UserSettings {
   claudeTimeout?: number;
   notifications?: boolean;
   maxConcurrentSessions?: number;
+  sessionTimeout?: number;
 }
 
 const settingsDir = join(homedir(), ".config", "orc");
