@@ -403,7 +403,7 @@ export class SessionController extends EventEmitter {
     this.state.ciFixAttempts = 0;
 
     // 1. FETCH — poll until comments appear
-    this.setStatus("watching");
+    if (this.mode === "watch") this.setStatus("watching");
     const fetchedComments = await this.fetcher.fetch();
 
     if (fetchedComments.length === 0) {
@@ -411,7 +411,7 @@ export class SessionController extends EventEmitter {
 
       // Check CI even when there are no comments to fix
       if (!this.config.dryRun) {
-        this.setStatus("watching");
+        if (this.mode === "watch") this.setStatus("watching");
         await this.checkAndFixCI(baseBranch);
       }
 
@@ -560,7 +560,7 @@ export class SessionController extends EventEmitter {
 
       // Check CI even when there are no actionable comments to fix
       if (!this.config.dryRun) {
-        this.setStatus("watching");
+        if (this.mode === "watch") this.setStatus("watching");
         await this.checkAndFixCI(baseBranch);
       }
 
@@ -691,7 +691,7 @@ export class SessionController extends EventEmitter {
       }
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
-      this.setStatus("watching");
+      if (this.mode === "watch") this.setStatus("watching");
       await this.checkAndFixCI(baseBranch);
     }
 
