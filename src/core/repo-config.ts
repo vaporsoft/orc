@@ -44,10 +44,11 @@ const DEFAULT_CONFIG: RepoConfig = {
 
 export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
   const { instructions, orcMdContent } = await loadInstructions(cwd);
-  const { config: jsonConfig, jsonConfigExists } = await loadJsonConfig(cwd);
+  const jsonResult = await loadJsonConfig(cwd);
 
-  // If no orc.config.json, try parsing legacy ORC.md sections for backwards compatibility
-  if (!jsonConfigExists && orcMdContent) {
+  // Only fall back to legacy ORC.md sections if orc.config.json doesn't exist at all.
+  // If orc.config.json exists but is invalid/malformed, use defaults (don't silently use legacy).
+  if (jsonResult.status === "not_found" && orcMdContent) {
     const legacyConfig = parseLegacyOrcMdSections(orcMdContent);
     if (legacyConfig) {
       logger.info("Using legacy ORC.md sections (## Verify, ## Auto-fix, etc.) for config");
@@ -63,10 +64,10 @@ export async function loadRepoConfig(cwd: string): Promise<RepoConfig> {
 
   return {
     instructions,
-    setupCommands: jsonConfig.setup,
-    verifyCommands: jsonConfig.verify,
-    allowedCommands: jsonConfig.allowedCommands,
-    autoFix: jsonConfig.autoFix,
+    setupCommands: jsonResult.config.setup,
+    verifyCommands: jsonResult.config.verify,
+    allowedCommands: jsonResult.config.allowedCommands,
+    autoFix: jsonResult.config.autoFix,
   };
 }
 
@@ -162,27 +163,33 @@ function parseLegacyOrcMdSections(content: string): LegacyOrcConfig | null {
   return { setupCommands, verifyCommands, allowedCommands, autoFix };
 }
 
+type JsonConfigResult =
+  | { status: "loaded"; config: z.infer<typeof OrcConfigSchema> }
+  | { status: "not_found"; config: z.infer<typeof OrcConfigSchema> }
+  | { status: "invalid"; config: z.infer<typeof OrcConfigSchema> };
+
 /** Read structured config from orc.config.json, validated with Zod. */
-async function loadJsonConfig(
-  cwd: string
-): Promise<{ config: z.infer<typeof OrcConfigSchema>; jsonConfigExists: boolean }> {
+async function loadJsonConfig(cwd: string): Promise<JsonConfigResult> {
   const filePath = join(cwd, "orc.config.json");
   try {
     const raw = await readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     const config = OrcConfigSchema.parse(parsed);
     logger.info("Loaded orc.config.json");
-    return { config, jsonConfigExists: true };
+    return { status: "loaded", config };
   } catch (err) {
     if (err instanceof z.ZodError) {
       logger.warn(`Invalid orc.config.json: ${err.issues.map((i) => i.message).join(", ")}`);
+      return { status: "invalid", config: OrcConfigSchema.parse({}) };
     } else if (err instanceof SyntaxError) {
       logger.warn(`Malformed JSON in orc.config.json: ${err.message}`);
+      return { status: "invalid", config: OrcConfigSchema.parse({}) };
     } else if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       logger.debug("No orc.config.json found, using defaults");
+      return { status: "not_found", config: OrcConfigSchema.parse({}) };
     } else {
       logger.warn(`Failed to load orc.config.json: ${err instanceof Error ? err.message : String(err)}`);
+      return { status: "invalid", config: OrcConfigSchema.parse({}) };
     }
-    return { config: OrcConfigSchema.parse({}), jsonConfigExists: false };
   }
 }
