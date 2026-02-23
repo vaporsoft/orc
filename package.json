@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "yarn build",
-    "publish:npm": "yarn lint && yarn typecheck && npm publish"
+    "publish:npm": "yarn lint && yarn typecheck && npm publish",
+    "release": "./scripts/release.sh"
   },
   "keywords": [
     "github",
