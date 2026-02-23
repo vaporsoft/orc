@@ -335,16 +335,12 @@ export class GHClient {
     threadNodeId: string,
     body: string,
   ): Promise<void> {
-    await withRetry(
-      () =>
-        this.execGH([
-          "api",
-          "graphql",
-          "-f",
-          `query=mutation { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: "${threadNodeId}", body: "${body.replace(/"/g, '\\"').replace(/\n/g, "\\n")}" }) { comment { id } } }`,
-        ]),
-      "reply-to-thread",
-    );
+    const mutation = `mutation($threadId: ID!, $body: String!) {
+      addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
+        comment { id }
+      }
+    }`;
+    await this.graphql(mutation, { threadId: threadNodeId, body });
   }
 
   /** Re-request review from the given reviewers. */

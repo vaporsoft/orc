@@ -22,8 +22,15 @@ export function resolveTerminal(): Terminal {
 
 const userShell = process.env.SHELL ?? "/bin/sh";
 
+/** Escape a string for safe inclusion in a single-quoted shell argument. */
+export function shellEscape(s: string): string {
+  // Replace every ' with '\'' (end quote, escaped quote, start quote)
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 function escapeAppleScript(cmd: string): string {
-  return cmd.replace(/"/g, '\\"');
+  // Escape both backslashes and double quotes for AppleScript string literals
+  return cmd.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function openGhostty(command: string): void {

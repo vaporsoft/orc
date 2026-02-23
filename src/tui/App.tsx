@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
-import { openTerminal } from "../utils/open-terminal.js";
+import { openTerminal, shellEscape } from "../utils/open-terminal.js";
 import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
@@ -318,7 +318,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.lastSessionId && st.workDir) {
-        openTerminal(`cd '${st.workDir}' && claude --resume ${st.lastSessionId}`);
+        openTerminal(`cd ${shellEscape(st.workDir)} && claude --resume ${shellEscape(st.lastSessionId)}`);
         logger.info(`Resuming Claude session ${st.lastSessionId}`, branch);
       } else {
         logger.warn("No Claude session to resume for this branch", branch);
@@ -332,7 +332,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       const st = entry?.state;
       if (st?.workDir) {
-        openTerminal(`cd '${st.workDir}'`);
+        openTerminal(`cd ${shellEscape(st.workDir)}`);
         logger.info(`Opening shell at ${st.workDir}`, branch);
       } else {
         logger.warn("No worktree directory for this branch", branch);
