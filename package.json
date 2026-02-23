@@ -1,6 +1,6 @@
 {
   "name": "@vaporsoft/orc",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
   "type": "module",
   "bin": "./dist/bin/orc.js",
