@@ -3,9 +3,7 @@
   "version": "0.1.7",
   "description": "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
   "type": "module",
-  "bin": {
-    "orc": "./dist/bin/orc.js"
-  },
+  "bin": "./dist/bin/orc.js",
   "files": [
     "dist",
     "LICENSE",
