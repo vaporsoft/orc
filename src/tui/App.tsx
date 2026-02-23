@@ -212,15 +212,6 @@ export function App({ daemon, startTime }: AppProps) {
       }
     }
 
-    // Plain git rebase (no Claude)
-    if (input === "r" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.rebaseBranchPlain(branch).catch(() => {});
-      }
-      return;
-    }
-
     // Fix: run full session (comments + CI) for selected branch
     if (input === "f" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
