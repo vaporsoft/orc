@@ -546,19 +546,22 @@ export class SessionController extends EventEmitter {
       logger.info("No commits made — skipping push", this.branch);
     }
 
-    // 7. REPLY — only after a successful push. If nothing was pushed (error,
-    //    push failure, no commits) skip replies so the threads stay unresolved
-    //    and will be retried on the next cycle or handled manually.
+    // 7. REPLY
+    // For regular (non-verify) comments, only reply after a successful push
+    // so threads stay unresolved for retry on failure.
+    // For verify_and_fix comments, also reply when no commits were made —
+    // Claude may have determined the concern is "not_applicable", and without
+    // a reply the comment stays actionable and triggers an infinite loop.
     const fixSucceeded = !fixResult.isError && madeCommits && pushed;
 
-    if (fixSucceeded) {
+    const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
+    const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
+
+    if (fixSucceeded || (!fixResult.isError && !madeCommits && verifyComments.length > 0)) {
       this.setStatus("replying");
-
       const currentSha = await this.gitManager.getHeadSha();
-      const verifyComments = actionable.filter((c) => c.category === "verify_and_fix");
-      const regularComments = actionable.filter((c) => c.category !== "verify_and_fix");
 
-      if (regularComments.length > 0) {
+      if (fixSucceeded && regularComments.length > 0) {
         await this.responder.replyToAddressed(regularComments, currentSha, fixResult.fixSummaries);
       }
       if (verifyComments.length > 0) {
