@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 const MAX_BRANCH_BUFFER = 500;
 const LOG_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
-const FLUSH_INTERVAL_MS = 60_000; // 1 minute
+const PRUNE_INTERVAL_MS = 60_000; // 1 minute
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -19,14 +19,15 @@ export interface LogEntry {
 /**
  * Structured logger that writes to a file and emits events for the UI.
  *
- * When a log path is provided (via --write-logs), entries are buffered in
- * memory and periodically flushed to disk. Only the last 10 minutes of
- * entries are kept — older entries are pruned on each flush.
+ * When a log path is provided (via --write-logs), each entry is appended to
+ * disk immediately. Every 60 seconds, entries older than 10 minutes are pruned
+ * and the file is rewritten with only the recent entries.
  */
 class Logger extends EventEmitter {
+  private logFile: fs.WriteStream | null = null;
   private logPath: string | null = null;
   private entries: LogEntry[] = [];
-  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private verbose = false;
   private suppressConsole = false;
   private branchBuffers = new Map<string, LogEntry[]>();
@@ -39,12 +40,13 @@ class Logger extends EventEmitter {
     this.verbose = verbose;
     if (logPath) {
       const dir = path.dirname(logPath);
-      fs.mkdirSync(dir, { recursive: true });
+      if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
       this.logPath = logPath;
-      // Write an empty file to start fresh
+      // Start fresh
       fs.writeFileSync(logPath, "");
-      this.flushTimer = setInterval(() => this.flush(), FLUSH_INTERVAL_MS);
-      this.flushTimer.unref();
+      this.logFile = fs.createWriteStream(logPath, { flags: "a" });
+      this.pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
+      this.pruneTimer.unref();
     }
   }
 
@@ -62,8 +64,9 @@ class Logger extends EventEmitter {
       data,
     };
 
-    // Buffer entry for file logging
-    if (this.logPath) {
+    // Write to log file immediately
+    if (this.logFile) {
+      this.logFile.write(JSON.stringify(entry) + "\n");
       this.entries.push(entry);
     }
 
@@ -113,23 +116,33 @@ class Logger extends EventEmitter {
     fs.writeFileSync(outputPath, lines.join("\n") + "\n");
   }
 
-  /** Prune entries older than 10 minutes and write the rest to disk. */
-  private flush(): void {
+  /** Prune entries older than 10 minutes and rewrite the log file. */
+  private prune(reopen = true): void {
     if (!this.logPath) return;
     const cutoff = Date.now() - LOG_MAX_AGE_MS;
     this.entries = this.entries.filter(
       (e) => new Date(e.timestamp).getTime() >= cutoff,
     );
-    const content = this.entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    // Destroy current stream synchronously (discards buffered data which is fine
+    // since we're about to rewrite the file with the authoritative entries array)
+    this.logFile?.destroy();
+    this.logFile = null;
+    const content =
+      this.entries.length > 0
+        ? this.entries.map((e) => JSON.stringify(e)).join("\n") + "\n"
+        : "";
     fs.writeFileSync(this.logPath, content);
+    if (reopen) {
+      this.logFile = fs.createWriteStream(this.logPath, { flags: "a" });
+    }
   }
 
   close(): void {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
+    if (this.pruneTimer) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
     }
-    this.flush();
+    this.prune(false);
   }
 }
 
