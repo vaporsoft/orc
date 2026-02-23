@@ -306,10 +306,9 @@ export class Daemon extends EventEmitter {
   }
 
   async startAll(mode: SessionMode = "once"): Promise<void> {
+    await this.stopAll();
     for (const [branch] of this.discoveredPRs) {
-      if (!this.sessions.has(branch)) {
-        await this.startBranch(branch, mode);
-      }
+      await this.startBranch(branch, mode);
     }
   }
 
