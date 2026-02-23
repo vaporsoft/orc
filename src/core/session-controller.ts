@@ -1000,13 +1000,12 @@ export class SessionController extends EventEmitter {
         }
 
         const allCompleted = checks.every((c) => c.status === "completed");
-        if (allCompleted) {
-          const passing = new Set(["success", "neutral", "skipped"]);
-          const failed = checks.filter((c) => !passing.has(c.conclusion ?? ""));
-          if (failed.length === 0) {
-            return { status: "passing", failedChecks: [] };
-          }
+        const passing = new Set(["success", "neutral", "skipped"]);
+        const completed = checks.filter((c) => c.status === "completed");
+        const failed = completed.filter((c) => !passing.has(c.conclusion ?? ""));
 
+        if (failed.length > 0) {
+          // Report failures immediately, don't wait for remaining checks
           const failedChecks: FailedCheck[] = failed.map((c) => ({
             id: c.id,
             name: c.name,
@@ -1014,6 +1013,10 @@ export class SessionController extends EventEmitter {
             logSnippet: null,
           }));
           return { status: "failing", failedChecks };
+        }
+
+        if (allCompleted) {
+          return { status: "passing", failedChecks: [] };
         }
       } catch (err) {
         if (err instanceof RateLimitError) {

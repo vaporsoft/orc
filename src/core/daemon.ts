@@ -852,16 +852,12 @@ export class Daemon extends EventEmitter {
       }
 
       const allCompleted = checks.every((c) => c.status?.toUpperCase() === "COMPLETED");
-      if (!allCompleted) {
-        this.updateCIStatus(pr.headRefName, "pending", []);
-        continue;
-      }
-
       const passing = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
-      const failed = checks.filter((c) => !passing.has(c.conclusion?.toUpperCase() ?? ""));
-      if (failed.length === 0) {
-        this.updateCIStatus(pr.headRefName, "passing", []);
-      } else {
+      const completed = checks.filter((c) => c.status?.toUpperCase() === "COMPLETED");
+      const failed = completed.filter((c) => !passing.has(c.conclusion?.toUpperCase() ?? ""));
+
+      if (failed.length > 0) {
+        // Report failures immediately, even if some checks are still running
         const failedChecks: FailedCheck[] = failed.map((c) => ({
           id: c.databaseId ?? 0,
           name: c.name!,
@@ -869,6 +865,10 @@ export class Daemon extends EventEmitter {
           logSnippet: null,
         }));
         this.updateCIStatus(pr.headRefName, "failing", failedChecks);
+      } else if (allCompleted) {
+        this.updateCIStatus(pr.headRefName, "passing", []);
+      } else {
+        this.updateCIStatus(pr.headRefName, "pending", []);
       }
     }
 
