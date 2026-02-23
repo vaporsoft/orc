@@ -143,7 +143,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Add Branch", action: () => setShowAddBranch(true) },
-    { label: "Start All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
+    { label: "Fix All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
     { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
     { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
@@ -221,11 +221,11 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Rebase + Claude conflict resolution
+    // Fix: run full session (comments + CI) for selected branch
     if (input === "f" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
-        daemon.rebaseBranch(branch).catch(() => {});
+        daemon.startBranch(branch, "once").catch(() => {});
       }
       return;
     }
@@ -290,15 +290,11 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Start/stop selected branch (one-shot)
+    // Stop selected branch
     if (input === "s" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
-      if (branch) {
-        if (daemon.isRunning(branch)) {
-          daemon.stopBranch(branch).catch(() => {});
-        } else {
-          daemon.startBranch(branch, "once").catch(() => {});
-        }
+      if (branch && daemon.isRunning(branch)) {
+        daemon.stopBranch(branch).catch(() => {});
       }
       return;
     }
