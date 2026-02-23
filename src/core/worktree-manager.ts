@@ -71,7 +71,16 @@ export class WorktreeManager {
         cwd: this.cwd,
       });
     } catch (err) {
-      logger.warn(`Failed to remove worktree: ${err}`, branch);
+      // git worktree remove can fail on macOS when OS-generated files
+      // (e.g. .DS_Store) remain in the directory. Fall back to rm -rf
+      // and prune the stale worktree reference.
+      logger.warn(`git worktree remove failed, falling back to rm: ${err}`, branch);
+      try {
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+      } catch (rmErr) {
+        logger.warn(`Fallback rm also failed: ${rmErr}`, branch);
+      }
     }
 
     this.worktrees.delete(branch);
@@ -117,6 +126,11 @@ export class WorktreeManager {
           });
         } catch (err) {
           logger.warn(`Could not remove known worktree ${fullPath}: ${err}`);
+          try {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+          } catch (rmErr) {
+            logger.warn(`Fallback rm also failed for ${fullPath}: ${rmErr}`);
+          }
         }
       } else {
         // Verify this is actually a git worktree directory before deleting
