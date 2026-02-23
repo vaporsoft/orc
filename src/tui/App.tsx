@@ -8,7 +8,6 @@ import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { useNextCheckCountdown } from "./hooks/useNextCheckCountdown.js";
 import { useInitialDiscovery } from "./hooks/useInitialDiscovery.js";
-import { useTerminalFocus } from "./hooks/useTerminalFocus.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
@@ -34,11 +33,9 @@ export function App({ daemon, startTime }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
-  const terminalFocused = useTerminalFocus();
-  const renderPaused = !terminalFocused;
-  const entries = useDaemonState(daemon, renderPaused);
-  const { entries: logEntries } = useLogBuffer(renderPaused);
-  const nextCheckIn = useNextCheckCountdown(daemon, renderPaused);
+  const entries = useDaemonState(daemon);
+  const { entries: logEntries } = useLogBuffer();
+  const nextCheckIn = useNextCheckCountdown(daemon);
   const isDiscovering = useInitialDiscovery(daemon);
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
@@ -105,7 +102,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
   }, [selectedBranch]);
 
-  const branchLogs = useBranchLogs(selectedBranch, renderPaused);
+  const branchLogs = useBranchLogs(selectedBranch);
 
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
@@ -446,7 +443,6 @@ export function App({ daemon, startTime }: AppProps) {
         focused={focusedPane === "sessions" && toolbarIndex < 0}
         openBranches={openBranches}
         mergedBranches={mergedBranches}
-        renderPaused={renderPaused}
         isDiscovering={isDiscovering}
       />
       {detailMode !== "logs" && (

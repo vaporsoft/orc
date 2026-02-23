@@ -5,15 +5,12 @@ import type { Daemon } from "../../core/daemon.js";
  * Returns the number of seconds until the next discovery check,
  * or null if no check has been scheduled yet.
  */
-export function useNextCheckCountdown(daemon: Daemon, paused = false): number | null {
+export function useNextCheckCountdown(daemon: Daemon): number | null {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pausedRef = useRef(paused);
-  pausedRef.current = paused;
 
   useEffect(() => {
     const tick = () => {
-      if (pausedRef.current) return;
       const nextAt = daemon.getNextCheckAt();
       if (nextAt === null) {
         setSecondsLeft(null);
