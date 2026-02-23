@@ -13,6 +13,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin/orc.js",
+    "start:dev": "node dist/bin/orc.js --write-logs --verbose",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",

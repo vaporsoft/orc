@@ -34,5 +34,6 @@ export const cli = new Command()
   )
   .option("--dry-run", "Show what would be done without executing")
   .option("--verbose", "Include detailed output")
+  .option("--write-logs", "Write logs to orc.log (rolling 10-minute window)")
   .option("--theme <mode>", "Color theme (dark, light)")
   .action(startCommand);
