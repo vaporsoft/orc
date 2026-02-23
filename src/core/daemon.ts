@@ -40,6 +40,7 @@ export class Daemon extends EventEmitter {
   private threadCounts = new Map<string, ThreadCounts>();
   private lastStates = new Map<string, BranchState>();
   private mergedPRs = new Map<string, { pr: GHPullRequest; mergedAt: number }>();
+  private externalBranches = new Set<string>(); // Branches added via addExternalBranch (not authored by current user)
   private ciStatuses = new Map<string, CIStatus>();
   private ciFailedChecks = new Map<string, FailedCheck[]>();
   private conflictStatuses = new Map<string, string[]>();
@@ -157,6 +158,32 @@ export class Daemon extends EventEmitter {
 
   isRunning(branch: string): boolean {
     return this.sessions.has(branch);
+  }
+
+  getGHClient(): GHClient {
+    return this.ghClient;
+  }
+
+  /** Add a branch (by PR) that wasn't authored by the current user. */
+  async addExternalBranch(pr: GHPullRequest): Promise<void> {
+    const branch = pr.headRefName;
+    if (this.discoveredPRs.has(branch)) {
+      logger.info(`Branch ${branch} already tracked`, branch);
+      return;
+    }
+
+    logger.info(`Manually added PR #${pr.number}: ${pr.title}`, branch);
+    this.discoveredPRs.set(branch, pr);
+    this.externalBranches.add(branch); // Track as external so discover() won't remove it
+    this.mergedPRs.delete(branch);
+    this.emit("prDiscovered", branch, pr);
+
+    // Fetch initial data for the new branch
+    this.updateCIStatusesFromPRs([pr]);
+    await Promise.all([
+      this.updateCommentCounts([pr]),
+      this.updateConflictStatuses([pr]),
+    ]);
   }
 
   async run(): Promise<void> {
@@ -547,8 +574,30 @@ export class Daemon extends EventEmitter {
     // Handle PRs that are no longer open (closed or merged) before checking ready statuses,
     // so merged PRs are removed from discoveredPRs and don't briefly flicker to "ready"
     for (const branch of [...this.discoveredPRs.keys()]) {
-      if (!activeBranches.has(branch)) {
+      // External branches aren't returned by getMyOpenPRs(), so check them separately
+      const isExternal = this.externalBranches.has(branch);
+      const notInMyPRs = !activeBranches.has(branch);
+
+      // For user's own PRs, removal from activeBranches means closed/merged
+      // For external branches, we need to explicitly check if they're still open
+      if (isExternal || notInMyPRs) {
         const pr = this.discoveredPRs.get(branch)!;
+
+        // For external branches, check if PR is still open (state != CLOSED/MERGED)
+        // For user's own PRs not in activeBranches, we know they're closed/merged
+        let stillOpen = false;
+        if (isExternal) {
+          try {
+            const prInfo = await this.ghClient.findPRForBranch(branch);
+            stillOpen = prInfo !== null && prInfo.state === "OPEN";
+          } catch {
+            // If we can't determine, assume still open to avoid accidental removal
+            stillOpen = true;
+          }
+        }
+
+        // Skip if external branch is still open
+        if (isExternal && stillOpen) continue;
 
         let wasMerged = false;
         try {
@@ -565,6 +614,7 @@ export class Daemon extends EventEmitter {
 
         // Now remove from discovered PRs and clean up
         this.discoveredPRs.delete(branch);
+        this.externalBranches.delete(branch);
         this.commentCounts.delete(branch);
         this.commentThreads.delete(branch);
         this.threadCounts.delete(branch);

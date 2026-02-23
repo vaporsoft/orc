@@ -12,6 +12,7 @@ import {
   PR_COMMENTS_QUERY,
   PR_FOR_BRANCH_QUERY,
   MY_OPEN_PRS_QUERY,
+  ALL_OPEN_PRS_QUERY,
 } from "./queries.js";
 import type {
   GHReviewThreadsResponse,
@@ -91,6 +92,22 @@ export class GHClient {
         };
       };
     }>(MY_OPEN_PRS_QUERY, { searchQuery });
+
+    return result.data.search.nodes.filter((node) => node.number !== undefined);
+  }
+
+  /** Find all open PRs in the repo (regardless of author). */
+  async getAllOpenPRs(): Promise<GHPullRequest[]> {
+    const { owner, repo } = await this.getRepoInfo();
+
+    const searchQuery = `repo:${owner}/${repo} is:pr is:open`;
+    const result = await this.graphql<{
+      data: {
+        search: {
+          nodes: GHPullRequest[];
+        };
+      };
+    }>(ALL_OPEN_PRS_QUERY, { searchQuery });
 
     return result.data.search.nodes.filter((node) => node.number !== undefined);
   }
