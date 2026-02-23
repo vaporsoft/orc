@@ -1,126 +1,219 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventEmitter } from "node:events";
+import { SessionController } from "../src/core/session-controller.js";
+import { GitManager } from "../src/core/git-manager.js";
+import { FixExecutor } from "../src/core/fix-executor.js";
+import { ProgressStore } from "../src/core/progress-store.js";
+import { DEFAULT_CONFIG } from "../src/types/config.js";
+import type { FixResult } from "../src/core/fix-executor.js";
+
+// Suppress logger output during tests
+vi.mock("../src/utils/logger.js", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 
 /**
- * Tests the CI fix loop behavior when checking whether to push.
- *
- * Since checkAndFixCI is private, we extract and test the decision logic
- * that determines whether to push after Claude makes no commits.
- *
- * The key change: instead of relying on a stale `rebaseChangedHead` flag
- * computed at cycle start, we now check `isAheadOfRemote()` dynamically
- * to determine if there's actually something to push.
+ * Tests the CI fix loop in SessionController to verify push behavior when
+ * a rebase has already incorporated base branch changes. Exercises the real
+ * checkAndFixCI code path with mocked git/executor dependencies.
  */
 
-// Mirrors the decision logic in SessionController.checkAndFixCI
-function decideCIFixAction(opts: {
-  ciFixIsError: boolean;
-  claudeMadeCommits: boolean;
-  isAheadOfRemote: boolean;
-  pushSucceeded: boolean;
-}): "push_claude_fix" | "push_rebased_branch" | "break_error" | "break_no_change" {
-  const { ciFixIsError, claudeMadeCommits, isAheadOfRemote, pushSucceeded } = opts;
-
-  if (ciFixIsError || !pushSucceeded) {
-    return "break_error";
-  }
-
-  if (claudeMadeCommits) {
-    return "push_claude_fix";
-  }
-
-  // Claude made no commits — check if we have unpushed changes
-  if (isAheadOfRemote) {
-    return "push_rebased_branch";
-  }
-
-  return "break_no_change";
+function makeFakeFixResult(overrides: Partial<FixResult> = {}): FixResult {
+  return {
+    sessionId: "test-session",
+    costUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    durationMs: 0,
+    isError: false,
+    changedFiles: [],
+    errors: [],
+    verifyResults: new Map(),
+    fixSummaries: new Map(),
+    ...overrides,
+  };
 }
 
-describe("CI fix loop with dynamic remote check", () => {
-  it("pushes rebased branch when Claude makes no commits but local is ahead of remote", () => {
-    const action = decideCIFixAction({
-      ciFixIsError: false,
-      claudeMadeCommits: false,
-      isAheadOfRemote: true,
-      pushSucceeded: true,
+function createController(): SessionController {
+  const store = new ProgressStore("/tmp/orc-test");
+  vi.spyOn(store, "getLifetimeStats").mockReturnValue({
+    lifetimeSeen: 0,
+    lifetimeAddressed: 0,
+    cycleCount: 0,
+    cycleHistory: [],
+  });
+
+  const ctrl = new SessionController(
+    "test-branch",
+    DEFAULT_CONFIG,
+    "/tmp/orc-test",
+    "once",
+    store,
+  );
+
+  // Set prNumber so checkAndFixCI doesn't bail early
+  const state = ctrl.getState();
+  (ctrl as any).state.prNumber = 1;
+  (ctrl as any).running = true;
+
+  return ctrl;
+}
+
+describe("SessionController CI fix loop", () => {
+  let ctrl: SessionController;
+  let gitManager: GitManager;
+  let executor: FixExecutor;
+
+  beforeEach(() => {
+    ctrl = createController();
+    gitManager = (ctrl as any).gitManager;
+    executor = (ctrl as any).executor;
+
+    // Default mocks — override per-test as needed
+    vi.spyOn(gitManager, "hasUncommittedChanges").mockResolvedValue(false);
+    vi.spyOn(gitManager, "rebaseAutosquash").mockResolvedValue(true);
+    vi.spyOn(gitManager, "forcePushWithLease").mockResolvedValue(true);
+    vi.spyOn(gitManager, "discardChanges").mockResolvedValue(undefined);
+
+    vi.spyOn(executor, "executeCIFix").mockResolvedValue(makeFakeFixResult());
+  });
+
+  it("pushes rebased branch when Claude makes no commits but local is ahead of remote", async () => {
+    // CI is failing
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
     });
-    expect(action).toBe("push_rebased_branch");
-  });
-
-  it("breaks with no change when Claude makes no commits and local matches remote", () => {
-    const action = decideCIFixAction({
-      ciFixIsError: false,
-      claudeMadeCommits: false,
-      isAheadOfRemote: false,
-      pushSucceeded: true,
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
     });
-    expect(action).toBe("break_no_change");
+
+    // Claude makes no commits (HEAD unchanged)
+    vi.spyOn(gitManager, "getHeadSha").mockResolvedValue("abc123");
+
+    // But local is ahead of remote (rebase incorporated base branch changes)
+    vi.spyOn(gitManager, "isAheadOfRemote").mockResolvedValue(true);
+
+    const pushSpy = vi.spyOn(gitManager, "forcePushWithLease");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    expect(pushSpy).toHaveBeenCalled();
+    expect(ctrl.getState().lastPushAt).not.toBeNull();
   });
 
-  it("pushes Claude fix when Claude made commits", () => {
-    const action = decideCIFixAction({
-      ciFixIsError: false,
-      claudeMadeCommits: true,
-      isAheadOfRemote: false,
-      pushSucceeded: true,
+  it("does not push when Claude makes no commits and local matches remote", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
     });
-    expect(action).toBe("push_claude_fix");
-  });
-
-  it("pushes Claude fix even when also ahead of remote", () => {
-    const action = decideCIFixAction({
-      ciFixIsError: false,
-      claudeMadeCommits: true,
-      isAheadOfRemote: true,
-      pushSucceeded: true,
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
     });
-    expect(action).toBe("push_claude_fix");
+
+    // Claude makes no commits
+    vi.spyOn(gitManager, "getHeadSha").mockResolvedValue("abc123");
+
+    // Local matches remote — nothing to push
+    vi.spyOn(gitManager, "isAheadOfRemote").mockResolvedValue(false);
+
+    const pushSpy = vi.spyOn(gitManager, "forcePushWithLease");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(ctrl.getState().lastPushAt).toBeNull();
   });
 
-  it("breaks on error regardless of remote state", () => {
-    expect(
-      decideCIFixAction({
-        ciFixIsError: true,
-        claudeMadeCommits: false,
-        isAheadOfRemote: true,
-        pushSucceeded: true,
-      }),
-    ).toBe("break_error");
-
-    expect(
-      decideCIFixAction({
-        ciFixIsError: true,
-        claudeMadeCommits: true,
-        isAheadOfRemote: false,
-        pushSucceeded: true,
-      }),
-    ).toBe("break_error");
-  });
-
-  it("breaks on push failure regardless of remote state", () => {
-    expect(
-      decideCIFixAction({
-        ciFixIsError: false,
-        claudeMadeCommits: true,
-        isAheadOfRemote: true,
-        pushSucceeded: false,
-      }),
-    ).toBe("break_error");
-  });
-
-  // New test case: verifies the fix for stale flag issue
-  it("does not push when rebase was done earlier but already pushed", () => {
-    // This scenario: rebase changed HEAD, we pushed in main flow,
-    // now in CI fix loop Claude made no commits.
-    // OLD behavior: would push again (no-op) based on stale rebaseChangedHead flag
-    // NEW behavior: checks isAheadOfRemote, finds local matches remote, breaks
-    const action = decideCIFixAction({
-      ciFixIsError: false,
-      claudeMadeCommits: false,
-      isAheadOfRemote: false, // Already pushed, local matches remote
-      pushSucceeded: true,
+  it("pushes Claude's fix commits through normal path when Claude makes commits", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
     });
-    expect(action).toBe("break_no_change");
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
+    });
+
+    // Claude makes a commit (HEAD changes)
+    let callCount = 0;
+    vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+      callCount++;
+      return callCount <= 1 ? "abc123" : "def456";
+    });
+
+    const pushSpy = vi.spyOn(gitManager, "forcePushWithLease");
+    const rebaseSpy = vi.spyOn(gitManager, "rebaseAutosquash");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    // Should go through autosquash rebase path, not isAheadOfRemote path
+    expect(rebaseSpy).toHaveBeenCalledWith("main");
+    expect(pushSpy).toHaveBeenCalled();
+  });
+
+  it("breaks without pushing when executor returns an error", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
+    });
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
+    });
+
+    vi.spyOn(executor, "executeCIFix").mockResolvedValue(
+      makeFakeFixResult({ isError: true }),
+    );
+    vi.spyOn(gitManager, "getHeadSha").mockResolvedValue("abc123");
+
+    const pushSpy = vi.spyOn(gitManager, "forcePushWithLease");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not check isAheadOfRemote when Claude made commits", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "failing",
+      failedChecks: [{ name: "build", conclusion: "failure" }],
+    });
+    vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+      context: "CI failing",
+      firstLogSnippet: "error",
+    });
+
+    let callCount = 0;
+    vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+      callCount++;
+      return callCount <= 1 ? "abc123" : "def456";
+    });
+
+    const aheadSpy = vi.spyOn(gitManager, "isAheadOfRemote");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    // isAheadOfRemote should not be called — only used when Claude made no commits
+    expect(aheadSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips fix attempt entirely when CI is not failing", async () => {
+    vi.spyOn(ctrl as any, "pollCIStatus").mockResolvedValue({
+      status: "passing",
+      failedChecks: [],
+    });
+
+    const executeSpy = vi.spyOn(executor, "executeCIFix");
+
+    await (ctrl as any).checkAndFixCI("main");
+
+    expect(executeSpy).not.toHaveBeenCalled();
   });
 });

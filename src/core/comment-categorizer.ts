@@ -21,6 +21,8 @@ Classify the comment into one of these categories:
 
 When a reviewer raises a concern that involves a real failure mode — data corruption, race conditions, missing transactions, incorrect error handling, silent data loss, security holes — lean toward should_fix or must_fix even if the current code "works most of the time." The fact that a bug is unlikely does not make the suggestion low-priority. Correctness concerns are cheap to fix now and expensive to debug later.
 
+Apply the same standard to tests. A test that reimplements production logic locally, mocks away the code under test, or cannot detect regressions when the real code changes is a should_fix — the failure mode is false confidence (the test passes while the production code is broken). Tests that only verify a local copy of logic rather than exercising real code paths are not "style preferences."
+
 However, do NOT blindly escalate large architectural refactors that have no concrete failure mode. If a reviewer is pushing a pattern preference (e.g. "rewrite this to use the repository pattern", "this should use event sourcing") without identifying a specific bug or failure scenario, that is nice_to_have at most. The test: can the reviewer point to a realistic scenario where the current code produces a wrong result or fails? If yes, it's should_fix or higher. If the argument is purely about code aesthetics or architectural philosophy, it's nice_to_have.
 
 ## Guarding against false dismissals
