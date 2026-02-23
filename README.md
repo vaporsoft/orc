@@ -18,6 +18,12 @@ orc requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and t
 
 ```bash
 npm install -g @vaporsoft/orc
+# or
+yarn global add @vaporsoft/orc
+# or
+pnpm add -g @vaporsoft/orc
+# or
+bun add -g @vaporsoft/orc
 ```
 
 ### Run
