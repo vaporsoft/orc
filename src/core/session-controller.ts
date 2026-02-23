@@ -983,14 +983,20 @@ export class SessionController extends EventEmitter {
         break;
       }
 
+      // In once mode, do one fix attempt then return — daemon polls CI status
+      if (this.mode === "once") {
+        this.state.ciStatus = "pending";
+        this.emit("sessionUpdate", this.branch, this.getState());
+        return;
+      }
+
       // Reset status before continuing to next CI polling cycle
       this.setStatus("watching");
     }
 
-    // After exhausting all fix attempts, do a final CI poll to check if the
-    // last fix actually resolved CI. Without this, ciStatus stays "failing"
-    // from the poll at the START of the last iteration, even if the pushed
-    // fix made CI pass.
+    // After exhausting all fix attempts (watch mode), poll once more to get
+    // the final CI status. Without this, ciStatus stays "failing" from the
+    // poll at the START of the last iteration.
     if (this.state.ciFixAttempts >= MAX_CI_FIX_ATTEMPTS && this.running) {
       const finalResult = await this.pollCIStatus();
       this.state.ciStatus = finalResult.status;
