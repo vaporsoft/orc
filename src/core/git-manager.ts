@@ -135,8 +135,9 @@ export class GitManager {
   /** Fetch and rebase onto remote branch (works with detached HEAD). */
   async pullRebase(targetBranch?: string): Promise<boolean> {
     const branch = targetBranch || this.branch;
-    const stashed = await this.stash();
+    let stashed = false;
     try {
+      stashed = await this.stash();
       await this.git(["fetch", "origin", branch]);
       await this.git(["rebase", `origin/${branch}`]);
       return true;
