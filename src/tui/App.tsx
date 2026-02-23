@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import React, { useState, useCallback, useLayoutEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
 import { openTerminal, shellEscape } from "../utils/open-terminal.js";
