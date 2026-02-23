@@ -850,7 +850,9 @@ export class SessionController extends EventEmitter {
       const headAfterCIFix = await this.gitManager.getHeadSha();
       let pushSucceeded = true; // Track if push succeeded
 
-      if (!ciFixResult.isError && headAfterCIFix !== headBeforeCIFix) {
+      const claudeMadeCommits = headAfterCIFix !== headBeforeCIFix;
+
+      if (!ciFixResult.isError && claudeMadeCommits) {
         this.setStatus("pushing");
         const rebased = await this.gitManager.rebaseAutosquash(baseBranch);
         if (!rebased) {
@@ -866,17 +868,42 @@ export class SessionController extends EventEmitter {
         } else {
           pushSucceeded = false;
         }
+      } else if (!ciFixResult.isError && !claudeMadeCommits) {
+        // Claude found nothing to fix. Check if local HEAD differs from remote —
+        // an earlier rebase may have incorporated base branch changes that could
+        // resolve CI. Only push if there's actually something new to push.
+        const needsPush = await this.gitManager.isAheadOfRemote();
+        if (needsPush) {
+          this.setStatus("pushing");
+          const pushed = await this.gitManager.forcePushWithLease();
+          if (pushed) {
+            logger.info("Pushed rebased branch — rebase may have resolved CI", this.branch);
+            this.state.lastPushAt = new Date().toISOString();
+            this.emit("pushed", this.branch);
+            // We pushed rebased code that may fix CI — break to let CI re-run
+            this.state.claudeActivity = [];
+            if (this.mode === "watch") this.setStatus("watching");
+            break;
+          } else {
+            pushSucceeded = false;
+          }
+        } else {
+          // Nothing to push and Claude made no commits — nothing changed, stop retrying
+          this.state.claudeActivity = [];
+          break;
+        }
       }
 
       this.state.claudeActivity = [];
 
-      // If there was an error in the fix attempt, no changes were made, or push failed, break the loop
-      if (ciFixResult.isError || headAfterCIFix === headBeforeCIFix || !pushSucceeded) {
+      // If there was an error or push failed, stop retrying
+      if (ciFixResult.isError || !pushSucceeded) {
         break;
       }
 
       // In once mode, do one fix attempt then return — daemon polls CI status
       if (this.mode === "once") {
+        this.setStatus("stopped");
         this.state.ciStatus = "pending";
         this.emit("sessionUpdate", this.branch, this.getState());
         return;

@@ -101,6 +101,28 @@ export class GitManager {
     return result.stdout.trim();
   }
 
+  /**
+   * Check if local HEAD has commits not in the remote tracking branch.
+   * Uses the existing local tracking ref WITHOUT fetching to preserve
+   * --force-with-lease safety. A fetch would update the tracking ref,
+   * causing force-with-lease to succeed even if someone else pushed.
+   */
+  async isAheadOfRemote(): Promise<boolean> {
+    try {
+      // Count commits in HEAD that are not in origin/branch
+      const result = await this.git([
+        "rev-list",
+        "--count",
+        `origin/${this.branch}..HEAD`,
+      ]);
+      const count = parseInt(result.stdout.trim(), 10);
+      return count > 0;
+    } catch {
+      // If we can't determine (e.g. no tracking branch), assume we need to push
+      return true;
+    }
+  }
+
   /** Get list of files changed since a given sha. */
   async getChangedFilesSince(sha: string): Promise<string[]> {
     const result = await this.git([
