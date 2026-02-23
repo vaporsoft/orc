@@ -1013,10 +1013,10 @@ export class SessionController extends EventEmitter {
     // Wait for checks to start (GitHub needs time after push)
     this.state.ciStatus = "pending";
     this.emit("sessionUpdate", this.branch, this.getState());
-    await this.sleep(15_000);
+    await this.sleep(10_000);
 
     const maxWait = 10 * 60 * 1000; // 10 min max wait
-    const pollInterval = 60_000;
+    const pollInterval = 15_000;
     const start = Date.now();
 
     while (Date.now() - start < maxWait && this.running) {
