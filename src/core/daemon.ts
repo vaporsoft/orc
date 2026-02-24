@@ -536,6 +536,7 @@ export class Daemon extends EventEmitter {
           threadCounts,
           orcRepliedResolvedThreadIds,
           resolvedNoOrcReplyThreadIds,
+          followUpResolvedThreadIds,
         } = await fetcher.fetchWithCounts();
 
         // Detect deleted ORC replies: threads that were previously resolved with
@@ -557,6 +558,19 @@ export class Daemon extends EventEmitter {
                 failedUnresolveThreadIds.push(threadId);
               }
             }
+          }
+        }
+
+        // Detect follow-up comments: resolved threads where someone replied
+        // after ORC's last reply — unresolve so ORC re-processes the feedback.
+        for (const threadId of followUpResolvedThreadIds) {
+          try {
+            await this.ghClient.unresolveThread(threadId);
+            logger.info(`Unresolved thread ${threadId} — follow-up comment after ORC reply`, pr.headRefName);
+            unresolvedCount++;
+          } catch (err) {
+            logger.warn(`Failed to unresolve thread ${threadId}: ${err}`, pr.headRefName);
+            failedUnresolveThreadIds.push(threadId);
           }
         }
         // Re-fetch if we unresolved any threads so TUI shows fresh state
