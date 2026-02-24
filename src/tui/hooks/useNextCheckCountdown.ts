@@ -13,11 +13,11 @@ export function useNextCheckCountdown(daemon: Daemon): number | null {
     const tick = () => {
       const nextAt = daemon.getNextCheckAt();
       if (nextAt === null) {
-        setSecondsLeft(null);
+        setSecondsLeft((prev) => prev === null ? prev : null);
         return;
       }
       const remaining = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
-      setSecondsLeft(remaining);
+      setSecondsLeft((prev) => prev === remaining ? prev : remaining);
     };
 
     const onDiscovery = () => {

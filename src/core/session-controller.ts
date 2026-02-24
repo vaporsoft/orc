@@ -61,6 +61,8 @@ export class SessionController extends EventEmitter {
   private startedAt = 0;
   private conflictResolve: ((action: "resolve" | "dismiss") => void) | null = null;
   private pendingBaseBranch: string | null = null;
+  private activityEmitTimer: ReturnType<typeof setTimeout> | null = null;
+  private activityEmitPending = false;
 
   constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock) {
     super();
@@ -117,6 +119,38 @@ export class SessionController extends EventEmitter {
 
   getState(): BranchState {
     return { ...this.state };
+  }
+
+  /**
+   * Throttled sessionUpdate emission — coalesces rapid activity-line updates
+   * into at most one emit per ACTIVITY_THROTTLE_MS to prevent TUI flicker.
+   */
+  private static readonly ACTIVITY_THROTTLE_MS = 150;
+
+  private emitActivityThrottled(): void {
+    if (this.activityEmitTimer) {
+      this.activityEmitPending = true;
+      return;
+    }
+    this.emit("sessionUpdate", this.branch, this.getState());
+    this.activityEmitTimer = setTimeout(() => {
+      this.activityEmitTimer = null;
+      if (this.activityEmitPending) {
+        this.activityEmitPending = false;
+        this.emit("sessionUpdate", this.branch, this.getState());
+      }
+    }, SessionController.ACTIVITY_THROTTLE_MS);
+  }
+
+  private flushActivityEmit(): void {
+    if (this.activityEmitTimer) {
+      clearTimeout(this.activityEmitTimer);
+      this.activityEmitTimer = null;
+    }
+    if (this.activityEmitPending) {
+      this.activityEmitPending = false;
+      this.emit("sessionUpdate", this.branch, this.getState());
+    }
   }
 
   /** Update the conflicted paths (used by daemon to propagate merge conflict status). */
@@ -187,6 +221,13 @@ export class SessionController extends EventEmitter {
   stop(): void {
     this.running = false;
     this.abortController.abort();
+
+    // Clear any pending activity emit timer to prevent stale events after teardown
+    if (this.activityEmitTimer) {
+      clearTimeout(this.activityEmitTimer);
+      this.activityEmitTimer = null;
+    }
+    this.activityEmitPending = false;
 
     // Resolve any pending conflict resolution to avoid hanging
     if (this.conflictResolve) {
@@ -487,9 +528,10 @@ export class SessionController extends EventEmitter {
         if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
           this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
         }
-        this.emit("sessionUpdate", this.branch, this.getState());
+        this.emitActivityThrottled();
       },
     );
+    this.flushActivityEmit();
 
     this.state.lastSessionId = fixResult.sessionId;
 
@@ -713,9 +755,10 @@ export class SessionController extends EventEmitter {
             if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
               this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
             }
-            this.emit("sessionUpdate", this.branch, this.getState());
+            this.emitActivityThrottled();
           },
         );
+        this.flushActivityEmit();
 
         this.state.lastSessionId = fixResult.sessionId;
         this.state.totalCostUsd += fixResult.costUsd;
@@ -833,9 +876,10 @@ export class SessionController extends EventEmitter {
           if (this.state.claudeActivity.length > MAX_ACTIVITY_LINES) {
             this.state.claudeActivity = this.state.claudeActivity.slice(-MAX_ACTIVITY_LINES);
           }
-          this.emit("sessionUpdate", this.branch, this.getState());
+          this.emitActivityThrottled();
         },
       );
+      this.flushActivityEmit();
 
       this.state.lastSessionId = ciFixResult.sessionId;
       this.state.totalCostUsd += ciFixResult.costUsd;

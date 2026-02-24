@@ -40,7 +40,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
     .map((e) => e.state!.sessionExpiresAt!);
   const soonestExpiry = activeExpiries.length > 0 ? Math.min(...activeExpiries) : null;
 
-  const [, setTimeLeftTick] = useState(0);
+  const [timeLeftTick, setTimeLeftTick] = useState(0);
   useEffect(() => {
     if (soonestExpiry === null) return;
     const id = setInterval(() => {
@@ -77,6 +77,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             key={branch}
             entry={entries.get(branch)!}
             selected={focused && i === selectedIndex}
+            tick={timeLeftTick}
           />
         ))
       )}
@@ -101,6 +102,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             entry={entries.get(branch)!}
             selected={false}
             dimmed
+            tick={timeLeftTick}
           />
         ))
       )}

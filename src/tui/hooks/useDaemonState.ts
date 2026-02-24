@@ -101,7 +101,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
   return entries;
 }
 
-const THROTTLE_MS = 100;
+const THROTTLE_MS = 200;
 
 export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
   const [entries, setEntries] = useState<Map<string, PREntry>>(() => buildEntries(daemon));

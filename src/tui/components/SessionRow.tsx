@@ -10,6 +10,8 @@ interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
   dimmed?: boolean;
+  /** Tick counter to force re-render for countdown timer updates */
+  tick?: number;
 }
 
 
@@ -33,7 +35,28 @@ const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
   unknown: { symbol: "—", color: "gray" },
 };
 
-export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
+function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
+  if (prev.selected !== next.selected || prev.dimmed !== next.dimmed || prev.tick !== next.tick) return false;
+  const p = prev.entry;
+  const n = next.entry;
+  return (
+    p.branch === n.branch &&
+    p.pr.number === n.pr.number &&
+    p.commentCount === n.commentCount &&
+    p.ciStatus === n.ciStatus &&
+    p.mergedAt === n.mergedAt &&
+    p.conflicted.length === n.conflicted.length &&
+    p.state?.status === n.state?.status &&
+    p.state?.mode === n.state?.mode &&
+    p.state?.totalCostUsd === n.state?.totalCostUsd &&
+    p.state?.lastPushAt === n.state?.lastPushAt &&
+    p.state?.sessionExpiresAt === n.state?.sessionExpiresAt &&
+    p.threadCounts?.total === n.threadCounts?.total &&
+    p.threadCounts?.resolved === n.threadCounts?.resolved
+  );
+}
+
+export const SessionRow = React.memo(function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount, ciStatus, conflicted } = entry;
   const branch = entry.branch.length > 26
@@ -115,4 +138,4 @@ export function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
       </Box>
     </Box>
   );
-}
+}, arePropsEqual);
