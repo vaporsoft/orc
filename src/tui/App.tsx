@@ -437,34 +437,26 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Right arrow: open detail or drop into section focus
+    // Right arrow: open detail + focus first section, or no-op if already focused
     if (key.rightArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (detailMode === "detail" && !sectionFocus && visibleSections.length > 0) {
-        // Detail already open — drop into section rows
+      if (!sectionFocus && visibleSections.length > 0) {
+        // Open detail (if needed) and drop into section focus in one step
+        if (detailMode !== "detail") {
+          setDetailMode("detail");
+        }
         setSectionFocus(true);
         setFocusedSection(visibleSections[0] ?? null);
-        return;
-      }
-      if (detailMode !== "detail") {
-        // Open detail panel
-        setFocusedSection(null);
-        setSectionFocus(false);
-        setDetailMode("detail");
         return;
       }
       return;
     }
 
-    // Left arrow: exit section focus or close detail
+    // Left arrow: close detail panel entirely
     if (key.leftArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (sectionFocus) {
-        // Exit section focus back to branch navigation
-        setSectionFocus(false);
-        setFocusedSection(null);
-        return;
-      }
       if (detailMode === "detail") {
         setDetailMode("off");
+        setSectionFocus(false);
+        setFocusedSection(null);
         return;
       }
       return;
