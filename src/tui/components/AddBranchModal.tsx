@@ -108,9 +108,11 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
   }, [displayPRs.length, selectedIndex]);
 
   const addBranch = useCallback(
-    async (pr: GHPullRequest) => {
-      await daemon.addExternalBranch(pr);
+    (pr: GHPullRequest) => {
       onClose();
+      daemon.addExternalBranch(pr).catch((err) => {
+        logger.error(`Failed to add branch ${pr.headRefName}: ${err}`);
+      });
     },
     [daemon, onClose],
   );
@@ -125,7 +127,7 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
       const effectiveIndex = Math.min(selectedIndex, displayPRs.length - 1);
       const pr = displayPRs[effectiveIndex];
       if (pr) {
-        addBranch(pr).catch(() => {});
+        addBranch(pr);
       }
       return;
     }
