@@ -565,7 +565,7 @@ export function App({ daemon, startTime }: AppProps) {
         borderTop={false}
         borderBottom={false}
       />
-      <HelpBar />
+      <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} />
     </Box>
   );
 }

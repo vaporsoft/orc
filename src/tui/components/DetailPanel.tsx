@@ -106,10 +106,10 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("check gh auth status");
   } else {
     hints.push("l to check logs for details");
-    hints.push("c to resume Claude session");
+    hints.push("E to resume Claude session");
   }
 
-  hints.push("f to fix · s to stop · w to watch");
+  hints.push("enter to fix · x to stop · w to watch");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -299,7 +299,7 @@ export function DetailPanel({
                 {!state && (
                   <Box marginLeft={2}>
                     <Text dimColor>
-                      <Text color={theme.accent}>f</Text> to fix with Claude
+                      <Text color={theme.accent}>enter</Text> to fix with Claude
                     </Text>
                   </Box>
                 )}
@@ -448,7 +448,7 @@ export function DetailPanel({
       >
         <Box marginLeft={2}>
           <Text dimColor>
-            <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> details
+            <Text color={theme.accent}>enter</Text> fix · <Text color={theme.accent}>x</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>→</Text> details
             {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
           </Text>
         </Box>
@@ -485,8 +485,7 @@ export function DetailPanel({
       {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
-          <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> collapse
-          {effectiveFocusedSection && <Text> · <Text color={theme.accent}>space</Text> toggle section</Text>}
+          <Text color={theme.accent}>←</Text> close · <Text color={theme.accent}>↑↓</Text> sections · <Text color={theme.accent}>→</Text> expand · <Text color={theme.accent}>enter</Text> focus
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
       </Box>
@@ -608,7 +607,7 @@ export function DetailPanel({
                 {!state && (
                   <Box marginLeft={2}>
                     <Text dimColor>
-                      <Text color={theme.accent}>f</Text> to fix with Claude
+                      <Text color={theme.accent}>enter</Text> to fix with Claude
                     </Text>
                   </Box>
                 )}
