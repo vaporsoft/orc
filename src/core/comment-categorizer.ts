@@ -82,6 +82,7 @@ export class CommentCategorizer {
           confidence: 1.0,
           reasoning: "Conversation comment — delegating verification to fix executor",
           suggestedAction: "Verify and fix if applicable",
+          replies: thread.replies,
         });
         continue;
       }
@@ -123,6 +124,7 @@ export class CommentCategorizer {
             confidence: analysis.confidence,
             reasoning: `[low confidence — verify] ${analysis.reasoning}`,
             suggestedAction: analysis.suggestedAction,
+            replies: thread.replies,
           });
         } else {
           results.push({
@@ -133,6 +135,7 @@ export class CommentCategorizer {
             author: thread.author,
             diffHunk: thread.diffHunk,
             ...analysis,
+            replies: thread.replies,
           });
         }
       } catch (err) {
@@ -148,6 +151,7 @@ export class CommentCategorizer {
           category: "should_fix",
           reasoning: "Analysis failed, defaulting to should_fix",
           suggestedAction: thread.body,
+          replies: thread.replies,
         });
       }
     }

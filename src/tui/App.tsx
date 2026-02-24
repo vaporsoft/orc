@@ -51,6 +51,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [focusedSection, setFocusedSection] = useState<DetailSection | null>(null);
   const [sectionFocus, setSectionFocus] = useState(false); // true when arrow keys navigate sections instead of branches
   const [fullscreenSection, setFullscreenSection] = useState<DetailSection | null>(null);
+  const [commentScroll, setCommentScroll] = useState(0);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -103,6 +104,7 @@ export function App({ daemon, startTime }: AppProps) {
       setFocusedSection(null);
       setSectionFocus(false);
       setFullscreenSection(null);
+      setCommentScroll(0);
       prevSelectedBranchRef.current = selectedBranch;
     }
   }, [selectedBranch]);
@@ -111,6 +113,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   const selectedEntry = selectedBranch ? entries.get(selectedBranch) : undefined;
   const activityLines = selectedEntry?.state?.claudeActivity ?? [];
+  const summary = selectedEntry?.state?.commentSummary ?? null;
   const visibleSections = getVisibleSections(selectedEntry);
 
   // Auto-focus a session that enters conflict_prompt (only when newly entering that status)
@@ -165,17 +168,34 @@ export function App({ daemon, startTime }: AppProps) {
     // Modal panels — block all other keybindings when open
     if (showSettings || showLegend || showAddBranch) return;
 
+    // Vim-style nav aliases: j=↓ k=↑ l=→ ;=←
+    const up = key.upArrow || input === "k";
+    const down = key.downArrow || input === "j";
+    const right = key.rightArrow || input === "l";
+    const left = key.leftArrow || input === ";";
+    const tab = key.tab && !key.shift;
+
     // Exit fullscreen section (must come before global q quit and fullscreen blocker)
-    if (fullscreenSection && (input === "q" || key.escape || key.leftArrow)) {
+    if (fullscreenSection && (input === "q" || key.escape || left)) {
       setFullscreenSection(null);
       return;
     }
 
     // In fullscreen section: block most actions, only allow specific keys to fall through
     if (fullscreenSection) {
-      // Allow: l (logs toggle), h (help), , (settings), t (theme), tab — fall through
-      if (input === "l" || input === "h" || input === "," || input === "t" || key.tab) {
+      // Allow: g (logs toggle), h (help), , (settings), t (theme), G (global logs) — fall through
+      if (input === "g" || input === "h" || input === "," || input === "t" || input === "G") {
         // Fall through to normal handlers below
+      } else if (fullscreenSection === "comments" && (up || down)) {
+        // Navigate between comment threads in fullscreen
+        const commentList = summary?.comments ?? selectedEntry?.commentThreads ?? [];
+        const maxIdx = Math.max(0, commentList.length - 1);
+        if (up) {
+          setCommentScroll((prev) => Math.max(0, prev - 1));
+        } else {
+          setCommentScroll((prev) => Math.min(maxIdx, prev + 1));
+        }
+        return;
       } else {
         return;
       }
@@ -232,7 +252,8 @@ export function App({ daemon, startTime }: AppProps) {
       }
     }
 
-    if (key.tab) {
+    // G (shift+g): toggle global logs pane
+    if (input === "G") {
       setFocusedPane((prev) => {
         if (prev === "sessions") {
           // Switching to all logs — save and hide detail/fullscreen
@@ -264,30 +285,22 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Toolbar: left/right navigate between buttons
-    if (key.leftArrow && toolbarIndex >= 0) {
+    if (left && toolbarIndex >= 0) {
       setToolbarIndex((prev) => Math.max(0, prev - 1));
       return;
     }
-    if (key.rightArrow && toolbarIndex >= 0) {
+    if (right && toolbarIndex >= 0) {
       setToolbarIndex((prev) => Math.min(toolbarButtons.length - 1, prev + 1));
       return;
     }
 
     // Toolbar: down arrow exits toolbar back to session list
-    if (key.downArrow && toolbarIndex >= 0) {
+    if (down && toolbarIndex >= 0) {
       setToolbarIndex(-1);
       return;
     }
 
-    // Shift+Enter: fix+address all branches
-    if (key.return && key.shift) {
-      daemon.startAll("once", "all").catch((err) => {
-        logger.error(`startAll failed: ${err}`);
-      });
-      return;
-    }
-
-    // Enter (context-sensitive): fullscreen section when in section focus, or fix+address
+    // Enter (context-sensitive): navigate sections or fullscreen
     if ((key.return || input === "\n") && focusedPane === "sessions") {
       if (fullscreenSection) {
         return;
@@ -302,16 +315,19 @@ export function App({ daemon, startTime }: AppProps) {
         }
         return;
       }
-      // Fix + Address selected branch
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "all").catch(() => {});
+      if (detailMode === "detail" && visibleSections.length > 0) {
+        // Detail open but not in section focus — enter section focus and advance
+        if (!sectionFocus) {
+          setSectionFocus(true);
+          setFocusedSection(visibleSections[0] ?? null);
+        }
+        return;
       }
       return;
     }
 
     // Swap detail view with branch logs
-    if (input === "l" && focusedPane === "sessions") {
+    if (input === "g" && focusedPane === "sessions") {
       if (detailMode === "logs") {
         // Returning from logs — restore previous state
         setDetailMode(detailModeBeforeLogs);
@@ -415,49 +431,36 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // j/k always navigate the session list
-    if (input === "k" && focusedPane === "sessions") {
-      const nextIndex = Math.max(0, sessionIndex - 1);
-      if (nextIndex !== sessionIndex) {
-        setBranchLogOffset(0);
-        setFocusedSection(null);
-        setSectionFocus(false);
-      }
-      setSessionIndex(nextIndex);
-      return;
-    }
-    if (input === "j" && focusedPane === "sessions") {
-      const nextIndex = Math.min(openCount - 1, sessionIndex + 1);
-      if (nextIndex !== sessionIndex) {
-        setBranchLogOffset(0);
-        setFocusedSection(null);
-        setSectionFocus(false);
-      }
-      setSessionIndex(nextIndex);
-      return;
-    }
-
-    // Right arrow: open detail + focus first section, or no-op if already focused
-    if (key.rightArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (!sectionFocus && visibleSections.length > 0) {
-        // Open detail (if needed) and drop into section focus in one step
-        if (detailMode !== "detail") {
-          setDetailMode("detail");
-        }
-        setSectionFocus(true);
-        setFocusedSection(visibleSections[0] ?? null);
-        return;
-      }
-      return;
-    }
-
-    // Left arrow: close detail panel entirely
-    if (key.leftArrow && focusedPane === "sessions" && toolbarIndex < 0) {
+    // Tab: toggle detail panel open/closed
+    if (tab && focusedPane === "sessions" && toolbarIndex < 0) {
       if (detailMode === "detail") {
+        // Close detail
         setDetailMode("off");
         setSectionFocus(false);
         setFocusedSection(null);
-        return;
+      } else if (visibleSections.length > 0) {
+        // Open detail + focus first section
+        setDetailMode("detail");
+        setSectionFocus(true);
+        setFocusedSection(visibleSections[0] ?? null);
+      }
+      return;
+    }
+
+    // Right: enter section focus when detail is open
+    if (right && focusedPane === "sessions" && toolbarIndex < 0) {
+      if (detailMode === "detail" && !sectionFocus && visibleSections.length > 0) {
+        setSectionFocus(true);
+        setFocusedSection(visibleSections[0] ?? null);
+      }
+      return;
+    }
+
+    // Left: exit section focus back to branch navigation (without closing detail)
+    if (left && focusedPane === "sessions" && toolbarIndex < 0) {
+      if (sectionFocus) {
+        setSectionFocus(false);
+        setFocusedSection(null);
       }
       return;
     }
@@ -465,25 +468,30 @@ export function App({ daemon, startTime }: AppProps) {
     if (focusedPane === "sessions") {
       if (detailMode === "logs") {
         // When branch logs are open, arrows scroll the branch log
-        if (key.upArrow) {
+        if (up) {
           setBranchLogOffset((prev) => Math.min(prev + 1, Math.max(0, branchLogs.length - branchLogLines)));
-        } else if (key.downArrow) {
+        } else if (down) {
           setBranchLogOffset((prev) => Math.max(0, prev - 1));
         }
       } else if (sectionFocus && detailMode === "detail" && visibleSections.length > 0) {
         // Section focus mode: arrows navigate between sections
         const currentIndex = focusedSection ? visibleSections.indexOf(focusedSection) : 0;
         const effectiveIndex = currentIndex >= 0 ? currentIndex : 0;
-        if (key.upArrow) {
-          const newIndex = Math.max(0, effectiveIndex - 1);
-          setFocusedSection(visibleSections[newIndex] ?? null);
-        } else if (key.downArrow) {
+        if (up) {
+          if (effectiveIndex === 0) {
+            // At first section — exit section focus, return to branch navigation
+            setSectionFocus(false);
+            setFocusedSection(null);
+          } else {
+            setFocusedSection(visibleSections[effectiveIndex - 1] ?? null);
+          }
+        } else if (down) {
           const newIndex = Math.min(visibleSections.length - 1, effectiveIndex + 1);
           setFocusedSection(visibleSections[newIndex] ?? null);
         }
       } else {
         // Branch navigation (default — works even with detail open)
-        if (key.upArrow) {
+        if (up) {
           if (sessionIndex === 0) {
             setToolbarIndex(0);
           } else {
@@ -493,7 +501,7 @@ export function App({ daemon, startTime }: AppProps) {
             setSectionFocus(false);
             setSessionIndex(nextIndex);
           }
-        } else if (key.downArrow) {
+        } else if (down) {
           const nextIndex = Math.min(openCount - 1, sessionIndex + 1);
           if (nextIndex !== sessionIndex) {
             setBranchLogOffset(0);
@@ -504,9 +512,9 @@ export function App({ daemon, startTime }: AppProps) {
         }
       }
     } else {
-      if (key.upArrow) {
+      if (up) {
         setLogOffset((prev) => Math.min(prev + 1, Math.max(0, logEntries.length - logVisibleLines)));
-      } else if (key.downArrow) {
+      } else if (down) {
         setLogOffset((prev) => Math.max(0, prev - 1));
       }
     }
@@ -533,6 +541,7 @@ export function App({ daemon, startTime }: AppProps) {
           activityLines={activityLines}
           focusedSection={detailMode === "detail" && sectionFocus ? focusedSection : null}
           fullscreenSection={fullscreenSection}
+          commentScroll={commentScroll}
         />
       )}
       {detailMode === "logs" && !fullscreenSection && (
@@ -579,7 +588,7 @@ export function App({ daemon, startTime }: AppProps) {
         borderTop={false}
         borderBottom={false}
       />
-      <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} />
+      <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} sectionFocus={sectionFocus} focusedSection={focusedSection} />
     </Box>
   );
 }

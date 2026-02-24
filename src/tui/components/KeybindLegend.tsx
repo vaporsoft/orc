@@ -15,44 +15,41 @@ interface KeybindGroup {
 function getGroups(showingLogs: boolean): KeybindGroup[] {
   return [
     {
-      title: "Navigation",
+      title: "navigation",
       binds: [
-        { key: "j/k", label: "Select PR" },
-        { key: "↑/↓", label: "Select PR (or sections when focused)" },
-        { key: "→", label: "Open details / focus sections" },
-        { key: "←", label: "Unfocus sections / close details" },
-        { key: "enter", label: "Fullscreen section (when focused)" },
-        { key: "q/esc/←", label: "Exit fullscreen" },
-        { key: "l", label: "Branch logs (toggle)" },
-        { key: "tab", label: showingLogs ? "Hide all logs" : "All logs" },
+        { key: "↑/↓ or k/j", label: "select branch / navigate sections" },
+        { key: "tab", label: "toggle detail panel" },
+        { key: "enter", label: "focus sections / fullscreen" },
+        { key: "→ or l", label: "focus sections" },
+        { key: "← or ;", label: "back to branches / exit fullscreen" },
+        { key: "q/esc", label: "exit fullscreen" },
+        { key: "g", label: "branch logs (toggle)" },
+        { key: "G", label: showingLogs ? "hide all logs" : "all logs" },
       ],
     },
     {
-      title: "Actions",
+      title: "actions",
       binds: [
-        { key: "+", label: "Add branch" },
-        { key: "f", label: "Fix CI" },
-        { key: "a", label: "Address comments" },
-        { key: "enter", label: "Fix + Address" },
-        { key: "⇧ enter", label: "Fix + Address all" },
-        { key: "F", label: "Fix CI all" },
-        { key: "A", label: "Address all" },
-        { key: "x", label: "Stop" },
-        { key: "X", label: "Stop all" },
-        { key: "w", label: "Watch" },
-        { key: "d", label: "Clear merged" },
+        { key: "+", label: "add branch" },
+        { key: "f", label: "fix branch (ci + conflicts)" },
+        { key: "a", label: "address comments" },
+        { key: "w", label: "watch (fix + address continuously)" },
+        { key: "F", label: "fix branch (all branches)" },
+        { key: "A", label: "address comments (all branches)" },
+        { key: "x", label: "stop" },
+        { key: "X", label: "stop all" },
+        { key: "d", label: "clear merged" },
       ],
     },
     {
-      title: "Tools",
+      title: "tools",
       binds: [
-        { key: "e", label: "Open shell" },
-        { key: "E", label: "Resume Claude" },
-        { key: "l", label: "Branch logs" },
-        { key: "t", label: "Toggle theme" },
-        { key: ",", label: "Settings" },
-        { key: "h", label: "This help" },
-        { key: "q", label: "Quit" },
+        { key: "e", label: "open shell" },
+        { key: "E", label: "resume claude" },
+        { key: "t", label: "toggle theme" },
+        { key: ",", label: "settings" },
+        { key: "h", label: "this help" },
+        { key: "q", label: "quit" },
       ],
     },
   ];
@@ -84,7 +81,7 @@ export function KeybindLegend({ showingLogs, onClose }: KeybindLegendProps) {
     >
       <Box justifyContent="center" marginBottom={1}>
         <Text color={theme.accent} bold>
-          {"━━ Keybindings ━━"}
+          {"━━ keybindings ━━"}
         </Text>
       </Box>
 
