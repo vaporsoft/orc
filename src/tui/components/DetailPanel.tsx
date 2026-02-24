@@ -548,7 +548,7 @@ export function DetailPanel({
                 <MoreIndicator hidden={activityLines.length - MAX_ACTIVITY} label="lines" />
               )}
               {activityLines.slice(Math.max(0, activityLines.length - MAX_ACTIVITY)).map((line, i, arr) => (
-                <Box key={i} marginLeft={2}>
+                <Box key={`${activityLines.length - arr.length + i}`} marginLeft={2}>
                   <Text dimColor={i < arr.length - 1} color={i === arr.length - 1 ? theme.text : undefined}>
                     {line}
                   </Text>

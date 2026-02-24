@@ -60,7 +60,7 @@ export function LogPane({ entries, focused, scrollOffset, visibleLines, label = 
           const sym = LEVEL_SYMBOLS[entry.level] ?? "│";
           const prefix = entry.branch ? `[${entry.branch}] ` : "";
           return (
-            <Box key={i} paddingX={1} marginLeft={2}>
+            <Box key={`${offset}-${i}`} paddingX={1} marginLeft={2}>
               <Text dimColor>{time} </Text>
               <Text color={colors[entry.level] ?? theme.text}>
                 {sym} {prefix}{entry.message}
