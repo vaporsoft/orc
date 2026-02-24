@@ -103,6 +103,104 @@ describe("WorktreeManager.remove", () => {
   });
 });
 
+describe("WorktreeManager.create", () => {
+  let manager: WorktreeManager;
+  let execSpy: ReturnType<typeof vi.spyOn>;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "orc-create-test-"));
+    manager = new WorktreeManager(tmpDir);
+    execSpy = vi.spyOn(processUtil, "exec");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not run dependency install during create", async () => {
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await manager.create("my-branch");
+
+    // Should only have git fetch + git worktree add, no install commands
+    const calls = execSpy.mock.calls.map(c => `${c[0]} ${(c[1] as string[]).join(" ")}`);
+    expect(calls).toContainEqual(expect.stringContaining("git fetch"));
+    expect(calls).toContainEqual(expect.stringContaining("git worktree add"));
+    expect(calls).not.toContainEqual(expect.stringMatching(/yarn|npm|pnpm/));
+  });
+});
+
+describe("WorktreeManager.ensureSetup", () => {
+  let manager: WorktreeManager;
+  let execSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    manager = new WorktreeManager("/fake/repo");
+    execSpy = vi.spyOn(processUtil, "exec");
+  });
+
+  it("runs setup commands when provided", async () => {
+    (manager as any).worktrees.set("my-branch", "/tmp/orc/my-branch_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await manager.ensureSetup("my-branch", ["yarn install"]);
+
+    expect(execSpy).toHaveBeenCalledWith(
+      "yarn",
+      ["install"],
+      expect.objectContaining({ cwd: "/tmp/orc/my-branch_abc123" }),
+    );
+  });
+
+  it("falls back to auto-detected install when no setup commands", async () => {
+    // Create a real temp dir with lockfiles so installDependencies detects yarn
+    const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), "orc-setup-test-"));
+    fs.writeFileSync(path.join(worktreePath, "package.json"), "{}");
+    fs.writeFileSync(path.join(worktreePath, "yarn.lock"), "");
+
+    (manager as any).worktrees.set("my-branch", worktreePath);
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await manager.ensureSetup("my-branch", []);
+
+    expect(execSpy).toHaveBeenCalledWith(
+      "yarn",
+      ["install"],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  it("no-ops on second call", async () => {
+    (manager as any).worktrees.set("my-branch", "/tmp/orc/my-branch_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await manager.ensureSetup("my-branch", ["yarn install"]);
+    execSpy.mockClear();
+
+    await manager.ensureSetup("my-branch", ["yarn install"]);
+    expect(execSpy).not.toHaveBeenCalled();
+  });
+
+  it("resets setup state when worktree is removed", async () => {
+    (manager as any).worktrees.set("my-branch", "/tmp/orc/my-branch_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await manager.ensureSetup("my-branch", ["yarn install"]);
+    await manager.remove("my-branch");
+
+    // Re-create and ensureSetup should run again
+    (manager as any).worktrees.set("my-branch", "/tmp/orc/my-branch_abc123");
+    execSpy.mockClear();
+    await manager.ensureSetup("my-branch", ["yarn install"]);
+    expect(execSpy).toHaveBeenCalled();
+  });
+});
+
 describe("WorktreeManager.purgeStale", () => {
   let manager: WorktreeManager;
   let execSpy: ReturnType<typeof vi.spyOn>;

@@ -57,6 +57,8 @@ export class SessionController extends EventEmitter {
   private progressStore: ProgressStore;
   private prAuthor: string | null = null;
   private abortController: AbortController;
+  private setupFn: (() => Promise<void>) | null;
+  private setupComplete = false;
   private running = false;
   private startedAt = 0;
   private conflictResolve: ((action: "resolve" | "dismiss") => void) | null = null;
@@ -64,13 +66,14 @@ export class SessionController extends EventEmitter {
   private activityEmitTimer: ReturnType<typeof setTimeout> | null = null;
   private activityEmitPending = false;
 
-  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock) {
+  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock, setupFn?: () => Promise<void>) {
     super();
     this.branch = branch;
     this.config = config;
     this.cwd = cwd;
     this.mode = mode;
     this.progressStore = progressStore;
+    this.setupFn = setupFn ?? null;
 
     this.ghClient = new GHClient(cwd);
     this.categorizer = new CommentCategorizer(cwd, config.confidence);
@@ -236,6 +239,14 @@ export class SessionController extends EventEmitter {
     }
 
     logger.info("Stopping session", this.branch);
+  }
+
+  /** Run setup commands (dependency install, etc.) once before the first fix. */
+  private async ensureSetup(): Promise<void> {
+    if (this.setupComplete || !this.setupFn) return;
+    this.setStatus("installing_deps");
+    await this.setupFn();
+    this.setupComplete = true;
   }
 
   /** Sleep that resolves immediately when the abort signal fires. */
@@ -514,6 +525,15 @@ export class SessionController extends EventEmitter {
       return;
     }
 
+    await this.ensureSetup();
+    if (!this.running) {
+      const setupAbortCycleCost = this.state.totalCostUsd - cycleStartCost;
+      const setupAbortCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+      const setupAbortCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+      await this.progressStore.recordCycleEnd(this.branch, 0, setupAbortCycleCost, setupAbortCycleInput, setupAbortCycleOutput);
+      this.syncLifetimeStats();
+      return;
+    }
     this.setStatus("fixing");
     this.state.claudeActivity = [];
     const headBefore = await this.gitManager.getHeadSha();
@@ -695,6 +715,8 @@ export class SessionController extends EventEmitter {
 
   /** Attempt to resolve conflicts by starting the rebase, letting Claude fix conflict markers, then continuing. */
   private async resolveConflicts(baseBranch: string): Promise<boolean> {
+    await this.ensureSetup();
+    if (!this.running) return false;
     this.setStatus("fixing");
     this.state.claudeActivity = [];
 
@@ -862,6 +884,8 @@ export class SessionController extends EventEmitter {
         this.state.failedChecks[0].logSnippet = firstLogSnippet;
       }
 
+      await this.ensureSetup();
+      if (!this.running) return;
       this.setStatus("fixing");
       this.state.claudeActivity = [];
       const headBeforeCIFix = await this.gitManager.getHeadSha();
