@@ -49,7 +49,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [showLegend, setShowLegend] = useState(false);
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [focusedSection, setFocusedSection] = useState<DetailSection | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<DetailSection>>(new Set());
+  const [sectionFocus, setSectionFocus] = useState(false); // true when arrow keys navigate sections instead of branches
   const [fullscreenSection, setFullscreenSection] = useState<DetailSection | null>(null);
 
   const termHeight = stdout?.rows ?? 24;
@@ -101,7 +101,7 @@ export function App({ daemon, startTime }: AppProps) {
     if (prevSelectedBranchRef.current !== selectedBranch) {
       // Branch changed (even if index stayed same due to list reordering)
       setFocusedSection(null);
-      setCollapsedSections(new Set());
+      setSectionFocus(false);
       setFullscreenSection(null);
       prevSelectedBranchRef.current = selectedBranch;
     }
@@ -136,7 +136,7 @@ export function App({ daemon, startTime }: AppProps) {
         setSessionIndex(conflictIndex);
         setDetailMode("detail");
         setFocusedSection(null); // Will default to first visible section
-        setCollapsedSections(new Set()); // Clear collapsed sections for new branch
+        setSectionFocus(false);
         setFullscreenSection(null);
         setFocusedPane("sessions");
       }
@@ -287,12 +287,13 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Enter (context-sensitive): fullscreen section in detail, or fix+address selected branch
+    // Enter (context-sensitive): fullscreen section when in section focus, or fix+address
     if ((key.return || input === "\n") && focusedPane === "sessions") {
       if (fullscreenSection) {
         return;
       }
-      if (detailMode === "detail" && visibleSections.length > 0) {
+      if (detailMode === "detail" && sectionFocus && visibleSections.length > 0) {
+        // Section focus active — enter fullscreens the focused section
         const section = (focusedSection && visibleSections.includes(focusedSection))
           ? focusedSection
           : visibleSections[0];
@@ -301,6 +302,7 @@ export function App({ daemon, startTime }: AppProps) {
         }
         return;
       }
+      // Fix + Address selected branch
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.startBranch(branch, "once", "all").catch(() => {});
@@ -322,6 +324,24 @@ export function App({ daemon, startTime }: AppProps) {
         setDetailMode("logs");
       }
       setBranchLogOffset(0);
+      return;
+    }
+
+    // Fix CI only for selected branch
+    if (input === "f" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.startBranch(branch, "once", "ci").catch(() => {});
+      }
+      return;
+    }
+
+    // Address comments only for selected branch
+    if (input === "a" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.startBranch(branch, "once", "comments").catch(() => {});
+      }
       return;
     }
 
@@ -399,10 +419,9 @@ export function App({ daemon, startTime }: AppProps) {
     if (input === "k" && focusedPane === "sessions") {
       const nextIndex = Math.max(0, sessionIndex - 1);
       if (nextIndex !== sessionIndex) {
-        // Only reset section state when actually changing branches
         setBranchLogOffset(0);
         setFocusedSection(null);
-        setCollapsedSections(new Set());
+        setSectionFocus(false);
       }
       setSessionIndex(nextIndex);
       return;
@@ -410,56 +429,38 @@ export function App({ daemon, startTime }: AppProps) {
     if (input === "j" && focusedPane === "sessions") {
       const nextIndex = Math.min(openCount - 1, sessionIndex + 1);
       if (nextIndex !== sessionIndex) {
-        // Only reset section state when actually changing branches
         setBranchLogOffset(0);
         setFocusedSection(null);
-        setCollapsedSections(new Set());
+        setSectionFocus(false);
       }
       setSessionIndex(nextIndex);
       return;
     }
 
-    // Right arrow: open detail / expand section
+    // Right arrow: open detail or drop into section focus
     if (key.rightArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (fullscreenSection) {
-        return;
-      }
-      if (detailMode === "detail" && visibleSections.length > 0) {
-        const section = (focusedSection && visibleSections.includes(focusedSection))
-          ? focusedSection
-          : visibleSections[0];
-        if (section && collapsedSections.has(section)) {
-          setCollapsedSections((prev) => {
-            const next = new Set(prev);
-            next.delete(section);
-            return next;
-          });
-        }
+      if (detailMode === "detail" && !sectionFocus && visibleSections.length > 0) {
+        // Detail already open — drop into section rows
+        setSectionFocus(true);
+        setFocusedSection(visibleSections[0] ?? null);
         return;
       }
       if (detailMode !== "detail") {
+        // Open detail panel
         setFocusedSection(null);
+        setSectionFocus(false);
         setDetailMode("detail");
         return;
       }
       return;
     }
 
-    // Left arrow: collapse section / close detail
+    // Left arrow: exit section focus or close detail
     if (key.leftArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (detailMode === "detail" && visibleSections.length > 0) {
-        const section = (focusedSection && visibleSections.includes(focusedSection))
-          ? focusedSection
-          : visibleSections[0];
-        if (section && !collapsedSections.has(section)) {
-          setCollapsedSections((prev) => {
-            const next = new Set(prev);
-            next.add(section);
-            return next;
-          });
-          return;
-        }
-        setDetailMode("off");
+      if (sectionFocus) {
+        // Exit section focus back to branch navigation
+        setSectionFocus(false);
+        setFocusedSection(null);
         return;
       }
       if (detailMode === "detail") {
@@ -477,8 +478,8 @@ export function App({ daemon, startTime }: AppProps) {
         } else if (key.downArrow) {
           setBranchLogOffset((prev) => Math.max(0, prev - 1));
         }
-      } else if (detailMode === "detail" && visibleSections.length > 0) {
-        // When detail panel is open, arrows navigate between sections
+      } else if (sectionFocus && detailMode === "detail" && visibleSections.length > 0) {
+        // Section focus mode: arrows navigate between sections
         const currentIndex = focusedSection ? visibleSections.indexOf(focusedSection) : 0;
         const effectiveIndex = currentIndex >= 0 ? currentIndex : 0;
         if (key.upArrow) {
@@ -489,15 +490,15 @@ export function App({ daemon, startTime }: AppProps) {
           setFocusedSection(visibleSections[newIndex] ?? null);
         }
       } else {
+        // Branch navigation (default — works even with detail open)
         if (key.upArrow) {
           if (sessionIndex === 0) {
-            // At top of session list — move focus up into toolbar
             setToolbarIndex(0);
           } else {
             const nextIndex = sessionIndex - 1;
             setBranchLogOffset(0);
             setFocusedSection(null);
-            setCollapsedSections(new Set());
+            setSectionFocus(false);
             setSessionIndex(nextIndex);
           }
         } else if (key.downArrow) {
@@ -505,7 +506,7 @@ export function App({ daemon, startTime }: AppProps) {
           if (nextIndex !== sessionIndex) {
             setBranchLogOffset(0);
             setFocusedSection(null);
-            setCollapsedSections(new Set());
+            setSectionFocus(false);
           }
           setSessionIndex(nextIndex);
         }
@@ -538,8 +539,7 @@ export function App({ daemon, startTime }: AppProps) {
           selectedBranch={selectedBranch}
           showDetail={detailMode === "detail"}
           activityLines={activityLines}
-          focusedSection={detailMode === "detail" ? focusedSection : null}
-          collapsedSections={collapsedSections}
+          focusedSection={detailMode === "detail" && sectionFocus ? focusedSection : null}
           fullscreenSection={fullscreenSection}
         />
       )}

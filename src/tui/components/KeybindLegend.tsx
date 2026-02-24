@@ -18,11 +18,11 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
       title: "Navigation",
       binds: [
         { key: "j/k", label: "Select PR" },
-        { key: "→", label: "Open details / expand section" },
-        { key: "←", label: "Close details / collapse section" },
-        { key: "↑/↓", label: "Navigate sections (in detail)" },
-        { key: "enter", label: "Fullscreen section (in detail)" },
-        { key: "q/esc", label: "Exit fullscreen section" },
+        { key: "↑/↓", label: "Select PR (or sections when focused)" },
+        { key: "→", label: "Open details / focus sections" },
+        { key: "←", label: "Unfocus sections / close details" },
+        { key: "enter", label: "Fullscreen section (when focused)" },
+        { key: "q/esc/←", label: "Exit fullscreen" },
         { key: "l", label: "Branch logs (toggle)" },
         { key: "tab", label: showingLogs ? "Hide all logs" : "All logs" },
       ],
@@ -31,6 +31,8 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
       title: "Actions",
       binds: [
         { key: "+", label: "Add branch" },
+        { key: "f", label: "Fix CI" },
+        { key: "a", label: "Address comments" },
         { key: "enter", label: "Fix + Address" },
         { key: "⇧ enter", label: "Fix + Address all" },
         { key: "F", label: "Fix CI all" },
@@ -46,8 +48,11 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
       binds: [
         { key: "e", label: "Open shell" },
         { key: "E", label: "Resume Claude" },
+        { key: "l", label: "Branch logs" },
         { key: "t", label: "Toggle theme" },
         { key: ",", label: "Settings" },
+        { key: "h", label: "This help" },
+        { key: "q", label: "Quit" },
       ],
     },
   ];

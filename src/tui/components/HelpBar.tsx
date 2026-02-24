@@ -36,13 +36,13 @@ export function HelpBar({ detailMode, fullscreenSection }: HelpBarProps) {
   } else if (detailMode === "detail") {
     hints = [
       { k: "←", label: "close" },
-      { k: "↑↓", label: "sections" },
-      { k: "→", label: "expand" },
-      { k: "enter", label: "focus" },
+      { k: "→", label: "sections" },
+      { k: "enter", label: "fix + address" },
+      { k: "h", label: "help" },
     ];
   } else {
     hints = [
-      { k: "enter", label: "fix" },
+      { k: "enter", label: "fix + address" },
       { k: "→", label: "details" },
       { k: "l", label: "logs" },
       { k: "h", label: "help" },
