@@ -586,4 +586,120 @@ describe("Daemon", () => {
       expect(events).toHaveLength(1);
     });
   });
+
+  describe("optimistic resolution (applyOptimisticResolution)", () => {
+    it("decreases comment count by number of resolved threads", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).commentCounts.set("feature-branch", 3);
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2"]);
+
+      expect(daemon.getCommentCounts().get("feature-branch")).toBe(1);
+    });
+
+    it("clamps comment count to zero", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).commentCounts.set("feature-branch", 1);
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2", "t3"]);
+
+      expect(daemon.getCommentCounts().get("feature-branch")).toBe(0);
+    });
+
+    it("bumps thread counts resolved", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).threadCounts.set("feature-branch", { resolved: 2, total: 5 });
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2"]);
+
+      const tc = daemon.getThreadCounts().get("feature-branch");
+      expect(tc).toEqual({ resolved: 4, total: 5 });
+    });
+
+    it("clamps resolved count to total", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).threadCounts.set("feature-branch", { resolved: 4, total: 5 });
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2", "t3"]);
+
+      const tc = daemon.getThreadCounts().get("feature-branch");
+      expect(tc).toEqual({ resolved: 5, total: 5 });
+    });
+
+    it("removes resolved threads from commentThreads", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).commentThreads.set("feature-branch", [
+        { threadId: "t1", path: "a.ts", body: "fix" },
+        { threadId: "t2", path: "b.ts", body: "fix" },
+        { threadId: "t3", path: "c.ts", body: "fix" },
+      ]);
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t3"]);
+
+      const threads = daemon.getCommentThreads().get("feature-branch");
+      expect(threads).toHaveLength(1);
+      expect(threads![0].threadId).toBe("t2");
+    });
+
+    it("adds resolved IDs to orcResolvedThreads for deleted-reply detection", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).orcResolvedThreads.set("feature-branch", new Set(["existing"]));
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2"]);
+
+      const tracked = (daemon as any).orcResolvedThreads.get("feature-branch") as Set<string>;
+      expect(tracked.has("existing")).toBe(true);
+      expect(tracked.has("t1")).toBe(true);
+      expect(tracked.has("t2")).toBe(true);
+    });
+
+    it("creates orcResolvedThreads set if not present", () => {
+      const { daemon } = setupDaemon();
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1"]);
+
+      const tracked = (daemon as any).orcResolvedThreads.get("feature-branch") as Set<string>;
+      expect(tracked).toBeDefined();
+      expect(tracked.has("t1")).toBe(true);
+    });
+
+    it("emits commentCountUpdate with new count", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).commentCounts.set("feature-branch", 5);
+
+      const events: Array<[string, number]> = [];
+      daemon.on("commentCountUpdate", (branch: string, count: number) => {
+        events.push([branch, count]);
+      });
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1", "t2"]);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual(["feature-branch", 3]);
+    });
+
+    it("is a no-op for empty resolvedThreadIds", () => {
+      const { daemon } = setupDaemon();
+      (daemon as any).commentCounts.set("feature-branch", 5);
+
+      const events: string[] = [];
+      daemon.on("commentCountUpdate", () => events.push("update"));
+
+      (daemon as any).applyOptimisticResolution("feature-branch", []);
+
+      expect(events).toHaveLength(0);
+      expect(daemon.getCommentCounts().get("feature-branch")).toBe(5);
+    });
+
+    it("handles missing prior state gracefully", () => {
+      const { daemon } = setupDaemon();
+      // No prior commentCounts, threadCounts, or commentThreads
+
+      (daemon as any).applyOptimisticResolution("feature-branch", ["t1"]);
+
+      expect(daemon.getCommentCounts().get("feature-branch")).toBe(0);
+      // threadCounts should remain unset since there was no prior data
+      expect(daemon.getThreadCounts().get("feature-branch")).toBeUndefined();
+    });
+  });
 });
