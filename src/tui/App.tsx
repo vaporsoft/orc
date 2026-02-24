@@ -500,14 +500,16 @@ export function App({ daemon, startTime }: AppProps) {
   return (
     <Box flexDirection="column" height={termHeight}>
       <Header entries={entries} startTime={startTime} nextCheckIn={nextCheckIn} buttons={toolbarButtons} selectedButton={toolbarIndex} />
-      <SessionList
-        entries={entries}
-        selectedIndex={clampedSessionIndex}
-        focused={focusedPane === "sessions" && toolbarIndex < 0}
-        openBranches={openBranches}
-        mergedBranches={mergedBranches}
-        isDiscovering={isDiscovering}
-      />
+      {!fullscreenSection && (
+        <SessionList
+          entries={entries}
+          selectedIndex={clampedSessionIndex}
+          focused={focusedPane === "sessions" && toolbarIndex < 0}
+          openBranches={openBranches}
+          mergedBranches={mergedBranches}
+          isDiscovering={isDiscovering}
+        />
+      )}
       {detailMode !== "logs" && (
         <DetailPanel
           entries={entries}
@@ -516,9 +518,10 @@ export function App({ daemon, startTime }: AppProps) {
           activityLines={activityLines}
           focusedSection={detailMode === "detail" ? focusedSection : null}
           collapsedSections={collapsedSections}
+          fullscreenSection={fullscreenSection}
         />
       )}
-      {detailMode === "logs" && (
+      {detailMode === "logs" && !fullscreenSection && (
         <LogPane
           entries={branchLogs}
           focused={focusedPane === "sessions"}
@@ -527,7 +530,7 @@ export function App({ daemon, startTime }: AppProps) {
           label={selectedBranch ? `Logs [${selectedBranch}]` : "Logs"}
         />
       )}
-      {showLogs && (
+      {showLogs && !fullscreenSection && (
         <LogPane
           entries={logEntries}
           focused={focusedPane === "logs"}
