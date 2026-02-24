@@ -191,7 +191,7 @@ export function DetailPanel({
 
   const { pr, state, commentCount, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
   const summary = state?.commentSummary ?? null;
-  const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying", "preparing"];
+  const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying", "preparing", "checking_ci"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
 
   const visibleSections = getVisibleSections(entry);
@@ -353,7 +353,7 @@ export function DetailPanel({
                 <Box marginTop={1} marginLeft={2}>
                   <Text color="green" bold>[R]</Text>
                   <Text> Resolve with Claude  </Text>
-                  <Text color="cyan" bold>[A]</Text>
+                  <Text color="cyan" bold>[Y]</Text>
                   <Text> Always resolve with Claude  </Text>
                   <Text dimColor bold>[Esc]</Text>
                   <Text dimColor> Dismiss</Text>

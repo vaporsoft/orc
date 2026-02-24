@@ -23,6 +23,7 @@ import type {
   FailedCheck,
   RepoConfig,
   SessionMode,
+  SessionScope,
 } from "../types/index.js";
 import type { Config } from "../types/config.js";
 import { loadSettings, saveSettings } from "../utils/settings.js";
@@ -53,6 +54,7 @@ export class SessionController extends EventEmitter {
   private responder!: ThreadResponder;
   private repoConfig!: RepoConfig;
   private mode: SessionMode;
+  private scope: SessionScope;
   private state: BranchState;
   private progressStore: ProgressStore;
   private prAuthor: string | null = null;
@@ -66,12 +68,13 @@ export class SessionController extends EventEmitter {
   private activityEmitTimer: ReturnType<typeof setTimeout> | null = null;
   private activityEmitPending = false;
 
-  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock, setupFn?: () => Promise<void>) {
+  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock, setupFn?: () => Promise<void>, scope: SessionScope = "all") {
     super();
     this.branch = branch;
     this.config = config;
     this.cwd = cwd;
     this.mode = mode;
+    this.scope = scope;
     this.progressStore = progressStore;
     this.setupFn = setupFn ?? null;
 
@@ -341,6 +344,71 @@ export class SessionController extends EventEmitter {
     // Reset CI fix attempts at the start of each cycle
     this.state.ciFixAttempts = 0;
 
+    // CI-only scope: skip comment work, go straight to CI check
+    if (this.scope === "ci") {
+      // Clear comment-related state since CI-only mode doesn't process comments
+      this.state.unresolvedCount = 0;
+      this.state.commentSummary = null;
+      // Clear prior Claude session state to avoid stale TUI display
+      this.state.claudeActivity = [];
+      this.state.lastSessionId = null;
+
+      // Record cycle start before CI work so timing includes polling/fix time
+      await this.progressStore.recordCycleStart(this.branch, this.state.prNumber!, []);
+
+      try {
+        if (!this.config.dryRun) {
+          // Set status before CI work for both modes
+          if (this.mode === "watch") {
+            this.setStatus("watching");
+          } else {
+            this.setStatus("checking_ci");
+          }
+          await this.checkAndFixCI(baseBranch);
+        }
+      } finally {
+        const ciCycleCost = this.state.totalCostUsd - cycleStartCost;
+        const ciCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
+        const ciCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
+        await this.progressStore.recordCycleEnd(this.branch, 0, ciCycleCost, ciCycleInput, ciCycleOutput);
+        this.syncLifetimeStats();
+      }
+
+      if (this.mode === "once") {
+        this.setStatus("stopped");
+        this.running = false;
+      } else if (this.running) {
+        // Check if PR is still open (same as regular watch mode)
+        const pr = await this.ghClient.findPRForBranch(this.branch);
+        if (!pr || pr.state !== "OPEN") {
+          logger.info(
+            `PR is no longer open (${pr?.state ?? "not found"})`,
+            this.branch,
+          );
+          this.setStatus("stopped");
+          this.running = false;
+          return;
+        }
+
+        // Check session timeout (same as regular watch mode)
+        if (this.config.sessionTimeout > 0) {
+          const elapsedHours = (Date.now() - this.startedAt) / (1000 * 60 * 60);
+          if (elapsedHours >= this.config.sessionTimeout) {
+            logger.info(
+              `Session timeout reached (${this.config.sessionTimeout}h)`,
+              this.branch,
+            );
+            this.setStatus("stopped");
+            this.running = false;
+            return;
+          }
+        }
+
+        await this.sleep(this.config.pollInterval * 1000);
+      }
+      return;
+    }
+
     // 1. FETCH — poll until comments appear
     this.setStatus("watching");
     const fetchedComments = await this.fetcher.fetch();
@@ -348,33 +416,33 @@ export class SessionController extends EventEmitter {
     if (fetchedComments.length === 0) {
       this.state.unresolvedCount = 0;
 
-      // Check CI even when there are no comments to fix
-      if (!this.config.dryRun) {
-        await this.checkAndFixCI(baseBranch);
-      }
+      // Check CI even when there are no comments to fix (skip for comments-only scope)
+      // Only record a cycle if we're actually going to do CI work
+      const willCheckCI = !this.config.dryRun && this.scope !== "comments";
 
-      if (this.mode === "once") {
-        logger.info("No comments to address", this.branch);
-        // Record a CI-only cycle (no comments seen, but we may have fixed CI)
+      if (willCheckCI) {
+        // Record cycle start before CI work so timing includes polling/fix time
         await this.progressStore.recordCycleStart(this.branch, this.state.prNumber!, []);
+
+        if (this.mode === "watch") {
+          this.setStatus("watching");
+        } else {
+          this.setStatus("checking_ci");
+        }
+        await this.checkAndFixCI(baseBranch);
+
         const ciOnlyCycleCost = this.state.totalCostUsd - cycleStartCost;
         const ciOnlyCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
         const ciOnlyCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
         await this.progressStore.recordCycleEnd(this.branch, 0, ciOnlyCycleCost, ciOnlyCycleInput, ciOnlyCycleOutput);
         this.syncLifetimeStats();
+      }
+
+      if (this.mode === "once") {
+        logger.info("No comments to address", this.branch);
         this.setStatus("stopped");
         this.running = false;
         return;
-      }
-
-      // Record CI-only cycle costs for watch mode too (mirroring once mode above)
-      const watchCiCycleCost = this.state.totalCostUsd - cycleStartCost;
-      const watchCiCycleInput = this.state.totalInputTokens - cycleStartInputTokens;
-      const watchCiCycleOutput = this.state.totalOutputTokens - cycleStartOutputTokens;
-      if (watchCiCycleCost > 0 || watchCiCycleInput > 0 || watchCiCycleOutput > 0) {
-        await this.progressStore.recordCycleStart(this.branch, this.state.prNumber!, []);
-        await this.progressStore.recordCycleEnd(this.branch, 0, watchCiCycleCost, watchCiCycleInput, watchCiCycleOutput);
-        this.syncLifetimeStats();
       }
 
       logger.info("No comments found — awaiting review feedback", this.branch);
@@ -496,9 +564,13 @@ export class SessionController extends EventEmitter {
     if (actionable.length === 0) {
       logger.info("No actionable comments after filtering", this.branch);
 
-      // Check CI even when there are no actionable comments to fix
-      if (!this.config.dryRun) {
-        this.setStatus("watching");
+      // Check CI even when there are no actionable comments to fix (skip for comments-only scope)
+      if (!this.config.dryRun && this.scope !== "comments") {
+        if (this.mode === "watch") {
+          this.setStatus("watching");
+        } else {
+          this.setStatus("checking_ci");
+        }
         await this.checkAndFixCI(baseBranch);
       }
 
@@ -643,7 +715,8 @@ export class SessionController extends EventEmitter {
 
       // 8b. CI CHECK — poll checks after push and reply, auto-fix on failure
       // In once mode, skip — daemon polls CI, user can press f again if needed
-      if (this.mode === "watch") {
+      // Skip for comments-only scope
+      if (this.mode === "watch" && this.scope !== "comments") {
         this.setStatus("watching");
         await this.checkAndFixCI(baseBranch);
       }

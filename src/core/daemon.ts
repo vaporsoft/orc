@@ -11,7 +11,7 @@ import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
 import type { Config } from "../types/config.js";
-import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, SessionMode } from "../types/index.js";
+import type { BranchState, BranchStatus, CIStatus, FailedCheck, ReviewThread, SessionMode, SessionScope } from "../types/index.js";
 import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
@@ -236,7 +236,7 @@ export class Daemon extends EventEmitter {
     this.abortController = new AbortController();
   }
 
-  async startBranch(branch: string, mode: SessionMode = "once"): Promise<void> {
+  async startBranch(branch: string, mode: SessionMode = "once", scope: SessionScope = "all"): Promise<void> {
     if (this.sessions.has(branch) || this.launching.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
@@ -326,7 +326,7 @@ export class Daemon extends EventEmitter {
     await this.worktreeManager.remove(branch);
 
     this.lastStates.delete(branch);
-    await this.launchSession(pr, mode);
+    await this.launchSession(pr, mode, scope);
 
     } finally {
       this.launching.delete(branch);
@@ -348,14 +348,14 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  async startAll(mode: SessionMode = "once"): Promise<void> {
+  async startAll(mode: SessionMode = "once", scope: SessionScope = "all"): Promise<void> {
     await this.stopAll();
     const branches = Array.from(this.discoveredPRs.keys());
     const settings = loadSettings();
     const rawMax = settings?.maxConcurrentSessions ?? 10;
     // Ensure valid concurrency: must be a positive integer
     const maxConcurrentSessions = Number.isFinite(rawMax) && rawMax >= 1 ? Math.floor(rawMax) : 10;
-    await mapWithConcurrency(branches, maxConcurrentSessions, (branch) => this.startBranch(branch, mode));
+    await mapWithConcurrency(branches, maxConcurrentSessions, (branch) => this.startBranch(branch, mode, scope));
   }
 
   async watchBranch(branch: string): Promise<void> {
@@ -624,7 +624,7 @@ export class Daemon extends EventEmitter {
     });
   }
 
-  private async launchSession(pr: GHPullRequest, mode: SessionMode = "once"): Promise<void> {
+  private async launchSession(pr: GHPullRequest, mode: SessionMode = "once", scope: SessionScope = "all"): Promise<void> {
     const branch = pr.headRefName;
 
     if (this.config.dryRun) {
@@ -677,7 +677,7 @@ export class Daemon extends EventEmitter {
     }
 
     const setupFn = () => this.worktreeManager.ensureSetup(branch, repoConfig.setupCommands);
-    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore, this.gitLock, setupFn);
+    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore, this.gitLock, setupFn, scope);
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);

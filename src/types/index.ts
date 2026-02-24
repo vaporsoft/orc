@@ -94,6 +94,9 @@ export interface FailedCheck {
 
 export type SessionMode = "once" | "watch";
 
+/** What the session should fix: comments only, CI only, or both. */
+export type SessionScope = "comments" | "ci" | "all";
+
 export type BranchStatus =
   | "stopped"
   | "initializing"
@@ -106,6 +109,7 @@ export type BranchStatus =
   | "replying"
   | "ready"
   | "conflict_prompt"
+  | "checking_ci"
   | "error"
   | "merged";
 

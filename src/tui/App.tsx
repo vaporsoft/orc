@@ -143,7 +143,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Add Branch", action: () => setShowAddBranch(true) },
-    { label: "Fix All", action: () => daemon.startAll("once").catch((err) => logger.error(`startAll failed: ${err}`)) },
+    { label: "Fix All", action: () => daemon.startAll("once", "ci").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
     { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
     { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
@@ -192,7 +192,7 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Conflict resolution: R to resolve once, A to always auto-resolve
+    // Conflict resolution: R to resolve once, Y to always auto-resolve
     if (focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
@@ -201,7 +201,7 @@ export function App({ daemon, startTime }: AppProps) {
           daemon.resolveConflicts(branch, false);
           return;
         }
-        if (input === "a" || input === "A") {
+        if (input === "y" || input === "Y") {
           daemon.resolveConflicts(branch, true);
           return;
         }
@@ -212,11 +212,20 @@ export function App({ daemon, startTime }: AppProps) {
       }
     }
 
-    // Fix: run full session (comments + CI) for selected branch
+    // Fix branch: run CI-only session for selected branch
     if (input === "f" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once").catch(() => {});
+        daemon.startBranch(branch, "once", "ci").catch(() => {});
+      }
+      return;
+    }
+
+    // Fix + Address: run full session (comments + CI) for selected branch
+    if (input === "F" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.startBranch(branch, "once", "all").catch(() => {});
       }
       return;
     }
@@ -299,9 +308,18 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Start all (one-shot)
-    if (input === "a") {
-      daemon.startAll("once").catch((err) => {
+    // Address comments: run comments-only session for selected branch
+    if (input === "a" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.startBranch(branch, "once", "comments").catch(() => {});
+      }
+      return;
+    }
+
+    // Fix all (one-shot, CI-only)
+    if (input === "*") {
+      daemon.startAll("once", "ci").catch((err) => {
         logger.error(`startAll failed: ${err}`);
       });
       return;
