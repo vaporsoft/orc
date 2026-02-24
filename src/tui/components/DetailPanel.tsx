@@ -355,10 +355,8 @@ export function DetailPanel({
                 <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} focused={true} />
                 {summary.comments.slice(0, FULLSCREEN_MAX_COMMENTS).map((c) => {
                   const loc = c.line ? `${c.path}:${c.line}` : c.path;
-                  const body = c.body.replace(/\n/g, " ");
-                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
                   return (
-                    <Box key={c.threadId} marginLeft={2} flexDirection="column">
+                    <Box key={c.threadId} marginLeft={2} flexDirection="column" marginBottom={1}>
                       <Text>
                         <Text color={CATEGORY_COLORS[c.category]} bold>
                           {CATEGORY_LABELS[c.category].padEnd(11)}
@@ -366,7 +364,7 @@ export function DetailPanel({
                         <Text color={theme.text}>{loc}</Text>
                         <Text dimColor>  @{c.author}</Text>
                       </Text>
-                      <Text dimColor>{"           "}{truncated}</Text>
+                      <Text dimColor>{"           "}{c.body}</Text>
                     </Box>
                   );
                 })}
@@ -377,15 +375,13 @@ export function DetailPanel({
                 <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} focused={true} />
                 {commentThreads.slice(0, FULLSCREEN_MAX_COMMENTS).map((t) => {
                   const loc = t.line ? `${t.path}:${t.line}` : t.path;
-                  const body = t.body.replace(/\n/g, " ");
-                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
                   return (
-                    <Box key={t.threadId} marginLeft={2} flexDirection="column">
+                    <Box key={t.threadId} marginLeft={2} flexDirection="column" marginBottom={1}>
                       <Text>
                         <Text color={theme.text}>{loc}</Text>
                         <Text dimColor>  @{t.author}</Text>
                       </Text>
-                      <Text dimColor>  {truncated}</Text>
+                      <Text dimColor>  {t.body}</Text>
                     </Box>
                   );
                 })}
