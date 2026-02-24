@@ -588,7 +588,7 @@ export function App({ daemon, startTime }: AppProps) {
         borderTop={false}
         borderBottom={false}
       />
-      <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} sectionFocus={sectionFocus} focusedSection={focusedSection} />
+      <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} sectionFocus={sectionFocus} />
     </Box>
   );
 }
