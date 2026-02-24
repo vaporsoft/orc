@@ -234,7 +234,7 @@ export class Daemon extends EventEmitter {
 
     // Check concurrent session limit
     const settings = loadSettings();
-    const maxConcurrentSessions = settings?.maxConcurrentSessions ?? 4;
+    const maxConcurrentSessions = settings?.maxConcurrentSessions ?? 10;
     const activeSessions = Array.from(this.sessions.values()).filter(s => s.controller !== null).length;
 
     if (activeSessions >= maxConcurrentSessions) {
@@ -335,9 +335,12 @@ export class Daemon extends EventEmitter {
 
   async startAll(mode: SessionMode = "once"): Promise<void> {
     await this.stopAll();
-    for (const [branch] of this.discoveredPRs) {
-      await this.startBranch(branch, mode);
-    }
+    const branches = Array.from(this.discoveredPRs.keys());
+    const settings = loadSettings();
+    const rawMax = settings?.maxConcurrentSessions ?? 10;
+    // Ensure valid concurrency: must be a positive integer
+    const maxConcurrentSessions = Number.isFinite(rawMax) && rawMax >= 1 ? Math.floor(rawMax) : 10;
+    await mapWithConcurrency(branches, maxConcurrentSessions, (branch) => this.startBranch(branch, mode));
   }
 
   async watchBranch(branch: string): Promise<void> {

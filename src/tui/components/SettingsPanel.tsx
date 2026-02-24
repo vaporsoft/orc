@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme, useThemeContext } from "../theme.js";
 import { loadSettings, saveSettings, type UserSettings } from "../../utils/settings.js";
@@ -121,11 +121,16 @@ const SETTINGS: SettingDef[] = [
   {
     key: "maxConcurrentSessions",
     label: "Max concurrent sessions",
-    type: "number",
-    min: 1,
-    max: 10,
-    step: 1,
-    get: (s) => String(s.maxConcurrentSessions ?? 4),
+    type: "enum",
+    options: ["5", "10", "15", "20"],
+    get: (s) => {
+      const n = s.maxConcurrentSessions ?? 10;
+      // Map legacy values to nearest valid option (migration is handled in useEffect)
+      if (n <= 7) return "5";
+      if (n <= 12) return "10";
+      if (n <= 17) return "15";
+      return "20";
+    },
     apply: (value, _daemon) => {
       const n = parseInt(value, 10);
       saveSettings({ maxConcurrentSessions: n });
@@ -138,6 +143,22 @@ export function SettingsPanel({ daemon, onClose }: SettingsPanelProps) {
   const { mode, toggleTheme } = useThemeContext();
   const [selectedRow, setSelectedRow] = useState(0);
   const [settings, setSettings] = useState<UserSettings>(() => loadSettings() ?? { theme: mode });
+
+  // One-time migration for legacy maxConcurrentSessions values
+  useEffect(() => {
+    const n = settings.maxConcurrentSessions ?? 10;
+    const validOptions = [5, 10, 15, 20];
+    if (!validOptions.includes(n)) {
+      // Map legacy value to nearest valid option
+      let mapped: number;
+      if (n <= 7) mapped = 5;
+      else if (n <= 12) mapped = 10;
+      else if (n <= 17) mapped = 15;
+      else mapped = 20;
+      saveSettings({ maxConcurrentSessions: mapped });
+      setSettings(loadSettings() ?? { theme: mode });
+    }
+  }, []);
 
   const getCurrentValue = useCallback(
     (def: SettingDef): string => {
