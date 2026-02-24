@@ -59,6 +59,8 @@ export class CommentFetcher {
     orcRepliedResolvedThreadIds: string[];
     /** Resolved thread IDs that do NOT contain an ORC reply. */
     resolvedNoOrcReplyThreadIds: string[];
+    /** Resolved thread IDs where a non-orc comment was posted after orc's last reply (follow-up detection). */
+    followUpResolvedThreadIds: string[];
   }> {
     const [allThreads, prComments] = await Promise.all([
       this.ghClient.getReviewThreads(this.prNumber),
@@ -69,6 +71,7 @@ export class CommentFetcher {
     let resolved = 0;
     const orcRepliedResolvedThreadIds: string[] = [];
     const resolvedNoOrcReplyThreadIds: string[] = [];
+    const followUpResolvedThreadIds: string[] = [];
     for (const thread of allThreads) {
       if (thread.isResolved) {
         resolved++;
@@ -78,8 +81,21 @@ export class CommentFetcher {
         if (thread.comments.pageInfo.hasNextPage) {
           continue;
         }
-        if (thread.comments.nodes.some((c) => isOrcReply(c.body))) {
+        const lastOrcReplyAt = thread.comments.nodes
+          .filter((c) => isOrcReply(c.body))
+          .reduce<string | null>(
+            (latest, c) => (!latest || c.createdAt > latest ? c.createdAt : latest),
+            null,
+          );
+        if (lastOrcReplyAt !== null) {
           orcRepliedResolvedThreadIds.push(thread.id);
+          // Detect follow-up: a non-orc comment posted after orc's last reply
+          const hasFollowUp = thread.comments.nodes.some(
+            (c) => !isOrcReply(c.body) && c.createdAt > lastOrcReplyAt,
+          );
+          if (hasFollowUp) {
+            followUpResolvedThreadIds.push(thread.id);
+          }
         } else {
           resolvedNoOrcReplyThreadIds.push(thread.id);
         }
@@ -94,7 +110,7 @@ export class CommentFetcher {
       `Fetched ${comments.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
       this.branch,
     );
-    return { comments, threadCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds };
+    return { comments, threadCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds, followUpResolvedThreadIds };
   }
 
   /** Fetch all actionable comments: unresolved review threads + PR conversation comments. */

@@ -433,6 +433,97 @@ describe("CommentFetcher", () => {
       expect(resolvedNoOrcReplyThreadIds).toContain("t1");
     });
 
+    it("detects follow-up comments on resolved threads with ORC replies", async () => {
+      const threads: GHReviewThread[] = [
+        {
+          id: "t1",
+          isResolved: true,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: "c1",
+                databaseId: 1,
+                body: "Fix this",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T00:00:00Z",
+              },
+              {
+                id: "c2",
+                databaseId: 2,
+                body: "Done.\n\n*Orc — should_fix (confidence: 0.85)*",
+                author: { login: "pr-author" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T01:00:00Z",
+              },
+              {
+                id: "c3",
+                databaseId: 3,
+                body: "Actually I prefer the original approach",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T02:00:00Z",
+              },
+            ],
+          },
+        },
+      ];
+      const client = makeGHClient(threads);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { followUpResolvedThreadIds, orcRepliedResolvedThreadIds } = await fetcher.fetchWithCounts();
+      expect(followUpResolvedThreadIds).toContain("t1");
+      expect(orcRepliedResolvedThreadIds).toContain("t1");
+    });
+
+    it("does not flag resolved threads without follow-up comments", async () => {
+      const threads: GHReviewThread[] = [
+        {
+          id: "t1",
+          isResolved: true,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: "c1",
+                databaseId: 1,
+                body: "Fix this",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T00:00:00Z",
+              },
+              {
+                id: "c2",
+                databaseId: 2,
+                body: "Done.\n\n*Orc — should_fix (confidence: 0.85)*",
+                author: { login: "pr-author" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T01:00:00Z",
+              },
+            ],
+          },
+        },
+      ];
+      const client = makeGHClient(threads);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { followUpResolvedThreadIds } = await fetcher.fetchWithCounts();
+      expect(followUpResolvedThreadIds).not.toContain("t1");
+    });
+
     it("skips resolved threads with truncated comments (hasNextPage) for safety", async () => {
       const threads: GHReviewThread[] = [
         {
