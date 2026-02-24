@@ -49,6 +49,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [focusedSection, setFocusedSection] = useState<DetailSection | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<DetailSection>>(new Set());
+  const [fullscreenSection, setFullscreenSection] = useState<DetailSection | null>(null);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -143,7 +144,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Add Branch", action: () => setShowAddBranch(true) },
-    { label: "Fix All", action: () => daemon.startAll("once", "ci").catch((err) => logger.error(`startAll failed: ${err}`)) },
+    { label: "Fix All", action: () => daemon.startAll("once", "all").catch((err) => logger.error(`startAll failed: ${err}`)) },
     { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
     { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
     { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
@@ -160,6 +161,12 @@ export function App({ daemon, startTime }: AppProps) {
   useInput((input, key) => {
     // Modal panels — block all other keybindings when open
     if (showSettings || showLegend || showAddBranch) return;
+
+    // Exit fullscreen section (must come before global q quit)
+    if (fullscreenSection && (input === "q" || key.escape)) {
+      setFullscreenSection(null);
+      return;
+    }
 
     if (input === "q") {
       onQuit();
@@ -212,24 +219,6 @@ export function App({ daemon, startTime }: AppProps) {
       }
     }
 
-    // Fix branch: run CI-only session for selected branch
-    if (input === "f" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "ci").catch(() => {});
-      }
-      return;
-    }
-
-    // Fix + Address: run full session (comments + CI) for selected branch
-    if (input === "F" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "all").catch(() => {});
-      }
-      return;
-    }
-
     if (key.tab) {
       setFocusedPane((prev) => {
         if (prev === "sessions") {
@@ -274,12 +263,32 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Toggle detail pane for selected branch (handle both \r and \n)
+    // Shift+Enter: fix+address all branches
+    if (key.return && key.shift) {
+      daemon.startAll("once", "all").catch((err) => {
+        logger.error(`startAll failed: ${err}`);
+      });
+      return;
+    }
+
+    // Enter (context-sensitive): fullscreen section in detail, or fix+address selected branch
     if ((key.return || input === "\n") && focusedPane === "sessions") {
-      if (detailMode !== "detail") {
-        setFocusedSection(null); // Will default to first visible section
+      if (fullscreenSection) {
+        return;
       }
-      setDetailMode((prev) => prev === "detail" ? "off" : "detail");
+      if (detailMode === "detail" && visibleSections.length > 0) {
+        const section = (focusedSection && visibleSections.includes(focusedSection))
+          ? focusedSection
+          : visibleSections[0];
+        if (section) {
+          setFullscreenSection(section);
+        }
+        return;
+      }
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && !daemon.isRunning(branch)) {
+        daemon.startBranch(branch, "once", "all").catch(() => {});
+      }
       return;
     }
 
@@ -290,59 +299,11 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Stop selected branch
-    if (input === "s" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && daemon.isRunning(branch)) {
-        daemon.stopBranch(branch).catch(() => {});
-      }
-      return;
-    }
-
     // Watch selected branch (continuous)
     if (input === "w" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch && !daemon.isRunning(branch)) {
         daemon.watchBranch(branch).catch(() => {});
-      }
-      return;
-    }
-
-    // Address comments: run comments-only session for selected branch
-    if (input === "a" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "comments").catch(() => {});
-      }
-      return;
-    }
-
-    // Fix all (one-shot, CI-only)
-    if (input === "*") {
-      daemon.startAll("once", "ci").catch((err) => {
-        logger.error(`startAll failed: ${err}`);
-      });
-      return;
-    }
-
-    // Stop all
-    if (input === "x") {
-      daemon.stopAll().catch((err) => {
-        logger.error(`stopAll failed: ${err}`);
-      });
-      return;
-    }
-
-    // Resume Claude session in new terminal
-    if (input === "c" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      const entry = branch ? entries.get(branch) : undefined;
-      const st = entry?.state;
-      if (st?.lastSessionId && st.workDir) {
-        openTerminal(`cd ${shellEscape(st.workDir)} && claude --resume ${shellEscape(st.lastSessionId)}`);
-        logger.info(`Resuming Claude session ${st.lastSessionId}`, branch);
-      } else {
-        logger.warn("No Claude session to resume for this branch", branch);
       }
       return;
     }
@@ -361,23 +322,50 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Space toggles collapse of focused section in detail view
-    if (input === " " && focusedPane === "sessions" && detailMode === "detail" && visibleSections.length > 0) {
-      // Use same validation as DetailPanel: check if focusedSection is in visibleSections before using it
-      const section = (focusedSection && visibleSections.includes(focusedSection))
-        ? focusedSection
-        : visibleSections[0];
-      if (section) {
-        setCollapsedSections((prev) => {
-          const next = new Set(prev);
-          if (next.has(section)) {
-            next.delete(section);
-          } else {
-            next.add(section);
-          }
-          return next;
-        });
+    // Resume Claude session in new terminal
+    if (input === "E" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      const entry = branch ? entries.get(branch) : undefined;
+      const st = entry?.state;
+      if (st?.lastSessionId && st.workDir) {
+        openTerminal(`cd ${shellEscape(st.workDir)} && claude --resume ${shellEscape(st.lastSessionId)}`);
+        logger.info(`Resuming Claude session ${st.lastSessionId}`, branch);
+      } else {
+        logger.warn("No Claude session to resume for this branch", branch);
       }
+      return;
+    }
+
+    // Fix CI all branches
+    if (input === "F") {
+      daemon.startAll("once", "ci").catch((err) => {
+        logger.error(`startAll failed: ${err}`);
+      });
+      return;
+    }
+
+    // Address comments all branches
+    if (input === "A") {
+      daemon.startAll("once", "comments").catch((err) => {
+        logger.error(`startAll failed: ${err}`);
+      });
+      return;
+    }
+
+    // Stop selected branch
+    if (input === "x" && focusedPane === "sessions") {
+      const branch = openBranches[clampedSessionIndex];
+      if (branch && daemon.isRunning(branch)) {
+        daemon.stopBranch(branch).catch(() => {});
+      }
+      return;
+    }
+
+    // Stop all branches
+    if (input === "X") {
+      daemon.stopAll().catch((err) => {
+        logger.error(`stopAll failed: ${err}`);
+      });
       return;
     }
 
@@ -402,6 +390,60 @@ export function App({ daemon, startTime }: AppProps) {
         setCollapsedSections(new Set());
       }
       setSessionIndex(nextIndex);
+      return;
+    }
+
+    // Right arrow: open detail / expand section
+    if (key.rightArrow && focusedPane === "sessions" && toolbarIndex < 0) {
+      if (fullscreenSection) {
+        return;
+      }
+      if (detailMode === "detail" && visibleSections.length > 0) {
+        const section = (focusedSection && visibleSections.includes(focusedSection))
+          ? focusedSection
+          : visibleSections[0];
+        if (section && collapsedSections.has(section)) {
+          setCollapsedSections((prev) => {
+            const next = new Set(prev);
+            next.delete(section);
+            return next;
+          });
+        }
+        return;
+      }
+      if (detailMode !== "detail") {
+        setFocusedSection(null);
+        setDetailMode("detail");
+        return;
+      }
+      return;
+    }
+
+    // Left arrow: collapse section / close detail / exit fullscreen
+    if (key.leftArrow && focusedPane === "sessions" && toolbarIndex < 0) {
+      if (fullscreenSection) {
+        setFullscreenSection(null);
+        return;
+      }
+      if (detailMode === "detail" && visibleSections.length > 0) {
+        const section = (focusedSection && visibleSections.includes(focusedSection))
+          ? focusedSection
+          : visibleSections[0];
+        if (section && !collapsedSections.has(section)) {
+          setCollapsedSections((prev) => {
+            const next = new Set(prev);
+            next.add(section);
+            return next;
+          });
+          return;
+        }
+        setDetailMode("off");
+        return;
+      }
+      if (detailMode === "detail") {
+        setDetailMode("off");
+        return;
+      }
       return;
     }
 
