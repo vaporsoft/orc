@@ -34,7 +34,7 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
         { key: "a", label: "Address comments" },
         { key: "F", label: "Fix + Address" },
         { key: "s", label: "Stop" },
-        { key: "w", label: "Watch" },
+        { key: "w", label: "Watch (fix + address)" },
         { key: "*", label: "Fix all" },
         { key: "x", label: "Stop all" },
         { key: "d", label: "Clear merged" },

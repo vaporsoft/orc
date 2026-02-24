@@ -102,7 +102,7 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("c to resume Claude session");
   }
 
-  hints.push("f to fix · s to stop · w to watch");
+  hints.push("f to fix · a to address · s to stop · w to watch");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -221,7 +221,7 @@ export function DetailPanel({
       >
         <Box marginLeft={2}>
           <Text dimColor>
-            <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> details
+            <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>a</Text> address · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> details
             {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
           </Text>
         </Box>
@@ -258,7 +258,7 @@ export function DetailPanel({
       {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
-          <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> collapse
+          <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>a</Text> address · <Text color={theme.accent}>s</Text> stop · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>enter</Text> collapse
           {effectiveFocusedSection && <Text> · <Text color={theme.accent}>space</Text> toggle section</Text>}
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
