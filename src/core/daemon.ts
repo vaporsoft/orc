@@ -190,7 +190,11 @@ export class Daemon extends EventEmitter {
   async run(): Promise<void> {
     this.running = true;
     await this.progressStore.load();
-    await this.worktreeManager.purgeStale();
+    // Purge stale worktrees in the background — don't block startup.
+    // The git lock queue ensures this won't conflict with session worktree operations.
+    this.worktreeManager.purgeStale().catch((err) => {
+      logger.warn(`Failed to purge stale worktrees: ${err}`);
+    });
     await this.ghClient.validateAuth();
 
     const user = await this.ghClient.getCurrentUser();
