@@ -191,7 +191,7 @@ export function DetailPanel({
 
   const { pr, state, commentCount, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
   const summary = state?.commentSummary ?? null;
-  const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying"];
+  const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying", "installing_deps"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
 
   const visibleSections = getVisibleSections(entry);

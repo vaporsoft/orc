@@ -76,7 +76,7 @@ function makeFakeFixResult(overrides: Partial<FixResult> = {}): FixResult {
   };
 }
 
-function createController(mode: "once" | "watch" = "once"): SessionController {
+function createController(mode: "once" | "watch" = "once", setupFn?: () => Promise<void>): SessionController {
   const store = new ProgressStore("/tmp/orc-test");
   vi.spyOn(store, "getLifetimeStats").mockReturnValue({
     lifetimeSeen: 0,
@@ -93,6 +93,7 @@ function createController(mode: "once" | "watch" = "once"): SessionController {
     "/tmp/orc-test",
     mode,
     store,
+    setupFn,
   );
 
   return ctrl;
@@ -530,6 +531,171 @@ describe("SessionController", () => {
       await ctrl.start();
 
       expect(executor.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("lazy setup", () => {
+    it("does not call setupFn when no comments to fix", async () => {
+      const setupFn = vi.fn().mockResolvedValue(undefined);
+      const ctrl = createController("once", setupFn);
+      setupFullCycle(ctrl);
+
+      await ctrl.start();
+
+      expect(setupFn).not.toHaveBeenCalled();
+    });
+
+    it("calls setupFn before executing fixes", async () => {
+      const setupFn = vi.fn().mockResolvedValue(undefined);
+      const ctrl = createController("once", setupFn);
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this bug",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "@@ -1,5 +1,5 @@",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "t1",
+          path: "src/main.ts",
+          line: 10,
+          body: "Fix this bug",
+          author: "reviewer",
+          diffHunk: "@@ -1,5 +1,5 @@",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Fix it",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      await ctrl.start();
+
+      expect(setupFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("emits installing_deps status during setup", async () => {
+      const setupFn = vi.fn().mockResolvedValue(undefined);
+      const ctrl = createController("once", setupFn);
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "t1",
+          path: "src/main.ts",
+          line: 10,
+          body: "Fix this",
+          author: "reviewer",
+          diffHunk: "",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Fix it",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      const statuses: string[] = [];
+      ctrl.on("statusChange", (_branch: string, status: string) => {
+        statuses.push(status);
+      });
+
+      await ctrl.start();
+
+      expect(statuses).toContain("installing_deps");
+      // installing_deps should come before fixing
+      const depsIdx = statuses.indexOf("installing_deps");
+      const fixIdx = statuses.indexOf("fixing");
+      expect(depsIdx).toBeLessThan(fixIdx);
+    });
+
+    it("only calls setupFn once even with multiple fix paths", async () => {
+      const setupFn = vi.fn().mockResolvedValue(undefined);
+      const ctrl = createController("once", setupFn);
+      const { gitManager, executor } = setupFullCycle(ctrl);
+
+      // Set up internal state for direct checkAndFixCI call
+      (ctrl as any).state.prNumber = 1;
+      (ctrl as any).running = true;
+      (ctrl as any).repoConfig = MOCK_REPO_CONFIG;
+
+      vi.spyOn(ctrl as any, "pollCIStatus")
+        .mockResolvedValueOnce({
+          status: "failing",
+          failedChecks: [{ id: 1, name: "build", htmlUrl: "", logSnippet: null, appSlug: null }],
+        })
+        .mockResolvedValueOnce({ status: "passing", failedChecks: [] });
+      vi.spyOn(ctrl as any, "buildCIContext").mockResolvedValue({
+        context: "CI failing",
+        firstLogSnippet: "error",
+      });
+
+      let callCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        callCount++;
+        return callCount <= 1 ? "abc123" : "def456";
+      });
+
+      await (ctrl as any).checkAndFixCI("main");
+
+      expect(setupFn).toHaveBeenCalledTimes(1);
     });
   });
 

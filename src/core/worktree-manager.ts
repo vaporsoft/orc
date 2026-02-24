@@ -15,6 +15,8 @@ export class WorktreeManager {
   private cwd: string;
   private worktrees = new Map<string, string>();
   private gitLock: GitLock;
+  /** Tracks branches where ensureSetup() has already run (to avoid redundant installs). */
+  private setupDone = new Set<string>();
 
   constructor(cwd: string, gitLock?: GitLock) {
     this.cwd = cwd;
@@ -24,9 +26,9 @@ export class WorktreeManager {
   /**
    * Create a worktree for a branch. Returns the worktree path.
    * If a worktree already exists for this branch, returns its path.
-   * When setupCommands are provided (from ORC.md), they replace the default dependency install.
+   * Does NOT install dependencies — call ensureSetup() before running fixes.
    */
-  async create(branch: string, setupCommands?: string[]): Promise<string> {
+  async create(branch: string): Promise<string> {
     if (this.worktrees.has(branch)) {
       return this.worktrees.get(branch)!;
     }
@@ -52,15 +54,31 @@ export class WorktreeManager {
       });
     });
 
-    // Dep installs run in isolated worktree dirs — safe to parallelize
+    this.worktrees.set(branch, worktreePath);
+    return worktreePath;
+  }
+
+  /**
+   * Run setup commands (dependency install, build, etc.) in a worktree.
+   * Called lazily before the first fix — skipped entirely for sessions that never need to fix.
+   * When setupCommands are provided (from ORC.md), they replace the default dependency install.
+   * No-ops if setup has already been run for this branch.
+   */
+  async ensureSetup(branch: string, setupCommands?: string[]): Promise<void> {
+    if (this.setupDone.has(branch)) return;
+
+    const worktreePath = this.worktrees.get(branch);
+    if (!worktreePath) {
+      throw new Error(`Cannot setup branch "${branch}": worktree not found (was it created?)`);
+    }
+
     if (setupCommands && setupCommands.length > 0) {
       await this.runSetupCommands(worktreePath, branch, setupCommands);
     } else {
       await this.installDependencies(worktreePath, branch);
     }
 
-    this.worktrees.set(branch, worktreePath);
-    return worktreePath;
+    this.setupDone.add(branch);
   }
 
   /** Remove a worktree for a branch. */
@@ -90,6 +108,7 @@ export class WorktreeManager {
     });
 
     this.worktrees.delete(branch);
+    this.setupDone.delete(branch);
   }
 
   /** Remove all worktrees in WORKTREE_BASE from a previous run and prune git refs. */

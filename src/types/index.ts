@@ -99,6 +99,7 @@ export type BranchStatus =
   | "initializing"
   | "watching"
   | "triaging"
+  | "installing_deps"
   | "fixing"
   | "verifying"
   | "pushing"

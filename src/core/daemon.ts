@@ -613,12 +613,12 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    // Load repo config early so we can pass setup commands to worktree creation
+    // Load repo config early so we can pass setup commands to the lazy setup callback
     const repoConfig = await loadRepoConfig(this.cwd);
 
     let workDir: string;
     try {
-      workDir = await this.worktreeManager.create(branch, repoConfig.setupCommands);
+      workDir = await this.worktreeManager.create(branch);
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       const lifetime = this.progressStore.getLifetimeStats(branch);
@@ -654,7 +654,8 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore, this.gitLock);
+    const setupFn = () => this.worktreeManager.ensureSetup(branch, repoConfig.setupCommands);
+    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore, this.gitLock, setupFn);
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);
