@@ -382,6 +382,33 @@ describe("Daemon", () => {
       expect(launchSpy).not.toHaveBeenCalled();
     });
 
+    it("prevents concurrent startBranch calls for the same branch", async () => {
+      const { daemon, ghClient } = setupDaemon();
+      const pr = makePR();
+      vi.spyOn(ghClient, "getMyOpenPRs").mockResolvedValue([pr]);
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
+      vi.spyOn(ghClient, "getPRComments").mockResolvedValue([]);
+
+      await (daemon as any).discover();
+
+      vi.spyOn(daemon as any, "getCurrentBranch").mockResolvedValue("other-branch");
+
+      // Make launchSession take some time so both calls overlap
+      let launchCount = 0;
+      vi.spyOn(daemon as any, "launchSession").mockImplementation(async () => {
+        launchCount++;
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // Fire two concurrent startBranch calls (simulates rapid button presses)
+      await Promise.all([
+        daemon.startBranch("feature-branch"),
+        daemon.startBranch("feature-branch"),
+      ]);
+
+      expect(launchCount).toBe(1);
+    });
+
     it("startAll launches branches concurrently via mapWithConcurrency", async () => {
       const { daemon, ghClient } = setupDaemon();
       const prs = [

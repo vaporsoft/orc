@@ -46,6 +46,8 @@ export class Daemon extends EventEmitter {
   private conflictStatuses = new Map<string, string[]>();
   /** Tracks resolved threads with ORC replies per branch for deleted-reply detection. */
   private orcResolvedThreads = new Map<string, Set<string>>();
+  /** Guards against concurrent startBranch calls for the same branch (TOCTOU race). */
+  private launching = new Set<string>();
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
@@ -235,9 +237,11 @@ export class Daemon extends EventEmitter {
   }
 
   async startBranch(branch: string, mode: SessionMode = "once"): Promise<void> {
-    if (this.sessions.has(branch)) return;
+    if (this.sessions.has(branch) || this.launching.has(branch)) return;
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
+    this.launching.add(branch);
+    try {
 
     // Check concurrent session limit
     const settings = loadSettings();
@@ -323,6 +327,10 @@ export class Daemon extends EventEmitter {
 
     this.lastStates.delete(branch);
     await this.launchSession(pr, mode);
+
+    } finally {
+      this.launching.delete(branch);
+    }
   }
 
   async stopBranch(branch: string): Promise<void> {
