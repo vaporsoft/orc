@@ -93,6 +93,7 @@ function createController(mode: "once" | "watch" = "once", setupFn?: () => Promi
     "/tmp/orc-test",
     mode,
     store,
+    undefined, // gitLock
     setupFn,
   );
 

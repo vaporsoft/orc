@@ -126,8 +126,8 @@ describe("WorktreeManager.create", () => {
 
     // Should only have git fetch + git worktree add, no install commands
     const calls = execSpy.mock.calls.map(c => `${c[0]} ${(c[1] as string[]).join(" ")}`);
-    expect(calls).toContainEqual(expect.stringContaining("git fetch"));
-    expect(calls).toContainEqual(expect.stringContaining("git worktree add"));
+    expect(calls).toContainEqual(expect.stringMatching(/git.*fetch/));
+    expect(calls).toContainEqual(expect.stringMatching(/git.*worktree add/));
     expect(calls).not.toContainEqual(expect.stringMatching(/yarn|npm|pnpm/));
   });
 });
