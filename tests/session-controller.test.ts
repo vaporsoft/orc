@@ -602,7 +602,7 @@ describe("SessionController", () => {
       expect(setupFn).toHaveBeenCalledTimes(1);
     });
 
-    it("emits installing_deps status during setup", async () => {
+    it("emits preparing status during setup", async () => {
       const setupFn = vi.fn().mockResolvedValue(undefined);
       const ctrl = createController("once", setupFn);
       const { gitManager, ghClient } = setupFullCycle(ctrl);
@@ -660,9 +660,9 @@ describe("SessionController", () => {
 
       await ctrl.start();
 
-      expect(statuses).toContain("installing_deps");
-      // installing_deps should come before fixing
-      const depsIdx = statuses.indexOf("installing_deps");
+      expect(statuses).toContain("preparing");
+      // preparing should come before fixing
+      const depsIdx = statuses.indexOf("preparing");
       const fixIdx = statuses.indexOf("fixing");
       expect(depsIdx).toBeLessThan(fixIdx);
     });

@@ -244,7 +244,7 @@ export class SessionController extends EventEmitter {
   /** Run setup commands (dependency install, etc.) once before the first fix. */
   private async ensureSetup(): Promise<void> {
     if (this.setupComplete || !this.setupFn) return;
-    this.setStatus("installing_deps");
+    this.setStatus("preparing");
     await this.setupFn();
     this.setupComplete = true;
   }
