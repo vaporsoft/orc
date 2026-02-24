@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../theme.js";
+import type { DetailSection } from "./DetailPanel.js";
 
 function Key({ k, label, accentColor }: { k: string; label: string; accentColor: string }) {
   return (
@@ -11,8 +12,42 @@ function Key({ k, label, accentColor }: { k: string; label: string; accentColor:
   );
 }
 
-export function HelpBar() {
+interface HelpBarProps {
+  detailMode: "off" | "detail" | "logs";
+  fullscreenSection: DetailSection | null;
+}
+
+export function HelpBar({ detailMode, fullscreenSection }: HelpBarProps) {
   const theme = useTheme();
+
+  let hints: { k: string; label: string }[];
+
+  if (fullscreenSection) {
+    hints = [
+      { k: "q", label: "close" },
+      { k: "esc", label: "close" },
+    ];
+  } else if (detailMode === "logs") {
+    hints = [
+      { k: "l", label: "close" },
+      { k: "↑↓", label: "scroll" },
+      { k: "h", label: "help" },
+    ];
+  } else if (detailMode === "detail") {
+    hints = [
+      { k: "←", label: "close" },
+      { k: "↑↓", label: "sections" },
+      { k: "→", label: "expand" },
+      { k: "enter", label: "focus" },
+    ];
+  } else {
+    hints = [
+      { k: "enter", label: "fix" },
+      { k: "→", label: "details" },
+      { k: "l", label: "logs" },
+      { k: "h", label: "help" },
+    ];
+  }
 
   return (
     <Box
@@ -23,11 +58,12 @@ export function HelpBar() {
       justifyContent="center"
       gap={1}
     >
-      <Key k="," label="settings" accentColor={theme.accent} />
-      <Text dimColor>·</Text>
-      <Key k="h" label="help" accentColor={theme.accent} />
-      <Text dimColor>·</Text>
-      <Key k="q" label="quit" accentColor={theme.accent} />
+      {hints.map((hint, i) => (
+        <React.Fragment key={hint.k + hint.label}>
+          {i > 0 && <Text dimColor>·</Text>}
+          <Key k={hint.k} label={hint.label} accentColor={theme.accent} />
+        </React.Fragment>
+      ))}
     </Box>
   );
 }
