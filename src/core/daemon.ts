@@ -694,6 +694,10 @@ export class Daemon extends EventEmitter {
       });
     });
 
+    controller.on("commentsResolved", (b: string, resolvedThreadIds: string[]) => {
+      this.applyOptimisticResolution(b, resolvedThreadIds);
+    });
+
     controller.on("ready", (b: string) => {
       logger.info("Session finished.", b);
       const state = controller.getState();
@@ -890,6 +894,51 @@ export class Daemon extends EventEmitter {
     if (status !== prev) {
       this.emit("ciStatusUpdate", branch, status, failedChecks);
     }
+  }
+
+  /**
+   * Optimistically update comment/thread state after a session resolves threads.
+   * The next poll cycle will overwrite with real data from GitHub.
+   */
+  private applyOptimisticResolution(branch: string, resolvedThreadIds: string[]): void {
+    if (resolvedThreadIds.length === 0) return;
+    const resolvedSet = new Set(resolvedThreadIds);
+    const uniqueCount = resolvedSet.size;
+
+    // Decrease unresolved comment count
+    const currentCount = this.commentCounts.get(branch) ?? 0;
+    const newCount = Math.max(0, currentCount - uniqueCount);
+    this.commentCounts.set(branch, newCount);
+
+    // Bump resolved count in thread counts
+    const tc = this.threadCounts.get(branch);
+    if (tc) {
+      this.threadCounts.set(branch, {
+        resolved: Math.min(tc.total, tc.resolved + uniqueCount),
+        total: tc.total,
+      });
+    }
+
+    // Remove resolved threads from the unresolved thread list
+    const currentThreads = this.commentThreads.get(branch);
+    if (currentThreads) {
+      this.commentThreads.set(
+        branch,
+        currentThreads.filter((t) => !resolvedSet.has(t.threadId)),
+      );
+    }
+
+    // Track as ORC-resolved for deleted-reply detection on next poll
+    const orcResolved = this.orcResolvedThreads.get(branch) ?? new Set();
+    for (const id of resolvedThreadIds) {
+      orcResolved.add(id);
+    }
+    this.orcResolvedThreads.set(branch, orcResolved);
+
+    this.emit("commentCountUpdate", branch, newCount);
+
+    // Re-check ready status since unresolved count may now be 0
+    this.updateReadyStatuses();
   }
 
   /** Set status to "ready" for branches with CI passing and 0 unresolved comments. */

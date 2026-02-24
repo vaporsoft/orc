@@ -631,6 +631,32 @@ export class SessionController extends EventEmitter {
       }
     }
 
+    // 7b. OPTIMISTIC STATUS UPDATE — tell the daemon which threads we just resolved
+    // so the TUI can reflect the new state immediately without waiting for the next poll.
+    const resolvedThreadIds: string[] = [];
+    if (fixSucceeded) {
+      for (const c of regularComments) {
+        if (c.path !== "(conversation)") {
+          resolvedThreadIds.push(c.threadId);
+        }
+      }
+    }
+    if (fixSucceeded || (!fixResult.isError && !madeCommits && verifyComments.length > 0)) {
+      for (const c of verifyComments) {
+        if (c.path !== "(conversation)") {
+          const outcome = fixResult.verifyResults.get(c.threadId);
+          if (outcome?.status === "fixed") {
+            resolvedThreadIds.push(c.threadId);
+          }
+        }
+      }
+    }
+    if (resolvedThreadIds.length > 0) {
+      const uniqueThreadIds = [...new Set(resolvedThreadIds)];
+      this.state.unresolvedCount = Math.max(0, this.state.unresolvedCount - uniqueThreadIds.length);
+      this.emit("commentsResolved", this.branch, uniqueThreadIds);
+    }
+
     // 8. RE-REQUEST review and CI check only after successful push
     if (pushed) {
       if (this.state.prNumber && madeCommits) {
