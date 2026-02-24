@@ -381,6 +381,57 @@ describe("Daemon", () => {
       await daemon.startBranch("nonexistent-branch");
       expect(launchSpy).not.toHaveBeenCalled();
     });
+
+    it("startAll launches branches concurrently via mapWithConcurrency", async () => {
+      const { daemon, ghClient } = setupDaemon();
+      const prs = [
+        makePR({ headRefName: "branch-a", number: 1 }),
+        makePR({ headRefName: "branch-b", number: 2 }),
+        makePR({ headRefName: "branch-c", number: 3 }),
+      ];
+      vi.spyOn(ghClient, "getMyOpenPRs").mockResolvedValue(prs);
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
+      vi.spyOn(ghClient, "getPRComments").mockResolvedValue([]);
+
+      await (daemon as any).discover();
+
+      // Track startBranch calls
+      const started: string[] = [];
+      vi.spyOn(daemon, "startBranch").mockImplementation(async (branch: string) => {
+        started.push(branch);
+      });
+
+      await daemon.startAll("once");
+
+      expect(started).toEqual(expect.arrayContaining(["branch-a", "branch-b", "branch-c"]));
+      expect(started).toHaveLength(3);
+    });
+
+    it("startAll respects maxConcurrentSessions from settings", async () => {
+      const { daemon, ghClient } = setupDaemon();
+      const prs = [
+        makePR({ headRefName: "branch-a", number: 1 }),
+        makePR({ headRefName: "branch-b", number: 2 }),
+      ];
+      vi.spyOn(ghClient, "getMyOpenPRs").mockResolvedValue(prs);
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
+      vi.spyOn(ghClient, "getPRComments").mockResolvedValue([]);
+
+      await (daemon as any).discover();
+
+      // Mock settings to return a custom max
+      const { loadSettings } = await import("../src/utils/settings.js");
+      (loadSettings as ReturnType<typeof vi.fn>).mockReturnValue({ maxConcurrentSessions: 5 });
+
+      const started: string[] = [];
+      vi.spyOn(daemon, "startBranch").mockImplementation(async (branch: string) => {
+        started.push(branch);
+      });
+
+      await daemon.startAll("once");
+
+      expect(started).toHaveLength(2);
+    });
   });
 
   describe("config management", () => {
