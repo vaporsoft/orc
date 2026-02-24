@@ -27,6 +27,7 @@ class Logger extends EventEmitter {
   private logFile: fs.WriteStream | null = null;
   private logPath: string | null = null;
   private entries: LogEntry[] = [];
+  private pendingWrites: string[] = []; // Queued writes while logFile is null during prune
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private verbose = false;
   private suppressConsole = false;
@@ -36,15 +37,38 @@ class Logger extends EventEmitter {
     this.suppressConsole = v;
   }
 
+  /**
+   * Attach a standard error handler to a WriteStream.
+   * ERR_STREAM_DESTROYED is expected when prune() destroys the stream while a
+   * write is still queued - safe to ignore. Real I/O errors are logged to stderr.
+   */
+  private attachStreamErrorHandler(stream: fs.WriteStream): void {
+    stream.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ERR_STREAM_DESTROYED") return;
+      console.error(`[logger] WriteStream error: ${err.message}`);
+    });
+  }
+
+  /** Clear all in-memory state. For testing only. */
+  _resetForTest(): void {
+    this.entries = [];
+    this.pendingWrites = [];
+    this.branchBuffers.clear();
+  }
+
   init(logPath?: string, verbose = false): void {
     this.verbose = verbose;
     if (logPath) {
       const dir = path.dirname(logPath);
       if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
       this.logPath = logPath;
-      // Start fresh
+      // Start fresh - clear any stale in-memory state from prior sessions
+      this.entries = [];
+      this.pendingWrites = [];
+      this.branchBuffers.clear();
       fs.writeFileSync(logPath, "");
       this.logFile = fs.createWriteStream(logPath, { flags: "a" });
+      this.attachStreamErrorHandler(this.logFile);
       this.pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
       this.pruneTimer.unref();
     }
@@ -65,9 +89,15 @@ class Logger extends EventEmitter {
     };
 
     // Write to log file immediately
-    if (this.logFile) {
-      this.logFile.write(JSON.stringify(entry) + "\n");
+    if (this.logPath) {
       this.entries.push(entry);
+      const line = JSON.stringify(entry) + "\n";
+      if (this.logFile) {
+        this.logFile.write(line);
+      } else {
+        // Queue write for when logFile is restored after prune
+        this.pendingWrites.push(line);
+      }
     }
 
     // Buffer per-branch logs for dump
@@ -123,10 +153,18 @@ class Logger extends EventEmitter {
     this.entries = this.entries.filter(
       (e) => new Date(e.timestamp).getTime() >= cutoff,
     );
-    // Destroy current stream synchronously (discards buffered data which is fine
-    // since we're about to rewrite the file with the authoritative entries array)
+    // Destroy the current stream synchronously (discards buffered data which is
+    // fine since we're about to rewrite the file with the authoritative entries
+    // array). Using destroy() avoids a race where end() flushes async and the
+    // flushed data appends after writeFileSync truncates the file.
+    // The 'error' handler on the stream swallows ERR_STREAM_DESTROYED in case
+    // a write was already queued.
     this.logFile?.destroy();
     this.logFile = null;
+    // Clear pendingWrites before building content from entries. Any log() calls
+    // during the window will push to both entries and pendingWrites, so we must
+    // clear here to avoid writing duplicates (once in content, once in flush).
+    this.pendingWrites = [];
     const content =
       this.entries.length > 0
         ? this.entries.map((e) => JSON.stringify(e)).join("\n") + "\n"
@@ -134,6 +172,14 @@ class Logger extends EventEmitter {
     fs.writeFileSync(this.logPath, content);
     if (reopen) {
       this.logFile = fs.createWriteStream(this.logPath, { flags: "a" });
+      this.attachStreamErrorHandler(this.logFile);
+      // Flush any writes that arrived while logFile was null
+      if (this.pendingWrites.length > 0) {
+        for (const line of this.pendingWrites) {
+          this.logFile.write(line);
+        }
+        this.pendingWrites = [];
+      }
     }
   }
 
@@ -143,6 +189,17 @@ class Logger extends EventEmitter {
       this.pruneTimer = null;
     }
     this.prune(false);
+    // Flush any pending writes synchronously before closing.
+    // pendingWrites may contain entries queued while logFile was null during prune.
+    if (this.logPath && this.pendingWrites.length > 0) {
+      try {
+        fs.appendFileSync(this.logPath, this.pendingWrites.join(""));
+      } catch {
+        // Swallow errors (disk full, file deleted, etc.) so shutdown completes cleanly.
+      }
+    }
+    this.logPath = null;
+    this.pendingWrites = [];
   }
 }
 
