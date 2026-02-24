@@ -14,6 +14,20 @@ export class WorktreeManager {
   private cwd: string;
   private worktrees = new Map<string, string>();
 
+  /**
+   * Serializes git operations that target the main repo (fetch, worktree add/remove, prune).
+   * Git uses lock files (.git/index.lock) so concurrent operations on the same repo fail.
+   * Dependency installs run in separate worktree dirs and don't need the lock.
+   */
+  private gitLockQueue: Promise<void> = Promise.resolve();
+
+  private withGitLock<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.gitLockQueue.then(fn, fn);
+    // Keep the chain alive but discard the typed result for the queue
+    this.gitLockQueue = next.then(() => {}, () => {});
+    return next;
+  }
+
   constructor(cwd: string) {
     this.cwd = cwd;
   }
@@ -32,23 +46,24 @@ export class WorktreeManager {
     const suffix = crypto.randomBytes(3).toString("hex");
     const worktreePath = path.join(WORKTREE_BASE, `${safeName}_${suffix}`);
 
-    fs.mkdirSync(WORKTREE_BASE, { recursive: true });
+    // Git operations (fetch + worktree add) must be serialized — they lock the main repo
+    await this.withGitLock(async () => {
+      fs.mkdirSync(WORKTREE_BASE, { recursive: true });
 
-    // Fetch the branch from origin so the ref exists locally
-    // (needed for branches created remotely, e.g. by Claude web agent)
-    try {
-      await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
-    } catch {
-      // Branch may already exist locally; continue and let worktree add fail if truly missing
-    }
+      try {
+        await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
+      } catch {
+        // Branch may already exist locally; continue and let worktree add fail if truly missing
+      }
 
-    logger.info(`Creating worktree at ${worktreePath}`, branch);
+      logger.info(`Creating worktree at ${worktreePath}`, branch);
 
-    await exec("git", ["worktree", "add", "--detach", worktreePath, `origin/${branch}`], {
-      cwd: this.cwd,
+      await exec("git", ["worktree", "add", "--detach", worktreePath, `origin/${branch}`], {
+        cwd: this.cwd,
+      });
     });
 
-    // Run setup: use explicit commands from ORC.md, or fall back to auto-detected dependency install
+    // Dep installs run in isolated worktree dirs — safe to parallelize
     if (setupCommands && setupCommands.length > 0) {
       await this.runSetupCommands(worktreePath, branch, setupCommands);
     } else {
@@ -64,100 +79,104 @@ export class WorktreeManager {
     const worktreePath = this.worktrees.get(branch);
     if (!worktreePath) return;
 
-    logger.info(`Removing worktree at ${worktreePath}`, branch);
+    await this.withGitLock(async () => {
+      logger.info(`Removing worktree at ${worktreePath}`, branch);
 
-    try {
-      await exec("git", ["worktree", "remove", worktreePath, "--force"], {
-        cwd: this.cwd,
-      });
-    } catch (err) {
-      // git worktree remove can fail on macOS when OS-generated files
-      // (e.g. .DS_Store) remain in the directory. Fall back to rm -rf
-      // and prune the stale worktree reference.
-      logger.warn(`git worktree remove failed, falling back to rm: ${err}`, branch);
       try {
-        fs.rmSync(worktreePath, { recursive: true, force: true });
-        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
-      } catch (rmErr) {
-        logger.warn(`Fallback rm also failed: ${rmErr}`, branch);
+        await exec("git", ["worktree", "remove", worktreePath, "--force"], {
+          cwd: this.cwd,
+        });
+      } catch (err) {
+        // git worktree remove can fail on macOS when OS-generated files
+        // (e.g. .DS_Store) remain in the directory. Fall back to rm -rf
+        // and prune the stale worktree reference.
+        logger.warn(`git worktree remove failed, falling back to rm: ${err}`, branch);
+        try {
+          fs.rmSync(worktreePath, { recursive: true, force: true });
+          await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+        } catch (rmErr) {
+          logger.warn(`Fallback rm also failed: ${rmErr}`, branch);
+        }
       }
-    }
+    });
 
     this.worktrees.delete(branch);
   }
 
   /** Remove all worktrees in WORKTREE_BASE from a previous run and prune git refs. */
   async purgeStale(): Promise<void> {
-    try {
-      await exec("git", ["worktree", "prune"], { cwd: this.cwd });
-    } catch {
-      // Best-effort
-    }
-
-    if (!fs.existsSync(WORKTREE_BASE)) return;
-
-    // Get list of worktrees that git knows about for this repo
-    const knownWorktrees = new Set<string>();
-    try {
-      const result = await exec("git", ["worktree", "list", "--porcelain"], {
-        cwd: this.cwd,
-      });
-      const worktreeLines = result.stdout.split("\n");
-      for (const line of worktreeLines) {
-        if (line.startsWith("worktree ")) {
-          knownWorktrees.add(line.substring(9));
-        }
+    await this.withGitLock(async () => {
+      try {
+        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+      } catch {
+        // Best-effort
       }
-    } catch {
-      // If we can't get worktree list, be conservative and don't delete anything
-      logger.warn("Could not get worktree list, skipping purge for safety");
-      return;
-    }
 
-    const entries = fs.readdirSync(WORKTREE_BASE);
-    for (const entry of entries) {
-      const fullPath = path.join(WORKTREE_BASE, entry);
+      if (!fs.existsSync(WORKTREE_BASE)) return;
 
-      // Only try to remove if git knows about this worktree
-      if (knownWorktrees.has(fullPath)) {
-        try {
-          await exec("git", ["worktree", "remove", fullPath, "--force"], {
-            cwd: this.cwd,
-          });
-        } catch (err) {
-          logger.warn(`Could not remove known worktree ${fullPath}: ${err}`);
-          try {
-            fs.rmSync(fullPath, { recursive: true, force: true });
-          } catch (rmErr) {
-            logger.warn(`Fallback rm also failed for ${fullPath}: ${rmErr}`);
+      // Get list of worktrees that git knows about for this repo
+      const knownWorktrees = new Set<string>();
+      try {
+        const result = await exec("git", ["worktree", "list", "--porcelain"], {
+          cwd: this.cwd,
+        });
+        const worktreeLines = result.stdout.split("\n");
+        for (const line of worktreeLines) {
+          if (line.startsWith("worktree ")) {
+            knownWorktrees.add(line.substring(9));
           }
         }
-      } else {
-        // Verify this is actually a git worktree directory before deleting
-        const gitDirPath = path.join(fullPath, ".git");
-        if (fs.existsSync(gitDirPath)) {
+      } catch {
+        // If we can't get worktree list, be conservative and don't delete anything
+        logger.warn("Could not get worktree list, skipping purge for safety");
+        return;
+      }
+
+      const entries = fs.readdirSync(WORKTREE_BASE);
+      for (const entry of entries) {
+        const fullPath = path.join(WORKTREE_BASE, entry);
+
+        // Only try to remove if git knows about this worktree
+        if (knownWorktrees.has(fullPath)) {
           try {
-            // Check if this is a worktree by reading .git file
-            const gitContent = fs.readFileSync(gitDirPath, "utf8");
-            if (gitContent.startsWith("gitdir:")) {
-              // This looks like a worktree, but git doesn't know about it
-              logger.info(`Removing orphaned worktree: ${fullPath}`);
-              fs.rmSync(fullPath, { recursive: true, force: true });
-            }
+            await exec("git", ["worktree", "remove", fullPath, "--force"], {
+              cwd: this.cwd,
+            });
           } catch (err) {
-            logger.warn(`Could not verify worktree ${fullPath}: ${err}`);
+            logger.warn(`Could not remove known worktree ${fullPath}: ${err}`);
+            try {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+            } catch (rmErr) {
+              logger.warn(`Fallback rm also failed for ${fullPath}: ${rmErr}`);
+            }
+          }
+        } else {
+          // Verify this is actually a git worktree directory before deleting
+          const gitDirPath = path.join(fullPath, ".git");
+          if (fs.existsSync(gitDirPath)) {
+            try {
+              // Check if this is a worktree by reading .git file
+              const gitContent = fs.readFileSync(gitDirPath, "utf8");
+              if (gitContent.startsWith("gitdir:")) {
+                // This looks like a worktree, but git doesn't know about it
+                logger.info(`Removing orphaned worktree: ${fullPath}`);
+                fs.rmSync(fullPath, { recursive: true, force: true });
+              }
+            } catch (err) {
+              logger.warn(`Could not verify worktree ${fullPath}: ${err}`);
+            }
           }
         }
       }
-    }
 
-    try {
-      await exec("git", ["worktree", "prune"], { cwd: this.cwd });
-    } catch {
-      // Best-effort
-    }
+      try {
+        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+      } catch {
+        // Best-effort
+      }
 
-    logger.info("Purged stale worktrees");
+      logger.info("Purged stale worktrees");
+    });
   }
 
   /** Clean up all worktrees managed by this instance. */
@@ -166,11 +185,13 @@ export class WorktreeManager {
       await this.remove(branch);
     }
     // Prune stale worktree references
-    try {
-      await exec("git", ["worktree", "prune"], { cwd: this.cwd });
-    } catch {
-      // Best-effort
-    }
+    await this.withGitLock(async () => {
+      try {
+        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+      } catch {
+        // Best-effort
+      }
+    });
   }
 
   /** Get the working directory for a branch (worktree or cwd). */
