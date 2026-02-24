@@ -22,7 +22,9 @@ export class GitManager {
   }
 
   /** Interactive rebase with autosquash against the base branch.
-   *  Skips if there are no fixup/squash commits to fold. */
+   *  If there are fixup!/squash! commits, runs autosquash rebase.
+   *  If there are only regular commits, skips rebase (they'll be pushed as-is).
+   *  Returns false only if the rebase itself fails. */
   async rebaseAutosquash(baseBranch: string): Promise<boolean> {
     // Check if there are any fixup!/squash! commits to autosquash
     try {

@@ -80,7 +80,7 @@ export class SessionController extends EventEmitter {
 
     this.ghClient = new GHClient(cwd);
     this.categorizer = new CommentCategorizer(cwd, config.confidence);
-    this.executor = new FixExecutor(config, cwd);
+    this.executor = new FixExecutor(config, cwd, branch);
     this.gitManager = new GitManager(cwd, branch, gitLock);
     this.abortController = new AbortController();
 
@@ -120,7 +120,7 @@ export class SessionController extends EventEmitter {
     this.config = config;
     // Update dependent objects with new config
     this.categorizer = new CommentCategorizer(this.cwd, config.confidence);
-    this.executor = new FixExecutor(config, this.cwd);
+    this.executor = new FixExecutor(config, this.cwd, this.branch);
   }
 
   getState(): BranchState {

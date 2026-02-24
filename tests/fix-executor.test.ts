@@ -160,10 +160,13 @@ describe("FixExecutor", () => {
       expect(suffix).toContain("fixup commits");
     });
 
-    it("generates CI mode suffix", () => {
+    it("generates CI mode suffix with fixup commit instructions", () => {
       const executor = new FixExecutor(DEFAULT_CONFIG, tmpDir);
       const suffix = (executor as any).buildSystemSuffix(makeRepoConfig(), "ci");
       expect(suffix).toContain("CI/CD pipeline failures");
+      expect(suffix).toContain("fixup commits");
+      expect(suffix).toContain("git commit --fixup=<sha>");
+      expect(suffix).not.toContain('fix(ci):');
     });
 
     it("generates conflict mode suffix", () => {
@@ -467,6 +470,82 @@ describe("FixExecutor", () => {
       });
 
       expect(activities).toContain("Reading main.ts");
+    });
+
+    it("logs Claude Code session messages to logger with branch tag", async () => {
+      const { logger } = await import("../src/utils/logger.js");
+
+      mockQueryResults.length = 0;
+      mockQueryResults.push({
+        type: "assistant",
+        session_id: "sess-log",
+        message: {
+          content: [
+            { type: "tool_use", name: "Edit", input: { file_path: "/src/index.ts" } },
+          ],
+        },
+      });
+      mockQueryResults.push({
+        type: "assistant",
+        session_id: "sess-log",
+        message: {
+          content: [
+            { type: "text", text: "I fixed the build error" },
+          ],
+        },
+      });
+      mockQueryResults.push({
+        type: "result",
+        subtype: "success",
+        result: "Done",
+        total_cost_usd: 0.02,
+        is_error: false,
+        usage: { input_tokens: 200, output_tokens: 100 },
+      });
+
+      const executor = new FixExecutor(DEFAULT_CONFIG, tmpDir, "feat/my-branch");
+      await executor.execute([makeComment()], makeRepoConfig());
+
+      const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls;
+      const editCall = infoCalls.find((c: unknown[]) => c[0] === "[claude] Editing index.ts");
+      expect(editCall).toBeDefined();
+      expect(editCall![1]).toBe("feat/my-branch");
+
+      const textCall = infoCalls.find((c: unknown[]) => c[0] === "[claude] I fixed the build error");
+      expect(textCall).toBeDefined();
+      expect(textCall![1]).toBe("feat/my-branch");
+    });
+
+    it("logs Claude Code session messages even without onActivity callback", async () => {
+      const { logger } = await import("../src/utils/logger.js");
+
+      mockQueryResults.length = 0;
+      mockQueryResults.push({
+        type: "assistant",
+        session_id: "sess-no-cb",
+        message: {
+          content: [
+            { type: "tool_use", name: "Bash", input: { command: "yarn build" } },
+          ],
+        },
+      });
+      mockQueryResults.push({
+        type: "result",
+        subtype: "success",
+        result: "Done",
+        total_cost_usd: 0.01,
+        is_error: false,
+        usage: { input_tokens: 100, output_tokens: 50 },
+      });
+
+      const executor = new FixExecutor(DEFAULT_CONFIG, tmpDir, "feat/ci-branch");
+      // Call executeCIFix which doesn't always pass onActivity
+      await executor.executeCIFix("CI failing", makeRepoConfig());
+
+      const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls;
+      const bashCall = infoCalls.find((c: unknown[]) => c[0] === "[claude] Running: yarn build");
+      expect(bashCall).toBeDefined();
+      expect(bashCall![1]).toBe("feat/ci-branch");
     });
   });
 });

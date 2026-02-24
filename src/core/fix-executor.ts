@@ -41,10 +41,12 @@ export interface FixResult {
 export class FixExecutor {
   private config: Config;
   private cwd: string;
+  private branch?: string;
 
-  constructor(config: Config, cwd: string) {
+  constructor(config: Config, cwd: string, branch?: string) {
     this.config = config;
     this.cwd = cwd;
+    this.branch = branch;
   }
 
   async execute(
@@ -103,7 +105,9 @@ If you are not confident which commit to fixup against (e.g. the change spans mu
 Do not push — the orchestrator handles that.`
       : `You are fixing CI/CD pipeline failures. Analyze the logs, identify the root cause, and make targeted, minimal changes to fix the build/test failures.
 
-After making changes, commit them with a descriptive message prefixed with "fix(ci): ".
+After making changes, commit them. Prefer fixup commits when you can confidently identify the parent commit that introduced the broken code: git commit --fixup=<sha>
+
+If you are not confident which commit to fixup against (e.g. the change spans multiple commits, or you're adding something new), make a regular descriptive commit instead.
 
 Do not push — the orchestrator handles that.${
   Object.keys(repoConfig.mcpServers).length > 0
@@ -195,7 +199,7 @@ Do not push — the orchestrator handles that.${
           resultMessage = message as SDKResultMessage;
         }
 
-        if (message.type === "assistant" && onActivity) {
+        if (message.type === "assistant") {
           const msg = message as SDKMessage;
           const content = (msg as Record<string, unknown>).message as
             | { content?: { type: string; name?: string; text?: string; input?: Record<string, unknown> }[] }
@@ -203,21 +207,23 @@ Do not push — the orchestrator handles that.${
           if (content?.content) {
             for (const block of content.content) {
               if (block.type === "tool_use" && block.name) {
-                onActivity(this.summarizeTool(block.name, block.input));
+                const summary = this.summarizeTool(block.name, block.input);
+                logger.info(`[claude] ${summary}`, this.branch);
+                onActivity?.(summary);
               } else if (block.type === "text" && block.text) {
                 const lastLine = block.text.trim().split("\n").pop()?.trim();
                 if (lastLine && lastLine.length > 0) {
                   const truncated = lastLine.length > 120 ? lastLine.slice(0, 119) + "…" : lastLine;
-                  onActivity(truncated);
+                  logger.info(`[claude] ${truncated}`, this.branch);
+                  onActivity?.(truncated);
                 }
               }
             }
           }
-        }
 
-        if (this.config?.verbose && message.type === "assistant") {
-          const msg = message as SDKMessage;
-          logger.debug(`Claude: ${JSON.stringify(msg).slice(0, 200)}`);
+          if (this.config?.verbose) {
+            logger.debug(`Claude: ${JSON.stringify(msg).slice(0, 200)}`);
+          }
         }
       }
 
