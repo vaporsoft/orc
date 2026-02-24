@@ -17,6 +17,7 @@ const ACTIVE_STATUSES = new Set<BranchStatus>([
   "verifying",
   "pushing",
   "replying",
+  "checking_ci",
 ]);
 
 const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> = {
@@ -31,6 +32,7 @@ const STATUS_ROLES: Record<BranchStatus, { role: keyof Theme; label: string }> =
   replying:        { role: "info",    label: "replying" },
   ready:           { role: "accent",  label: "ready" },
   conflict_prompt: { role: "warning", label: "conflict" },
+  checking_ci:     { role: "info",    label: "checking CI" },
   error:           { role: "error",   label: "error" },
   merged:          { role: "merged",  label: "merged" },
 };
