@@ -41,7 +41,7 @@ describe("WorktreeManager.remove", () => {
 
     expect(execSpy).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "/tmp/orc/my-branch_abc123", "--force"],
+      ["-c", "gc.auto=0", "worktree", "remove", "/tmp/orc/my-branch_abc123", "--force"],
       { cwd: "/fake/repo" },
     );
     expect(manager.getWorkDir("my-branch")).toBeNull();
@@ -68,7 +68,7 @@ describe("WorktreeManager.remove", () => {
     // git worktree prune should have been called
     expect(execSpy).toHaveBeenCalledWith(
       "git",
-      ["worktree", "prune"],
+      ["-c", "gc.auto=0", "worktree", "prune"],
       { cwd: "/fake/repo" },
     );
     // Branch removed from map
@@ -146,5 +146,50 @@ describe("WorktreeManager.purgeStale", () => {
 
     // The directory should have been cleaned up by the rmSync fallback
     expect(fs.existsSync(worktreePath)).toBe(false);
+  });
+});
+
+describe("WorktreeManager shared lock", () => {
+  let execSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    execSpy = vi.spyOn(processUtil, "exec");
+  });
+
+  it("accepts an external GitLock", async () => {
+    const { GitLock } = await import("../src/core/git-lock.js");
+    const lock = new GitLock();
+    const lockRunSpy = vi.spyOn(lock, "run");
+    const mgr = new WorktreeManager("/fake/repo", lock);
+
+    (mgr as any).worktrees.set("test", "/tmp/orc/test_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await mgr.remove("test");
+    expect(lockRunSpy).toHaveBeenCalled();
+  });
+
+  it("creates internal lock when none provided", async () => {
+    const mgr = new WorktreeManager("/fake/repo");
+    (mgr as any).worktrees.set("test", "/tmp/orc/test_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    // Should not throw — internal lock is created
+    await mgr.remove("test");
+    expect(execSpy).toHaveBeenCalled();
+  });
+
+  it("passes gc.auto=0 to all git commands", async () => {
+    const mgr = new WorktreeManager("/fake/repo");
+    (mgr as any).worktrees.set("test", "/tmp/orc/test_abc123");
+    execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+    await mgr.remove("test");
+
+    // First call should be git worktree remove with gc.auto=0
+    const args = execSpy.mock.calls[0][1] as string[];
+    expect(args[0]).toBe("-c");
+    expect(args[1]).toBe("gc.auto=0");
   });
 });

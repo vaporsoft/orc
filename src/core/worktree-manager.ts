@@ -9,27 +9,16 @@ import * as path from "node:path";
 import { exec } from "../utils/process.js";
 import { logger } from "../utils/logger.js";
 import { WORKTREE_BASE } from "../constants.js";
+import { GitLock } from "./git-lock.js";
 
 export class WorktreeManager {
   private cwd: string;
   private worktrees = new Map<string, string>();
+  private gitLock: GitLock;
 
-  /**
-   * Serializes git operations that target the main repo (fetch, worktree add/remove, prune).
-   * Git uses lock files (.git/index.lock) so concurrent operations on the same repo fail.
-   * Dependency installs run in separate worktree dirs and don't need the lock.
-   */
-  private gitLockQueue: Promise<void> = Promise.resolve();
-
-  private withGitLock<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.gitLockQueue.then(fn, fn);
-    // Keep the chain alive but discard the typed result for the queue
-    this.gitLockQueue = next.then(() => {}, () => {});
-    return next;
-  }
-
-  constructor(cwd: string) {
+  constructor(cwd: string, gitLock?: GitLock) {
     this.cwd = cwd;
+    this.gitLock = gitLock ?? new GitLock();
   }
 
   /**
@@ -47,18 +36,18 @@ export class WorktreeManager {
     const worktreePath = path.join(WORKTREE_BASE, `${safeName}_${suffix}`);
 
     // Git operations (fetch + worktree add) must be serialized — they lock the main repo
-    await this.withGitLock(async () => {
+    await this.gitLock.run(async () => {
       fs.mkdirSync(WORKTREE_BASE, { recursive: true });
 
       try {
-        await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
+        await exec("git", ["-c", "gc.auto=0", "fetch", "origin", branch], { cwd: this.cwd });
       } catch {
         // Branch may already exist locally; continue and let worktree add fail if truly missing
       }
 
       logger.info(`Creating worktree at ${worktreePath}`, branch);
 
-      await exec("git", ["worktree", "add", "--detach", worktreePath, `origin/${branch}`], {
+      await exec("git", ["-c", "gc.auto=0", "worktree", "add", "--detach", worktreePath, `origin/${branch}`], {
         cwd: this.cwd,
       });
     });
@@ -79,11 +68,11 @@ export class WorktreeManager {
     const worktreePath = this.worktrees.get(branch);
     if (!worktreePath) return;
 
-    await this.withGitLock(async () => {
+    await this.gitLock.run(async () => {
       logger.info(`Removing worktree at ${worktreePath}`, branch);
 
       try {
-        await exec("git", ["worktree", "remove", worktreePath, "--force"], {
+        await exec("git", ["-c", "gc.auto=0", "worktree", "remove", worktreePath, "--force"], {
           cwd: this.cwd,
         });
       } catch (err) {
@@ -93,7 +82,7 @@ export class WorktreeManager {
         logger.warn(`git worktree remove failed, falling back to rm: ${err}`, branch);
         try {
           fs.rmSync(worktreePath, { recursive: true, force: true });
-          await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+          await exec("git", ["-c", "gc.auto=0", "worktree", "prune"], { cwd: this.cwd });
         } catch (rmErr) {
           logger.warn(`Fallback rm also failed: ${rmErr}`, branch);
         }
@@ -105,9 +94,9 @@ export class WorktreeManager {
 
   /** Remove all worktrees in WORKTREE_BASE from a previous run and prune git refs. */
   async purgeStale(): Promise<void> {
-    await this.withGitLock(async () => {
+    await this.gitLock.run(async () => {
       try {
-        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+        await exec("git", ["-c", "gc.auto=0", "worktree", "prune"], { cwd: this.cwd });
       } catch {
         // Best-effort
       }
@@ -117,7 +106,7 @@ export class WorktreeManager {
       // Get list of worktrees that git knows about for this repo
       const knownWorktrees = new Set<string>();
       try {
-        const result = await exec("git", ["worktree", "list", "--porcelain"], {
+        const result = await exec("git", ["-c", "gc.auto=0", "worktree", "list", "--porcelain"], {
           cwd: this.cwd,
         });
         const worktreeLines = result.stdout.split("\n");
@@ -139,7 +128,7 @@ export class WorktreeManager {
         // Only try to remove if git knows about this worktree
         if (knownWorktrees.has(fullPath)) {
           try {
-            await exec("git", ["worktree", "remove", fullPath, "--force"], {
+            await exec("git", ["-c", "gc.auto=0", "worktree", "remove", fullPath, "--force"], {
               cwd: this.cwd,
             });
           } catch (err) {
@@ -170,7 +159,7 @@ export class WorktreeManager {
       }
 
       try {
-        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+        await exec("git", ["-c", "gc.auto=0", "worktree", "prune"], { cwd: this.cwd });
       } catch {
         // Best-effort
       }
@@ -185,9 +174,9 @@ export class WorktreeManager {
       await this.remove(branch);
     }
     // Prune stale worktree references
-    await this.withGitLock(async () => {
+    await this.gitLock.run(async () => {
       try {
-        await exec("git", ["worktree", "prune"], { cwd: this.cwd });
+        await exec("git", ["-c", "gc.auto=0", "worktree", "prune"], { cwd: this.cwd });
       } catch {
         // Best-effort
       }

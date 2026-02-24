@@ -7,15 +7,18 @@
 
 import { exec, type ExecResult } from "../utils/process.js";
 import { logger } from "../utils/logger.js";
+import type { GitLock } from "./git-lock.js";
 
 export class GitManager {
   private cwd: string;
   private branch: string;
   private conflictStashPending = false;
+  private gitLock: GitLock | null;
 
-  constructor(cwd: string, branch: string) {
+  constructor(cwd: string, branch: string, gitLock?: GitLock) {
     this.cwd = cwd;
     this.branch = branch;
+    this.gitLock = gitLock ?? null;
   }
 
   /** Interactive rebase with autosquash against the base branch.
@@ -65,7 +68,7 @@ export class GitManager {
     logger.info(`Force-pushing ${this.branch} with lease`);
 
     try {
-      await this.git([
+      await this.lockedGit([
         "push",
         "--force-with-lease",
         "origin",
@@ -158,9 +161,20 @@ export class GitManager {
   async pullRebase(targetBranch?: string): Promise<boolean> {
     const branch = targetBranch || this.branch;
     let stashed = false;
+
+    // Fetch through the lock — writes to main repo refs.
+    // Fetch errors (e.g. "not a git repository") are NOT rebase failures
+    // and must propagate so the caller knows the worktree is broken.
     try {
       stashed = await this.stash();
-      await this.git(["fetch", "origin", branch]);
+      await this.lockedGit(["fetch", "origin", branch]);
+    } catch (err) {
+      if (stashed) await this.stashPop();
+      throw err;
+    }
+
+    // Rebase is a local worktree operation — no lock needed.
+    try {
       await this.git(["rebase", `origin/${branch}`]);
       return true;
     } catch {
@@ -181,7 +195,7 @@ export class GitManager {
     this.conflictStashPending = stashed;
 
     try {
-      await this.git(["fetch", "origin", targetBranch]);
+      await this.lockedGit(["fetch", "origin", targetBranch]);
 
       try {
         await this.git(["rebase", `origin/${targetBranch}`]);
@@ -254,7 +268,13 @@ export class GitManager {
     await this.git(["checkout", this.branch]);
   }
 
+  /** Run a git command through the shared lock (for operations that touch main repo refs). */
+  private lockedGit(args: string[]): Promise<ExecResult> {
+    const fn = () => this.git(args);
+    return this.gitLock ? this.gitLock.run(fn) : fn();
+  }
+
   private async git(args: string[]): Promise<ExecResult> {
-    return exec("git", args, { cwd: this.cwd });
+    return exec("git", ["-c", "gc.auto=0", ...args], { cwd: this.cwd });
   }
 }

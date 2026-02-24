@@ -189,8 +189,8 @@ describe("GitManager", () => {
       expect(result).toBe(true);
 
       // Verify fetch and rebase were called with correct args
-      expect(execSpy.mock.calls[1][1]).toEqual(["fetch", "origin", "main"]);
-      expect(execSpy.mock.calls[2][1]).toEqual(["rebase", "origin/main"]);
+      expect(execSpy.mock.calls[1][1]).toEqual(["-c", "gc.auto=0", "fetch", "origin", "main"]);
+      expect(execSpy.mock.calls[2][1]).toEqual(["-c", "gc.auto=0", "rebase", "origin/main"]);
     });
 
     it("stashes changes before rebase and pops after", async () => {
@@ -205,9 +205,9 @@ describe("GitManager", () => {
       expect(result).toBe(true);
 
       // Verify stash was called
-      expect(execSpy.mock.calls[1][1]).toEqual(["stash", "--include-untracked"]);
+      expect(execSpy.mock.calls[1][1]).toEqual(["-c", "gc.auto=0", "stash", "--include-untracked"]);
       // Verify stash pop was called last
-      expect(execSpy.mock.calls[4][1]).toEqual(["stash", "pop"]);
+      expect(execSpy.mock.calls[4][1]).toEqual(["-c", "gc.auto=0", "stash", "pop"]);
     });
 
     it("aborts rebase on failure and returns false", async () => {
@@ -228,7 +228,7 @@ describe("GitManager", () => {
         .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }); // rebase
 
       await manager.pullRebase();
-      expect(execSpy.mock.calls[1][1]).toEqual(["fetch", "origin", "feature-branch"]);
+      expect(execSpy.mock.calls[1][1]).toEqual(["-c", "gc.auto=0", "fetch", "origin", "feature-branch"]);
     });
   });
 
@@ -318,6 +318,106 @@ describe("GitManager", () => {
       await manager.getHeadSha();
 
       expect(execSpy.mock.calls[0][2]).toEqual({ cwd: "/worktree/path" });
+    });
+  });
+
+  describe("gc.auto=0", () => {
+    it("prepends -c gc.auto=0 to all git commands", async () => {
+      execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+      await manager.getHeadSha();
+
+      const args = execSpy.mock.calls[0][1] as string[];
+      expect(args[0]).toBe("-c");
+      expect(args[1]).toBe("gc.auto=0");
+    });
+  });
+
+  describe("pullRebase error handling", () => {
+    it("throws on fetch failure instead of returning false", async () => {
+      execSpy
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // hasUncommittedChanges
+        .mockRejectedValueOnce(new Error("not a git repository"));
+
+      await expect(manager.pullRebase("main")).rejects.toThrow("not a git repository");
+    });
+
+    it("returns false on rebase failure (not fetch failure)", async () => {
+      execSpy
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // hasUncommittedChanges
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // fetch
+        .mockRejectedValueOnce(new Error("conflict")) // rebase fails
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }); // rebase --abort
+
+      const result = await manager.pullRebase("main");
+      expect(result).toBe(false);
+    });
+
+    it("pops stash on fetch failure", async () => {
+      execSpy
+        .mockResolvedValueOnce({ stdout: "M file.ts\n", stderr: "", exitCode: 0 }) // dirty
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // stash
+        .mockRejectedValueOnce(new Error("fetch failed")) // fetch fails
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }); // stash pop
+
+      await expect(manager.pullRebase("main")).rejects.toThrow("fetch failed");
+      // stash pop should have been called
+      const stashPopCall = execSpy.mock.calls.find(
+        (call) => (call[1] as string[]).includes("pop"),
+      );
+      expect(stashPopCall).toBeTruthy();
+    });
+  });
+
+  describe("git lock integration", () => {
+    it("routes fetch through the lock when provided", async () => {
+      const { GitLock } = await import("../src/core/git-lock.js");
+      const lock = new GitLock();
+      const lockRunSpy = vi.spyOn(lock, "run");
+      const lockedManager = new GitManager("/worktree/path", "feature-branch", lock);
+
+      execSpy
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // hasUncommittedChanges
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }) // fetch
+        .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 }); // rebase
+
+      await lockedManager.pullRebase("main");
+      // Lock should have been called for the fetch
+      expect(lockRunSpy).toHaveBeenCalled();
+    });
+
+    it("routes push through the lock when provided", async () => {
+      const { GitLock } = await import("../src/core/git-lock.js");
+      const lock = new GitLock();
+      const lockRunSpy = vi.spyOn(lock, "run");
+      const lockedManager = new GitManager("/worktree/path", "feature-branch", lock);
+
+      execSpy.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 });
+
+      await lockedManager.forcePushWithLease();
+      expect(lockRunSpy).toHaveBeenCalled();
+    });
+
+    it("does not use lock for local worktree operations", async () => {
+      const { GitLock } = await import("../src/core/git-lock.js");
+      const lock = new GitLock();
+      const lockRunSpy = vi.spyOn(lock, "run");
+      const lockedManager = new GitManager("/worktree/path", "feature-branch", lock);
+
+      execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await lockedManager.hasUncommittedChanges();
+      await lockedManager.getHeadSha();
+      await lockedManager.discardChanges();
+
+      expect(lockRunSpy).not.toHaveBeenCalled();
+    });
+
+    it("works without a lock (backwards compatible)", async () => {
+      execSpy.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+      // manager was created without a lock in beforeEach
+      await manager.forcePushWithLease();
+      // Should not throw
+      expect(execSpy).toHaveBeenCalled();
     });
   });
 });
