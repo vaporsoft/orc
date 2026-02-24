@@ -102,6 +102,7 @@ export function App({ daemon, startTime }: AppProps) {
       // Branch changed (even if index stayed same due to list reordering)
       setFocusedSection(null);
       setCollapsedSections(new Set());
+      setFullscreenSection(null);
       prevSelectedBranchRef.current = selectedBranch;
     }
   }, [selectedBranch]);
@@ -136,6 +137,7 @@ export function App({ daemon, startTime }: AppProps) {
         setDetailMode("detail");
         setFocusedSection(null); // Will default to first visible section
         setCollapsedSections(new Set()); // Clear collapsed sections for new branch
+        setFullscreenSection(null);
         setFocusedPane("sessions");
       }
     }
@@ -163,8 +165,8 @@ export function App({ daemon, startTime }: AppProps) {
     // Modal panels — block all other keybindings when open
     if (showSettings || showLegend || showAddBranch) return;
 
-    // Exit fullscreen section (must come before global q quit)
-    if (fullscreenSection && (input === "q" || key.escape)) {
+    // Exit fullscreen section (must come before global q quit and fullscreen blocker)
+    if (fullscreenSection && (input === "q" || key.escape || key.leftArrow)) {
       setFullscreenSection(null);
       return;
     }
@@ -443,12 +445,8 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Left arrow: collapse section / close detail / exit fullscreen
+    // Left arrow: collapse section / close detail
     if (key.leftArrow && focusedPane === "sessions" && toolbarIndex < 0) {
-      if (fullscreenSection) {
-        setFullscreenSection(null);
-        return;
-      }
       if (detailMode === "detail" && visibleSections.length > 0) {
         const section = (focusedSection && visibleSections.includes(focusedSection))
           ? focusedSection
