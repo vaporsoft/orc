@@ -26,6 +26,7 @@ interface DetailPanelProps {
   activityLines?: string[];
   focusedSection?: DetailSection | null;
   collapsedSections?: Set<DetailSection>;
+  fullscreenSection?: DetailSection | null;
 }
 
 const CATEGORY_COLORS: Record<CommentCategory, string> = {
@@ -51,6 +52,12 @@ const MAX_CONFLICTS = 10;
 const MAX_CI_CHECKS = 10;
 const MAX_COMMENTS = 8;
 const MAX_ACTIVITY = 6;
+
+const FULLSCREEN_MAX_CYCLES = 50;
+const FULLSCREEN_MAX_CONFLICTS = 50;
+const FULLSCREEN_MAX_CI_CHECKS = 50;
+const FULLSCREEN_MAX_COMMENTS = 50;
+const FULLSCREEN_MAX_ACTIVITY = 50;
 
 function SectionHeader({ label, color, focused, collapsed }: {
   label: string;
@@ -119,18 +126,19 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   );
 }
 
-function CycleHistory({ cycles, resolved, total, accentColor, collapsed }: {
+function CycleHistory({ cycles, resolved, total, accentColor, collapsed, maxCycles = MAX_CYCLES }: {
   cycles: CycleRecord[];
   resolved: number;
   total: number;
   accentColor: string;
   collapsed: boolean;
+  maxCycles?: number;
 }) {
   if (collapsed) return null;
 
   const totalCost = cycles.reduce((sum, c) => sum + c.costUsd, 0);
   const totalTokens = cycles.reduce((sum, c) => sum + (c.inputTokens ?? 0) + (c.outputTokens ?? 0), 0);
-  const visibleCycles = cycles.length > MAX_CYCLES ? cycles.slice(cycles.length - MAX_CYCLES) : cycles;
+  const visibleCycles = cycles.length > maxCycles ? cycles.slice(cycles.length - maxCycles) : cycles;
   const hiddenCount = cycles.length - visibleCycles.length;
   // Compute the starting index offset for hidden cycles
   const startIndex = hiddenCount;
@@ -180,6 +188,7 @@ export function DetailPanel({
   activityLines = [],
   focusedSection = null,
   collapsedSections = new Set(),
+  fullscreenSection = null,
 }: DetailPanelProps) {
   const theme = useTheme();
   const branch = selectedBranch;
@@ -206,6 +215,224 @@ export function DetailPanel({
   };
   const isCollapsed = (section: DetailSection) => collapsedSections.has(section);
 
+  // Fullscreen section view
+  if (fullscreenSection && visibleSections.includes(fullscreenSection)) {
+    const ciLabel = ciStatus === "failing" && failedChecks.length > 0
+      ? `CI (${failedChecks.length} failing)`
+      : "CI";
+    const conflictLabel = conflicted.length > 0
+      ? `Conflicts (${conflicted.length} files)`
+      : "Conflicts";
+
+    return (
+      <Box
+        borderStyle="round"
+        borderColor={theme.accent}
+        borderTop={false}
+        borderBottom={false}
+        paddingX={1}
+        paddingTop={1}
+        flexGrow={1}
+        flexDirection="column"
+      >
+        <Box marginLeft={2}>
+          <Text dimColor>
+            <Text color={theme.accent}>q</Text> close · <Text color={theme.accent}>esc</Text> close
+          </Text>
+        </Box>
+        <Box marginLeft={3} marginTop={1}>
+          <Text backgroundColor={theme.secondaryBg} color={theme.text} bold>
+            {" "}#{pr.number} {pr.title.length > 60 ? pr.title.slice(0, 59) + "…" : pr.title}{" "}
+          </Text>
+        </Box>
+        <Box
+          marginLeft={3}
+          borderStyle="single"
+          borderLeft={true}
+          borderRight={false}
+          borderTop={false}
+          borderBottom={false}
+          borderColor={theme.accent}
+          paddingLeft={1}
+          flexDirection="column"
+          flexGrow={1}
+        >
+          {/* Fullscreen: cycles */}
+          {fullscreenSection === "cycles" && state && state.cycleHistory.length > 0 && (
+            <>
+              <SectionHeader label={`Review Progress (${threadCounts?.resolved ?? 0}/${threadCounts?.total ?? 0} resolved)`} color={theme.accentBright} focused={true} collapsed={false} />
+              <CycleHistory cycles={state.cycleHistory} resolved={threadCounts?.resolved ?? 0} total={threadCounts?.total ?? 0} accentColor={theme.accentBright} collapsed={false} maxCycles={FULLSCREEN_MAX_CYCLES} />
+            </>
+          )}
+
+          {/* Fullscreen: conflicts */}
+          {fullscreenSection === "conflicts" && (
+            state?.status === "conflict_prompt" && conflicted.length > 0 ? (
+              <>
+                <SectionHeader label={conflictLabel} color={theme.warning} focused={true} collapsed={false} />
+                {conflicted.slice(0, FULLSCREEN_MAX_CONFLICTS).map((file, i) => (
+                  <Box key={i} marginLeft={2}>
+                    <Text color="yellow">{"· "}</Text>
+                    <Text>{file}</Text>
+                  </Box>
+                ))}
+                <MoreIndicator hidden={conflicted.length - FULLSCREEN_MAX_CONFLICTS} label="files" />
+                <Box marginTop={1} marginLeft={2}>
+                  <Text color="green" bold>[R]</Text>
+                  <Text> Resolve with Claude  </Text>
+                  <Text color="cyan" bold>[Y]</Text>
+                  <Text> Always resolve with Claude  </Text>
+                  <Text dimColor bold>[Esc]</Text>
+                  <Text dimColor> Dismiss</Text>
+                </Box>
+              </>
+            ) : conflicted.length > 0 ? (
+              <>
+                <SectionHeader label={conflictLabel} color={theme.error} focused={true} collapsed={false} />
+                {conflicted.slice(0, FULLSCREEN_MAX_CONFLICTS).map((file, i) => (
+                  <Box key={i} marginLeft={2}>
+                    <Text color="red">{"· "}</Text>
+                    <Text>{file}</Text>
+                  </Box>
+                ))}
+                <MoreIndicator hidden={conflicted.length - FULLSCREEN_MAX_CONFLICTS} label="files" />
+                {!state && (
+                  <Box marginLeft={2}>
+                    <Text dimColor>
+                      <Text color={theme.accent}>f</Text> to fix with Claude
+                    </Text>
+                  </Box>
+                )}
+              </>
+            ) : (
+              <>
+                <SectionHeader label="Conflicts" color={theme.accent} focused={true} collapsed={false} />
+                <Box marginLeft={2}><Text dimColor>None</Text></Box>
+              </>
+            )
+          )}
+
+          {/* Fullscreen: CI */}
+          {fullscreenSection === "ci" && (
+            ciStatus === "failing" && failedChecks.length > 0 ? (
+              <>
+                <SectionHeader label={ciLabel} color={theme.error} focused={true} collapsed={false} />
+                {failedChecks.slice(0, FULLSCREEN_MAX_CI_CHECKS).map((check) => (
+                  <Box key={check.id} marginLeft={2}>
+                    <Text color="red">{"✗ "}</Text>
+                    <Text color="white">{check.name}</Text>
+                    {check.appSlug && check.appSlug !== "github-actions" && (
+                      <Text dimColor> [{check.appSlug}]</Text>
+                    )}
+                    {check.logSnippet && (
+                      <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
+                    )}
+                  </Box>
+                ))}
+                <MoreIndicator hidden={failedChecks.length - FULLSCREEN_MAX_CI_CHECKS} label="checks" />
+                {state && state.ciFixAttempts > 0 && (
+                  <Box marginLeft={2}>
+                    <Text dimColor>fix attempts: {state.ciFixAttempts}</Text>
+                  </Box>
+                )}
+              </>
+            ) : (
+              <>
+                <SectionHeader label="CI" color={theme.accent} focused={true} collapsed={false} />
+                <Box marginLeft={2}>
+                  {ciStatus === "passing" && (
+                    <Text color="green">{"✓ "}<Text dimColor>All checks passing</Text></Text>
+                  )}
+                  {ciStatus === "pending" && (
+                    <Text color="yellow">{"● "}<Text dimColor>Checks running...</Text></Text>
+                  )}
+                  {ciStatus === "unknown" && (
+                    <Text dimColor>No data</Text>
+                  )}
+                </Box>
+              </>
+            )
+          )}
+
+          {/* Fullscreen: comments */}
+          {fullscreenSection === "comments" && (
+            summary && summary.comments.length > 0 ? (
+              <>
+                <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} focused={true} collapsed={false} />
+                {summary.comments.slice(0, FULLSCREEN_MAX_COMMENTS).map((c) => {
+                  const loc = c.line ? `${c.path}:${c.line}` : c.path;
+                  const body = c.body.replace(/\n/g, " ");
+                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+                  return (
+                    <Box key={c.threadId} marginLeft={2} flexDirection="column">
+                      <Text>
+                        <Text color={CATEGORY_COLORS[c.category]} bold>
+                          {CATEGORY_LABELS[c.category].padEnd(11)}
+                        </Text>
+                        <Text color={theme.text}>{loc}</Text>
+                        <Text dimColor>  @{c.author}</Text>
+                      </Text>
+                      <Text dimColor>{"           "}{truncated}</Text>
+                    </Box>
+                  );
+                })}
+                <MoreIndicator hidden={summary.comments.length - FULLSCREEN_MAX_COMMENTS} label="comments" />
+              </>
+            ) : commentThreads.length > 0 ? (
+              <>
+                <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} focused={true} collapsed={false} />
+                {commentThreads.slice(0, FULLSCREEN_MAX_COMMENTS).map((t) => {
+                  const loc = t.line ? `${t.path}:${t.line}` : t.path;
+                  const body = t.body.replace(/\n/g, " ");
+                  const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+                  return (
+                    <Box key={t.threadId} marginLeft={2} flexDirection="column">
+                      <Text>
+                        <Text color={theme.text}>{loc}</Text>
+                        <Text dimColor>  @{t.author}</Text>
+                      </Text>
+                      <Text dimColor>  {truncated}</Text>
+                    </Box>
+                  );
+                })}
+                <MoreIndicator hidden={commentThreads.length - FULLSCREEN_MAX_COMMENTS} label="comments" />
+              </>
+            ) : (
+              <>
+                <SectionHeader label="Comments" color={theme.accent} focused={true} collapsed={false} />
+                <Box marginLeft={2}><Text dimColor>None</Text></Box>
+              </>
+            )
+          )}
+
+          {/* Fullscreen: Claude */}
+          {fullscreenSection === "claude" && (
+            <>
+              <SectionHeader label="Claude" color={theme.accent} focused={true} collapsed={false} />
+              {isActive && activityLines.length > 0 ? (
+                <>
+                  {activityLines.length > FULLSCREEN_MAX_ACTIVITY && (
+                    <MoreIndicator hidden={activityLines.length - FULLSCREEN_MAX_ACTIVITY} label="lines" />
+                  )}
+                  {activityLines.slice(Math.max(0, activityLines.length - FULLSCREEN_MAX_ACTIVITY)).map((line, i, arr) => (
+                    <Box key={`${activityLines.length - arr.length + i}`} marginLeft={2}>
+                      <Text dimColor={i < arr.length - 1} color={i === arr.length - 1 ? theme.text : undefined}>
+                        {line}
+                      </Text>
+                    </Box>
+                  ))}
+                </>
+              ) : (
+                <Box marginLeft={2}>
+                  <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
+                </Box>
+              )}
+            </>
+          )}
+        </Box>
+      </Box>
+    );
+  }
 
   // Collapsed view
   if (!showDetail) {
