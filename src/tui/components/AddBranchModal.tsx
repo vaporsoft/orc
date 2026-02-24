@@ -88,6 +88,7 @@ export function AddBranchModal({ daemon, onClose }: AddBranchModalProps) {
   useEffect(() => {
     setPageCache([]);
     setCurrentPage(0);
+    setLoadState("loading");
     fetchPage(debouncedQuery, 0, null);
   }, [debouncedQuery, fetchPage]);
 
