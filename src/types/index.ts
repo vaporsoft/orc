@@ -1,5 +1,13 @@
 /** Core domain types for Orc. */
 
+export interface ThreadReply {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  isOrcReply: boolean;
+}
+
 export interface ReviewThread {
   id: string;
   /** GraphQL node ID for mutations. */
@@ -13,6 +21,8 @@ export interface ReviewThread {
   diffHunk: string;
   /** When the comment was created. */
   createdAt: string;
+  /** Individual replies in the thread. */
+  replies?: ThreadReply[];
 }
 
 export type CommentCategory =
@@ -36,6 +46,8 @@ export interface CategorizedComment {
   suggestedAction: string;
   /** Question to ask the reviewer when category is needs_clarification. */
   clarificationQuestion?: string;
+  /** Individual replies in the thread. */
+  replies?: ThreadReply[];
 }
 
 export interface CommentSummary {

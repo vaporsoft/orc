@@ -15,36 +15,51 @@ function Key({ k, label, accentColor }: { k: string; label: string; accentColor:
 interface HelpBarProps {
   detailMode: "off" | "detail" | "logs";
   fullscreenSection: DetailSection | null;
+  sectionFocus?: boolean;
+  focusedSection?: DetailSection | null;
 }
 
-export function HelpBar({ detailMode, fullscreenSection }: HelpBarProps) {
+export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false, focusedSection = null }: HelpBarProps) {
   const theme = useTheme();
 
   let hints: { k: string; label: string }[];
 
-  if (fullscreenSection) {
+  if (fullscreenSection === "comments") {
+    hints = [
+      { k: "↑↓", label: "prev/next" },
+      { k: "q", label: "close" },
+    ];
+  } else if (fullscreenSection) {
     hints = [
       { k: "q", label: "close" },
       { k: "esc", label: "close" },
     ];
   } else if (detailMode === "logs") {
     hints = [
-      { k: "l", label: "close" },
+      { k: "g", label: "close" },
       { k: "↑↓", label: "scroll" },
+      { k: "h", label: "help" },
+    ];
+  } else if (detailMode === "detail" && sectionFocus) {
+    hints = [
+      { k: "↑↓", label: "sections" },
+      { k: "enter", label: "fullscreen" },
+      { k: "←", label: "branches" },
+      { k: "tab", label: "close" },
       { k: "h", label: "help" },
     ];
   } else if (detailMode === "detail") {
     hints = [
-      { k: "←", label: "close" },
-      { k: "→", label: "sections" },
-      { k: "enter", label: "fix + address" },
+      { k: "↑↓", label: "branches" },
+      { k: "enter/→", label: "sections" },
+      { k: "tab", label: "close" },
       { k: "h", label: "help" },
     ];
   } else {
     hints = [
-      { k: "enter", label: "fix + address" },
-      { k: "→", label: "details" },
-      { k: "l", label: "logs" },
+      { k: "↑↓", label: "branches" },
+      { k: "tab", label: "details" },
+      { k: "g", label: "logs" },
       { k: "h", label: "help" },
     ];
   }

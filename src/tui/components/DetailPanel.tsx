@@ -1,10 +1,11 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
-import type { CommentCategory, CycleRecord } from "../../types/index.js";
+import type { CategorizedComment, CommentCategory, CycleRecord, ThreadReply } from "../../types/index.js";
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
 import { formatTokens } from "../../utils/format.js";
+import { stripMarkdown } from "../../utils/markdown.js";
 
 export type DetailSection = "cycles" | "conflicts" | "ci" | "comments" | "claude";
 
@@ -26,6 +27,7 @@ interface DetailPanelProps {
   activityLines?: string[];
   focusedSection?: DetailSection | null;
   fullscreenSection?: DetailSection | null;
+  commentScroll?: number;
 }
 
 const CATEGORY_COLORS: Record<CommentCategory, string> = {
@@ -55,7 +57,6 @@ const MAX_ACTIVITY = 6;
 const FULLSCREEN_MAX_CYCLES = 50;
 const FULLSCREEN_MAX_CONFLICTS = 50;
 const FULLSCREEN_MAX_CI_CHECKS = 50;
-const FULLSCREEN_MAX_COMMENTS = 50;
 const FULLSCREEN_MAX_ACTIVITY = 50;
 
 function SectionHeader({ label, color, focused }: {
@@ -103,11 +104,11 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   } else if (lower.includes("auth")) {
     hints.push("check gh auth status");
   } else {
-    hints.push("l to check logs for details");
-    hints.push("E to resume Claude session");
+    hints.push("g to check logs for details");
+    hints.push("E to resume claude session");
   }
 
-  hints.push("f to fix · a to address · enter to fix + address");
+  hints.push("f to fix branch · a to address comments · w to watch");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -184,6 +185,7 @@ export function DetailPanel({
   activityLines = [],
   focusedSection = null,
   fullscreenSection = null,
+  commentScroll = 0,
 }: DetailPanelProps) {
   const theme = useTheme();
   const branch = selectedBranch;
@@ -293,7 +295,7 @@ export function DetailPanel({
                 {!state && (
                   <Box marginLeft={2}>
                     <Text dimColor>
-                      <Text color={theme.accent}>enter</Text> to fix with Claude
+                      <Text color={theme.accent}>f</Text> to fix with claude
                     </Text>
                   </Box>
                 )}
@@ -348,52 +350,57 @@ export function DetailPanel({
             )
           )}
 
-          {/* Fullscreen: comments */}
-          {fullscreenSection === "comments" && (
-            summary && summary.comments.length > 0 ? (
+          {/* Fullscreen: single comment thread */}
+          {fullscreenSection === "comments" && (() => {
+            const commentList = summary?.comments ?? (commentThreads.length > 0 ? commentThreads : []);
+            if (commentList.length === 0) {
+              return (
+                <>
+                  <SectionHeader label="Comments" color={theme.accent} focused={true} />
+                  <Box marginLeft={2}><Text dimColor>None</Text></Box>
+                </>
+              );
+            }
+            const idx = Math.min(commentScroll, Math.max(0, commentList.length - 1));
+            const c = commentList[idx]!;
+            const loc = c.line ? `${c.path}:${c.line}` : c.path;
+            const isCategorized = "category" in c;
+            const replies: ThreadReply[] = c.replies ?? [];
+            return (
               <>
-                <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} focused={true} />
-                {summary.comments.slice(0, FULLSCREEN_MAX_COMMENTS).map((c) => {
-                  const loc = c.line ? `${c.path}:${c.line}` : c.path;
-                  return (
-                    <Box key={c.threadId} marginLeft={2} flexDirection="column" marginBottom={1}>
-                      <Text>
-                        <Text color={CATEGORY_COLORS[c.category]} bold>
-                          {CATEGORY_LABELS[c.category].padEnd(11)}
+                <SectionHeader label={`Comment ${idx + 1}/${commentList.length}`} color={theme.accent} focused={true} />
+                <Box marginLeft={2} flexDirection="column">
+                  <Text>
+                    {isCategorized && (
+                      <Text color={CATEGORY_COLORS[(c as CategorizedComment).category]} bold>
+                        {CATEGORY_LABELS[(c as CategorizedComment).category].padEnd(11)}
+                      </Text>
+                    )}
+                    <Text color={theme.text}>{loc}</Text>
+                    <Text dimColor>  @{c.author}</Text>
+                  </Text>
+                  {replies.length > 0 ? (
+                    replies.map((reply) => (
+                      <Box key={reply.id} marginLeft={2} flexDirection="column" marginTop={1}>
+                        <Text dimColor={reply.isOrcReply}>
+                          <Text color={reply.isOrcReply ? "gray" : theme.accent} bold>@{reply.author}</Text>
+                          {reply.isOrcReply && <Text color="gray"> (orc)</Text>}
+                          <Text dimColor>  {formatTime(reply.createdAt)}</Text>
                         </Text>
-                        <Text color={theme.text}>{loc}</Text>
-                        <Text dimColor>  @{c.author}</Text>
-                      </Text>
-                      <Text dimColor>{"           "}{c.body}</Text>
+                        <Box marginLeft={2}>
+                          <Text dimColor={reply.isOrcReply}>{stripMarkdown(reply.body)}</Text>
+                        </Box>
+                      </Box>
+                    ))
+                  ) : (
+                    <Box marginLeft={2} marginTop={1}>
+                      <Text>{stripMarkdown(c.body)}</Text>
                     </Box>
-                  );
-                })}
-                <MoreIndicator hidden={summary.comments.length - FULLSCREEN_MAX_COMMENTS} label="comments" />
+                  )}
+                </Box>
               </>
-            ) : commentThreads.length > 0 ? (
-              <>
-                <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} focused={true} />
-                {commentThreads.slice(0, FULLSCREEN_MAX_COMMENTS).map((t) => {
-                  const loc = t.line ? `${t.path}:${t.line}` : t.path;
-                  return (
-                    <Box key={t.threadId} marginLeft={2} flexDirection="column" marginBottom={1}>
-                      <Text>
-                        <Text color={theme.text}>{loc}</Text>
-                        <Text dimColor>  @{t.author}</Text>
-                      </Text>
-                      <Text dimColor>  {t.body}</Text>
-                    </Box>
-                  );
-                })}
-                <MoreIndicator hidden={commentThreads.length - FULLSCREEN_MAX_COMMENTS} label="comments" />
-              </>
-            ) : (
-              <>
-                <SectionHeader label="Comments" color={theme.accent} focused={true} />
-                <Box marginLeft={2}><Text dimColor>None</Text></Box>
-              </>
-            )
-          )}
+            );
+          })()}
 
           {/* Fullscreen: Claude */}
           {fullscreenSection === "claude" && (
@@ -438,7 +445,7 @@ export function DetailPanel({
       >
         <Box marginLeft={2}>
           <Text dimColor>
-            <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>a</Text> address · <Text color={theme.accent}>enter</Text> fix + address · <Text color={theme.accent}>→</Text> details
+            <Text color={theme.accent}>f</Text> fix branch · <Text color={theme.accent}>a</Text> address comments · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>tab</Text> details
             {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
           </Text>
         </Box>
@@ -475,7 +482,7 @@ export function DetailPanel({
       {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
-          <Text color={theme.accent}>←</Text> close · <Text color={theme.accent}>→</Text> sections · <Text color={theme.accent}>f</Text> fix · <Text color={theme.accent}>a</Text> address · <Text color={theme.accent}>enter</Text> fix + address
+          <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>f</Text> fix branch · <Text color={theme.accent}>a</Text> address comments · <Text color={theme.accent}>w</Text> watch
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
       </Box>
@@ -635,20 +642,24 @@ export function DetailPanel({
         {summary && summary.comments.length > 0 ? (
           <>
             <SectionHeader label={`Comments (${summary.comments.length})`} color={theme.accent} focused={isFocused("comments")} />
-            {summary.comments.slice(0, MAX_COMMENTS).map((c) => {
+            {summary.comments.slice(0, MAX_COMMENTS).map((c, i) => {
               const loc = c.line ? `${c.path}:${c.line}` : c.path;
-              const body = c.body.replace(/\n/g, " ");
+              const body = stripMarkdown(c.body).replace(/\n/g, " ");
               const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+              const isSelected = isFocused("comments") && i === commentScroll;
+              const replyCount = c.replies?.length ?? 0;
               return (
                 <Box key={c.threadId} marginLeft={2} flexDirection="column">
                   <Text>
+                    <Text color={isSelected ? theme.accent : undefined} bold={isSelected}>{isSelected ? "▸ " : "  "}</Text>
                     <Text color={CATEGORY_COLORS[c.category]} bold>
                       {CATEGORY_LABELS[c.category].padEnd(11)}
                     </Text>
                     <Text color={theme.text}>{loc}</Text>
                     <Text dimColor>  @{c.author}</Text>
+                    {replyCount > 1 && <Text dimColor> ({replyCount})</Text>}
                   </Text>
-                  <Text dimColor>{"           "}{truncated}</Text>
+                  <Text dimColor>{"             "}{truncated}</Text>
                 </Box>
               );
             })}
@@ -657,17 +668,21 @@ export function DetailPanel({
         ) : commentThreads.length > 0 ? (
           <>
             <SectionHeader label={`Comments (${commentThreads.length})`} color={theme.accent} focused={isFocused("comments")} />
-            {commentThreads.slice(0, MAX_COMMENTS).map((t) => {
+            {commentThreads.slice(0, MAX_COMMENTS).map((t, i) => {
               const loc = t.line ? `${t.path}:${t.line}` : t.path;
-              const body = t.body.replace(/\n/g, " ");
+              const body = stripMarkdown(t.body).replace(/\n/g, " ");
               const truncated = body.length > 90 ? body.slice(0, 89) + "…" : body;
+              const isSelected = isFocused("comments") && i === commentScroll;
+              const replyCount = t.replies?.length ?? 0;
               return (
                 <Box key={t.threadId} marginLeft={2} flexDirection="column">
                   <Text>
+                    <Text color={isSelected ? theme.accent : undefined} bold={isSelected}>{isSelected ? "▸ " : "  "}</Text>
                     <Text color={theme.text}>{loc}</Text>
                     <Text dimColor>  @{t.author}</Text>
+                    {replyCount > 1 && <Text dimColor> ({replyCount})</Text>}
                   </Text>
-                  <Text dimColor>  {truncated}</Text>
+                  <Text dimColor>{"    "}{truncated}</Text>
                 </Box>
               );
             })}

@@ -10,7 +10,7 @@
 
 import { GHClient } from "../github/gh-client.js";
 import type { GHReviewThread } from "../github/types.js";
-import type { ReviewThread } from "../types/index.js";
+import type { ReviewThread, ThreadReply } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 import { containsQuotedComment } from "../utils/quoting.js";
 
@@ -153,6 +153,13 @@ export class CommentFetcher {
         .filter((c) => !isOrcReply(c.body))
         .map((c) => c.body)
         .join("\n\n---\n\n");
+      const replies: ThreadReply[] = thread.comments.nodes.map((c) => ({
+        id: c.id,
+        author: c.author.login,
+        body: c.body,
+        createdAt: c.createdAt,
+        isOrcReply: isOrcReply(c.body),
+      }));
       results.push({
         thread: {
           id: firstComment.id,
@@ -164,6 +171,7 @@ export class CommentFetcher {
           isResolved: thread.isResolved,
           diffHunk: firstComment.diffHunk,
           createdAt: firstComment.createdAt,
+          replies,
         },
         rawThread: thread,
       });
