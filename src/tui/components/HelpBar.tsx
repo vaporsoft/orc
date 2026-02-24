@@ -16,10 +16,9 @@ interface HelpBarProps {
   detailMode: "off" | "detail" | "logs";
   fullscreenSection: DetailSection | null;
   sectionFocus?: boolean;
-  focusedSection?: DetailSection | null;
 }
 
-export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false, focusedSection = null }: HelpBarProps) {
+export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }: HelpBarProps) {
   const theme = useTheme();
 
   let hints: { k: string; label: string }[];
