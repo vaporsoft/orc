@@ -42,6 +42,7 @@ export function App({ daemon, startTime }: AppProps) {
   const [logOffset, setLogOffset] = useState(0);
   const [detailMode, setDetailMode] = useState<"off" | "detail" | "logs">("off");
   const [detailModeBeforeLogs, setDetailModeBeforeLogs] = useState<"off" | "detail" | "logs">("off");
+  const [fullscreenBeforeLogs, setFullscreenBeforeLogs] = useState<DetailSection | null>(null);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
   const [toolbarIndex, setToolbarIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
@@ -168,6 +169,16 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // In fullscreen section: block most actions, only allow specific keys to fall through
+    if (fullscreenSection) {
+      // Allow: l (logs toggle), h (help), , (settings), t (theme), tab — fall through
+      if (input === "l" || input === "h" || input === "," || input === "t" || key.tab) {
+        // Fall through to normal handlers below
+      } else {
+        return;
+      }
+    }
+
     if (input === "q") {
       onQuit();
       return;
@@ -222,13 +233,16 @@ export function App({ daemon, startTime }: AppProps) {
     if (key.tab) {
       setFocusedPane((prev) => {
         if (prev === "sessions") {
-          // Switching to logs — save and hide detail views
+          // Switching to all logs — save and hide detail/fullscreen
           setDetailModeBeforeLogs(detailMode);
+          setFullscreenBeforeLogs(fullscreenSection);
+          setFullscreenSection(null);
           setDetailMode("off");
           return "logs";
         } else {
           // Switching back — restore detail state
           setDetailMode(detailModeBeforeLogs);
+          setFullscreenSection(fullscreenBeforeLogs);
           return "sessions";
         }
       });
@@ -294,7 +308,17 @@ export function App({ daemon, startTime }: AppProps) {
 
     // Swap detail view with branch logs
     if (input === "l" && focusedPane === "sessions") {
-      setDetailMode((prev) => prev === "logs" ? "off" : "logs");
+      if (detailMode === "logs") {
+        // Returning from logs — restore previous state
+        setDetailMode(detailModeBeforeLogs);
+        setFullscreenSection(fullscreenBeforeLogs);
+      } else {
+        // Entering logs — save current state
+        setDetailModeBeforeLogs(detailMode);
+        setFullscreenBeforeLogs(fullscreenSection);
+        setFullscreenSection(null);
+        setDetailMode("logs");
+      }
       setBranchLogOffset(0);
       return;
     }
