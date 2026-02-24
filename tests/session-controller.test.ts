@@ -763,4 +763,433 @@ describe("SessionController", () => {
       expect(state.totalInputTokens).toBeGreaterThanOrEqual(1200);
     });
   });
+
+  describe("optimistic status update", () => {
+    it("emits commentsResolved with resolved thread IDs after successful fix", async () => {
+      const ctrl = createController();
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this bug",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "@@ -1,5 +1,5 @@",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+        {
+          id: "t2",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c2",
+              databaseId: 2,
+              body: "Fix this too",
+              author: { login: "reviewer" },
+              path: "src/util.ts",
+              line: 5,
+              diffHunk: "@@ -1,3 +1,3 @@",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [
+          {
+            threadId: "t1",
+            path: "src/main.ts",
+            line: 10,
+            body: "Fix this bug",
+            author: "reviewer",
+            diffHunk: "@@ -1,5 +1,5 @@",
+            category: "should_fix",
+            confidence: 0.9,
+            reasoning: "Valid",
+            suggestedAction: "Fix it",
+          },
+          {
+            threadId: "t2",
+            path: "src/util.ts",
+            line: 5,
+            body: "Fix this too",
+            author: "reviewer",
+            diffHunk: "@@ -1,3 +1,3 @@",
+            category: "must_fix",
+            confidence: 0.95,
+            reasoning: "Critical",
+            suggestedAction: "Fix it",
+          },
+        ],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      // Claude makes commits (head changes)
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      const resolvedEvents: Array<[string, string[]]> = [];
+      ctrl.on("commentsResolved", (branch: string, threadIds: string[]) => {
+        resolvedEvents.push([branch, threadIds]);
+      });
+
+      await ctrl.start();
+
+      expect(resolvedEvents).toHaveLength(1);
+      expect(resolvedEvents[0][0]).toBe("test-branch");
+      expect(resolvedEvents[0][1]).toEqual(expect.arrayContaining(["t1", "t2"]));
+      expect(resolvedEvents[0][1]).toHaveLength(2);
+    });
+
+    it("decrements unresolvedCount after successful fix", async () => {
+      const ctrl = createController();
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "t1",
+          path: "src/main.ts",
+          line: 10,
+          body: "Fix this",
+          author: "reviewer",
+          diffHunk: "",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Fix it",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      await ctrl.start();
+
+      expect(ctrl.getState().unresolvedCount).toBe(0);
+    });
+
+    it("excludes conversation comments from resolved thread IDs", async () => {
+      const ctrl = createController();
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
+      vi.spyOn(ghClient, "getPRComments").mockResolvedValue([
+        {
+          id: "conv1",
+          databaseId: 100,
+          body: "Please update the README",
+          author: { login: "reviewer" },
+          createdAt: "2024-01-01T00:00:00Z",
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "conv1",
+          path: "(conversation)",
+          line: null,
+          body: "Please update the README",
+          author: "reviewer",
+          diffHunk: "",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Update README",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      const resolvedEvents: Array<[string, string[]]> = [];
+      ctrl.on("commentsResolved", (branch: string, threadIds: string[]) => {
+        resolvedEvents.push([branch, threadIds]);
+      });
+
+      await ctrl.start();
+
+      // Conversation comments should not appear in resolved thread IDs
+      expect(resolvedEvents).toHaveLength(0);
+    });
+
+    it("does not emit commentsResolved when fix fails", async () => {
+      const ctrl = createController();
+      const { executor, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "t1",
+          path: "src/main.ts",
+          line: 10,
+          body: "Fix this",
+          author: "reviewer",
+          diffHunk: "",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Fix it",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      vi.spyOn(executor, "execute").mockResolvedValue(
+        makeFakeFixResult({ isError: true, errors: ["Claude error"] }),
+      );
+
+      const resolvedEvents: string[][] = [];
+      ctrl.on("commentsResolved", (_branch: string, threadIds: string[]) => {
+        resolvedEvents.push(threadIds);
+      });
+
+      await ctrl.start();
+
+      expect(resolvedEvents).toHaveLength(0);
+    });
+
+    it("includes verify_and_fix comments with 'fixed' outcome in resolved IDs", async () => {
+      const ctrl = createController();
+      const { gitManager, ghClient, executor } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Is this correct?",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "@@ -1,5 +1,5 @@",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+        {
+          id: "t2",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c2",
+              databaseId: 2,
+              body: "This seems wrong",
+              author: { login: "reviewer" },
+              path: "src/util.ts",
+              line: 5,
+              diffHunk: "@@ -1,3 +1,3 @@",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [
+          {
+            threadId: "t1",
+            path: "src/main.ts",
+            line: 10,
+            body: "Is this correct?",
+            author: "reviewer",
+            diffHunk: "@@ -1,5 +1,5 @@",
+            category: "verify_and_fix",
+            confidence: 0.8,
+            reasoning: "Needs verification",
+            suggestedAction: "Check it",
+          },
+          {
+            threadId: "t2",
+            path: "src/util.ts",
+            line: 5,
+            body: "This seems wrong",
+            author: "reviewer",
+            diffHunk: "@@ -1,3 +1,3 @@",
+            category: "verify_and_fix",
+            confidence: 0.8,
+            reasoning: "Needs verification",
+            suggestedAction: "Check it",
+          },
+        ],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      const verifyResults = new Map<string, { status: string; reason?: string; summary?: string }>();
+      verifyResults.set("t1", { status: "fixed", summary: "Fixed the issue" });
+      verifyResults.set("t2", { status: "not_applicable", reason: "Already correct" });
+
+      vi.spyOn(executor, "execute").mockResolvedValue(
+        makeFakeFixResult({ verifyResults }),
+      );
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      const resolvedEvents: Array<[string, string[]]> = [];
+      ctrl.on("commentsResolved", (branch: string, threadIds: string[]) => {
+        resolvedEvents.push([branch, threadIds]);
+      });
+
+      await ctrl.start();
+
+      expect(resolvedEvents).toHaveLength(1);
+      // t1 was "fixed" → resolved; t2 was "not_applicable" → not resolved
+      expect(resolvedEvents[0][1]).toContain("t1");
+      expect(resolvedEvents[0][1]).not.toContain("t2");
+    });
+
+    it("does not emit commentsResolved when push fails", async () => {
+      const ctrl = createController();
+      const { gitManager, ghClient } = setupFullCycle(ctrl);
+
+      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [{
+              id: "c1",
+              databaseId: 1,
+              body: "Fix this",
+              author: { login: "reviewer" },
+              path: "src/main.ts",
+              line: 10,
+              diffHunk: "",
+              createdAt: "2024-01-01T00:00:00Z",
+            }],
+          },
+        },
+      ]);
+
+      const categorizer = (ctrl as any).categorizer;
+      vi.spyOn(categorizer, "categorize").mockResolvedValue({
+        comments: [{
+          threadId: "t1",
+          path: "src/main.ts",
+          line: 10,
+          body: "Fix this",
+          author: "reviewer",
+          diffHunk: "",
+          category: "should_fix",
+          confidence: 0.9,
+          reasoning: "Valid",
+          suggestedAction: "Fix it",
+        }],
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      let headCallCount = 0;
+      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
+        headCallCount++;
+        return headCallCount <= 1 ? "abc123" : "def456";
+      });
+
+      // Push fails
+      vi.spyOn(gitManager, "forcePushWithLease").mockResolvedValue(false);
+
+      const resolvedEvents: string[][] = [];
+      ctrl.on("commentsResolved", (_branch: string, threadIds: string[]) => {
+        resolvedEvents.push(threadIds);
+      });
+
+      await ctrl.start();
+
+      // fixSucceeded is false because push failed, so no commentsResolved
+      expect(resolvedEvents).toHaveLength(0);
+    });
+  });
 });
