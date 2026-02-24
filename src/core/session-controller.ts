@@ -30,6 +30,7 @@ import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 import { RateLimitError } from "../utils/retry.js";
 import { MAX_CI_FIX_ATTEMPTS } from "../constants.js";
+import type { GitLock } from "./git-lock.js";
 
 /** Lockfiles that should be auto-resolved during rebase, not sent to Claude. */
 const LOCKFILE_NAMES = new Set([
@@ -61,7 +62,7 @@ export class SessionController extends EventEmitter {
   private conflictResolve: ((action: "resolve" | "dismiss") => void) | null = null;
   private pendingBaseBranch: string | null = null;
 
-  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore) {
+  constructor(branch: string, config: Config, cwd: string, mode: SessionMode = "once", progressStore: ProgressStore, gitLock?: GitLock) {
     super();
     this.branch = branch;
     this.config = config;
@@ -72,7 +73,7 @@ export class SessionController extends EventEmitter {
     this.ghClient = new GHClient(cwd);
     this.categorizer = new CommentCategorizer(cwd, config.confidence);
     this.executor = new FixExecutor(config, cwd);
-    this.gitManager = new GitManager(cwd, branch);
+    this.gitManager = new GitManager(cwd, branch, gitLock);
     this.abortController = new AbortController();
 
     const lifetime = progressStore.getLifetimeStats(branch);

@@ -16,6 +16,7 @@ import type { GHPullRequest } from "../github/types.js";
 import { logger } from "../utils/logger.js";
 import { exec } from "../utils/process.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
+import { GitLock } from "./git-lock.js";
 import { RateLimitError } from "../utils/retry.js";
 import { loadSettings } from "../utils/settings.js";
 import { notify } from "../utils/notify.js";
@@ -52,13 +53,15 @@ export class Daemon extends EventEmitter {
   private isInitialDiscovery = true;
   private nextCheckAt: number | null = null;
   private skipNextSleep = false;
+  private gitLock: GitLock;
 
   constructor(config: Config, cwd: string) {
     super();
     this.config = config;
     this.cwd = cwd;
     this.ghClient = new GHClient(cwd);
-    this.worktreeManager = new WorktreeManager(cwd);
+    this.gitLock = new GitLock();
+    this.worktreeManager = new WorktreeManager(cwd, this.gitLock);
     this.progressStore = new ProgressStore(cwd);
   }
 
@@ -651,7 +654,7 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore);
+    const controller = new SessionController(branch, this.config, workDir, mode, this.progressStore, this.gitLock);
 
     controller.on("statusChange", (b: string, status: string) => {
       logger.info(`Status: ${status}`, b);
@@ -809,7 +812,7 @@ export class Daemon extends EventEmitter {
 
   private async getCurrentBranch(): Promise<string | null> {
     try {
-      const { stdout } = await exec("git", ["branch", "--show-current"], { cwd: this.cwd });
+      const { stdout } = await exec("git", ["-c", "gc.auto=0", "branch", "--show-current"], { cwd: this.cwd });
       return stdout.trim() || null;
     } catch {
       return null;
@@ -897,20 +900,22 @@ export class Daemon extends EventEmitter {
       allRefs.add(pr.headRefName);
     }
 
-    // Perform a single fetch operation for all refs
+    // Perform a single fetch operation for all refs — through the lock since it writes to main repo
     try {
-      await exec("git", ["fetch", "origin", ...Array.from(allRefs)], {
-        cwd: this.cwd,
-        allowFailure: true,
-      });
+      await this.gitLock.run(() =>
+        exec("git", ["-c", "gc.auto=0", "fetch", "origin", ...Array.from(allRefs)], {
+          cwd: this.cwd,
+          allowFailure: true,
+        }),
+      );
     } catch (err) {
       logger.debug(`Failed to fetch refs: ${err}`);
     }
 
-    // Check conflicts for each PR
+    // Check conflicts for each PR (merge-tree is read-only, no lock needed)
     await Promise.all(prs.map(async (pr) => {
       try {
-        const { stdout, exitCode } = await exec("git", [
+        const { stdout, exitCode } = await exec("git", ["-c", "gc.auto=0",
           "merge-tree", "--write-tree", `origin/${pr.headRefName}`, `origin/${pr.baseRefName}`,
         ], { cwd: this.cwd, allowFailure: true });
 
@@ -960,13 +965,15 @@ export class Daemon extends EventEmitter {
 
   /** Fetch the pushed branch and update the local ref so git log stays current. */
   private async syncMainRepo(branch: string): Promise<void> {
-    await exec("git", ["fetch", "origin", branch], { cwd: this.cwd });
+    await this.gitLock.run(async () => {
+      await exec("git", ["-c", "gc.auto=0", "fetch", "origin", branch], { cwd: this.cwd });
 
-    // Update the local branch ref to match the remote
-    // (safe because we block starting sessions for the checked-out branch)
-    await exec("git", ["branch", "-f", branch, `origin/${branch}`], {
-      cwd: this.cwd,
-      allowFailure: true,
+      // Update the local branch ref to match the remote
+      // (safe because we block starting sessions for the checked-out branch)
+      await exec("git", ["-c", "gc.auto=0", "branch", "-f", branch, `origin/${branch}`], {
+        cwd: this.cwd,
+        allowFailure: true,
+      });
     });
 
     logger.info("Synced local branch ref with remote", branch);
