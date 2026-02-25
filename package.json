@@ -1,73 +1,18 @@
 {
   "name": "@vaporsoft/orc",
-  "version": "0.3.0",
-  "description": "Automate PR feedback loops — poll reviews & CI, fix with Claude Code, push, repeat.",
-  "type": "module",
-  "bin": "./dist/bin/orc.js",
-  "files": [
-    "dist",
-    "LICENSE",
-    "README.md"
-  ],
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "workspaces": ["packages/*"],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/bin/orc.js",
-    "start:dev": "node dist/bin/orc.js --write-logs --verbose",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "prepublishOnly": "yarn build",
-    "release": "./scripts/release.sh"
-  },
-  "keywords": [
-    "github",
-    "pull-request",
-    "code-review",
-    "automation",
-    "claude",
-    "claude-code",
-    "ci",
-    "tui",
-    "terminal",
-    "ink"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/vaporsoft/orc.git"
-  },
-  "homepage": "https://github.com/vaporsoft/orc#readme",
-  "bugs": {
-    "url": "https://github.com/vaporsoft/orc/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "commander": "^13.0.0",
-    "ink": "^5",
-    "node-notifier": "^10.0.1",
-    "react": "^18",
-    "zod": "^3.24.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "^22.0.0",
-    "@types/node-notifier": "^8.0.5",
-    "@types/react": "^18",
-    "eslint": "^10.0.1",
-    "globals": "^17.3.0",
-    "typescript": "^5.7.0",
-    "typescript-eslint": "^8.56.0",
-    "vitest": "^3.0.0"
-  },
-  "engines": {
-    "node": ">=22.0.0"
+    "dev": "bun run --filter '*' dev",
+    "dev:server": "bun run --filter @orc/server dev",
+    "dev:ui": "bun run --filter @orc/ui dev",
+    "build": "bun run --filter @orc/ui build && bun run --filter @orc/server build",
+    "build:ui": "bun run --filter @orc/ui build",
+    "build:server": "bun run --filter @orc/server build",
+    "start": "bun run --filter @orc/server start",
+    "typecheck": "bun run --filter '*' typecheck"
   },
   "author": "vaporsoft",
-  "license": "UNLICENSED",
-  "packageManager": "yarn@4.5.1+sha512.341db9396b6e289fecc30cd7ab3af65060e05ebff4b3b47547b278b9e67b08f485ecd8c79006b405446262142c7a38154445ef7f17c1d5d1de7d90bf9ce7054d"
+  "license": "UNLICENSED"
 }
