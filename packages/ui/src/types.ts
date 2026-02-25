@@ -36,7 +36,48 @@ export interface DashboardState {
   lastUpdated: string;
 }
 
+// --- Thread disposition tracking ---
+
+export type DispositionKind =
+  | "fixed"
+  | "skipped"
+  | "errored"
+  | "no_change"
+  | "clarification"
+  | "addressed";
+
+export interface ThreadDisposition {
+  disposition: DispositionKind;
+  attempts: number;
+  lastAttemptAt: string;
+}
+
+export interface ReviewThread {
+  id: string;
+  isResolved: boolean;
+  path: string | null;
+  line: number | null;
+  comments: ThreadComment[];
+}
+
+export interface ThreadComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+export interface PRThreadState {
+  prNumber: number;
+  threads: ReviewThread[];
+  dispositions: Record<string, ThreadDisposition>;
+}
+
+// --- WebSocket messages ---
+
 export type ServerMessage =
   | { type: "state"; data: DashboardState }
   | { type: "branch_updated"; data: Branch }
+  | { type: "threads"; data: PRThreadState }
   | { type: "error"; message: string };

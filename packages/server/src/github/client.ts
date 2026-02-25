@@ -1,4 +1,4 @@
-import type { GHPullRequest } from "../types";
+import type { GHPullRequest, GHReviewThread, ReviewThread } from "../types";
 
 export class GitHubClient {
   constructor(
