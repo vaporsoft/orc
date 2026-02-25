@@ -345,6 +345,242 @@ describe("CommentFetcher", () => {
     });
   });
 
+  describe("bot comment filtering", () => {
+    it("processes bot conversation comments posted before any orc activity", async () => {
+      const prComments = [
+        makePRComment({
+          id: "pc1",
+          body: "Potential null dereference at line 42",
+          author: { login: "bugbot[bot]" },
+          createdAt: "2024-01-01T00:00:00Z",
+        }),
+      ];
+      const client = makeGHClient([], prComments);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { comments } = await fetcher.fetchWithCounts();
+      expect(comments).toHaveLength(1);
+      expect(comments[0].thread.body).toBe("Potential null dereference at line 42");
+    });
+
+    it("skips bot conversation comments posted after orc was active", async () => {
+      const prComments = [
+        makePRComment({
+          id: "pc1",
+          body: "Please fix the tests",
+          author: { login: "reviewer" },
+          createdAt: "2024-01-01T00:00:00Z",
+        }),
+        makePRComment({
+          id: "pc2",
+          body: "> Please fix the tests\n\nAddressed in abc1234.\n\n*Orc — should_fix (confidence: 0.90)*",
+          author: { login: "pr-author" },
+          createdAt: "2024-01-01T01:00:00Z",
+        }),
+        makePRComment({
+          id: "pc3",
+          body: "Claude finished @tonycassara's task in 10s\n\nNo action needed",
+          author: { login: "claude[bot]" },
+          createdAt: "2024-01-01T01:01:00Z",
+        }),
+      ];
+      const client = makeGHClient([], prComments);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { comments } = await fetcher.fetchWithCounts();
+      expect(comments).toHaveLength(0);
+    });
+
+    it("always processes human comments regardless of timing", async () => {
+      const prComments = [
+        makePRComment({
+          id: "pc1",
+          body: "> old\n\nDone.\n\n*Orc — should_fix (confidence: 0.90)*",
+          author: { login: "pr-author" },
+          createdAt: "2024-01-01T01:00:00Z",
+        }),
+        makePRComment({
+          id: "pc2",
+          body: "Actually, this still looks wrong",
+          author: { login: "reviewer" },
+          createdAt: "2024-01-01T02:00:00Z",
+        }),
+      ];
+      const client = makeGHClient([], prComments);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { comments } = await fetcher.fetchWithCounts();
+      expect(comments).toHaveLength(1);
+      expect(comments[0].thread.body).toBe("Actually, this still looks wrong");
+    });
+
+    it("does not re-trigger inline thread when bot replies after orc", async () => {
+      const threads: GHReviewThread[] = [
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: "c1",
+                databaseId: 1,
+                body: "Fix this bug",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T00:00:00Z",
+              },
+              {
+                id: "c2",
+                databaseId: 2,
+                body: "Addressed in abc1234.\n\n*Orc — should_fix (confidence: 0.90)*",
+                author: { login: "pr-author" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T01:00:00Z",
+              },
+              {
+                id: "c3",
+                databaseId: 3,
+                body: "Claude finished task",
+                author: { login: "claude[bot]" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T01:01:00Z",
+              },
+            ],
+          },
+        },
+      ];
+      const client = makeGHClient(threads);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { comments } = await fetcher.fetchWithCounts();
+      expect(comments).toHaveLength(0);
+    });
+
+    it("excludes bot reaction text from thread body but keeps original bot review", async () => {
+      const threads: GHReviewThread[] = [
+        {
+          id: "t1",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: "c1",
+                databaseId: 1,
+                body: "Potential null dereference",
+                author: { login: "bugbot[bot]" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T00:00:00Z",
+              },
+              {
+                id: "c2",
+                databaseId: 2,
+                body: "Addressed in abc1234.\n\n*Orc — should_fix (confidence: 0.90)*",
+                author: { login: "pr-author" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T01:00:00Z",
+              },
+              {
+                id: "c3",
+                databaseId: 3,
+                body: "Still seeing the issue after fix",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T02:00:00Z",
+              },
+              {
+                id: "c4",
+                databaseId: 4,
+                body: "Claude finished task",
+                author: { login: "claude[bot]" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "@@ -1,5 +1,5 @@",
+                createdAt: "2024-01-01T02:01:00Z",
+              },
+            ],
+          },
+        },
+      ];
+      const client = makeGHClient(threads);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { comments } = await fetcher.fetchWithCounts();
+      expect(comments).toHaveLength(1);
+      // Original bot review (before orc) should be included
+      expect(comments[0].thread.body).toContain("Potential null dereference");
+      // Human follow-up should be included
+      expect(comments[0].thread.body).toContain("Still seeing the issue after fix");
+      // Bot reaction after orc should be excluded
+      expect(comments[0].thread.body).not.toContain("Claude finished task");
+    });
+
+    it("does not count bot reply as follow-up on resolved thread", async () => {
+      const threads: GHReviewThread[] = [
+        {
+          id: "t1",
+          isResolved: true,
+          isOutdated: false,
+          comments: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                id: "c1",
+                databaseId: 1,
+                body: "Fix this",
+                author: { login: "reviewer" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T00:00:00Z",
+              },
+              {
+                id: "c2",
+                databaseId: 2,
+                body: "Done.\n\n*Orc — should_fix (confidence: 0.85)*",
+                author: { login: "pr-author" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T01:00:00Z",
+              },
+              {
+                id: "c3",
+                databaseId: 3,
+                body: "Claude finished task",
+                author: { login: "claude[bot]" },
+                path: "src/main.ts",
+                line: 10,
+                diffHunk: "",
+                createdAt: "2024-01-01T02:00:00Z",
+              },
+            ],
+          },
+        },
+      ];
+      const client = makeGHClient(threads);
+      const fetcher = new CommentFetcher(client, 1, "bot-user", "main");
+
+      const { followUpResolvedThreadIds } = await fetcher.fetchWithCounts();
+      expect(followUpResolvedThreadIds).not.toContain("t1");
+    });
+  });
+
   describe("threadCounts", () => {
     it("counts resolved and total threads", async () => {
       const threads = [

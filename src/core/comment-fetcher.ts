@@ -29,6 +29,11 @@ function isBotCommand(body: string): boolean {
   return /^@\w+(\s+\w+)?$/.test(trimmed);
 }
 
+/** GitHub bot account — author login ends with [bot] (e.g. "claude[bot]", "copilot[bot]"). */
+function isBotAuthor(login: string): boolean {
+  return login.endsWith("[bot]");
+}
+
 export interface FetchedComment {
   thread: ReviewThread;
   /** Present for inline review threads, null for PR conversation comments. */
@@ -89,9 +94,9 @@ export class CommentFetcher {
           );
         if (lastOrcReplyAt !== null) {
           orcRepliedResolvedThreadIds.push(thread.id);
-          // Detect follow-up: a non-orc comment posted after orc's last reply
+          // Detect follow-up: a non-orc, non-bot comment posted after orc's last reply
           const hasFollowUp = thread.comments.nodes.some(
-            (c) => !isOrcReply(c.body) && c.createdAt > lastOrcReplyAt,
+            (c) => !isOrcReply(c.body) && !isBotAuthor(c.author?.login ?? "") && c.createdAt > lastOrcReplyAt,
           );
           if (hasFollowUp) {
             followUpResolvedThreadIds.push(thread.id);
@@ -142,15 +147,27 @@ export class CommentFetcher {
       if (
         lastOrcReplyAt !== null &&
         !thread.comments.nodes.some(
-          (c) => !isOrcReply(c.body) && c.createdAt > lastOrcReplyAt,
+          (c) => !isOrcReply(c.body) && !isBotAuthor(c.author?.login ?? "") && c.createdAt > lastOrcReplyAt,
         )
       ) {
         logger.debug(`Skipping thread ${thread.id} — already replied`, this.branch);
         continue;
       }
 
+      // Exclude orc's own replies and bot reactions (bot comments posted
+      // after orc's first reply are reactions, not review feedback).
+      const firstOrcReplyAt = thread.comments.nodes
+        .filter((c) => isOrcReply(c.body))
+        .reduce<string | null>(
+          (earliest, c) => (!earliest || c.createdAt < earliest ? c.createdAt : earliest),
+          null,
+        );
       const body = thread.comments.nodes
-        .filter((c) => !isOrcReply(c.body))
+        .filter((c) => {
+          if (isOrcReply(c.body)) return false;
+          if (firstOrcReplyAt && isBotAuthor(c.author?.login ?? "") && c.createdAt > firstOrcReplyAt) return false;
+          return true;
+        })
         .map((c) => c.body)
         .join("\n\n---\n\n");
       const replies: ThreadReply[] = thread.comments.nodes.map((c) => ({
@@ -187,6 +204,22 @@ export class CommentFetcher {
     for (const comment of comments) {
       // Skip Orc's own replies
       if (isOrcReply(comment.body)) continue;
+
+      // Skip bot comments that arrived after Orc was already active on this PR.
+      // These are reactions to Orc's replies (e.g. claude[bot] "finished task"
+      // messages), not fresh review feedback. Without this, Orc replies to the
+      // bot reaction, which triggers another bot reaction — infinite loop.
+      // Bot comments posted BEFORE any Orc reply are treated as original review
+      // feedback (e.g. bugbot findings) and processed normally.
+      if (isBotAuthor(comment.author.login)) {
+        const orcWasActive = comments.some(
+          (c) => isOrcReply(c.body) && c.createdAt < comment.createdAt,
+        );
+        if (orcWasActive) {
+          logger.debug(`Skipping PR comment ${comment.id} — bot reaction after orc activity (${comment.author.login})`, this.branch);
+          continue;
+        }
+      }
 
       // Skip bot commands like "@cursor review" — not review feedback
       if (isBotCommand(comment.body)) {
