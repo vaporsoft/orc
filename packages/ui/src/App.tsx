@@ -4,12 +4,17 @@ import { BranchList } from "./components/BranchList";
 import { DetailPane } from "./components/DetailPane";
 
 export function App() {
-  const { sendRefresh } = useWebSocket();
+  const { sendRefresh, fetchThreads, markThread } = useWebSocket();
 
   return (
     <Layout
       sidebar={<BranchList />}
-      main={<DetailPane />}
+      main={
+        <DetailPane
+          fetchThreads={fetchThreads}
+          markThread={markThread}
+        />
+      }
       onRefresh={sendRefresh}
     />
   );

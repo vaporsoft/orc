@@ -1,12 +1,28 @@
+import { useEffect } from "react";
 import { useDashboardStore } from "../store";
 import { ReviewBadge, ChecksIndicator } from "./StatusBadge";
+import { ThreadList } from "./ThreadList";
 import { timeAgo } from "../lib/utils";
+import type { DispositionKind } from "../types";
 
-export function DetailPane() {
+interface DetailPaneProps {
+  fetchThreads: (prNumber: number) => void;
+  markThread: (prNumber: number, threadId: string, disposition: DispositionKind) => void;
+}
+
+export function DetailPane({ fetchThreads, markThread }: DetailPaneProps) {
   const branches = useDashboardStore((s) => s.branches);
   const selectedBranch = useDashboardStore((s) => s.selectedBranch);
 
   const branch = branches.find((b) => b.name === selectedBranch);
+  const prNumber = branch?.pr?.number;
+
+  // Fetch threads when selecting a branch with a PR
+  useEffect(() => {
+    if (prNumber) {
+      fetchThreads(prNumber);
+    }
+  }, [prNumber, fetchThreads]);
 
   if (!branch) {
     return (
@@ -78,7 +94,16 @@ export function DetailPane() {
         </div>
       )}
 
-      {/* Agent Activity (placeholder for M1) */}
+      {/* Review Threads */}
+      {branch.pr && (
+        <ThreadList
+          prNumber={branch.pr.number}
+          onMark={markThread}
+          onRefresh={() => fetchThreads(branch.pr!.number)}
+        />
+      )}
+
+      {/* Agent Activity */}
       <div className="px-6 py-4 border-b border-zinc-800">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">
           Agent
@@ -93,7 +118,7 @@ export function DetailPane() {
         )}
       </div>
 
-      {/* Actions (placeholder buttons for M1) */}
+      {/* Actions */}
       {branch.pr && (
         <div className="px-6 py-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">

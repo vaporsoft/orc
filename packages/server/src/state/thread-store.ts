@@ -1,5 +1,5 @@
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import type { ThreadDisposition, DispositionKind } from "../types";
 
 /** Shape of the persisted JSON file */
@@ -101,11 +101,8 @@ export class ThreadStore {
   private load(): void {
     try {
       if (existsSync(DATA_FILE)) {
-        const raw = Bun.file(DATA_FILE);
-        // Synchronous read via readFileSync equivalent
-        const text = require("fs").readFileSync(DATA_FILE, "utf-8");
+        const text = readFileSync(DATA_FILE, "utf-8");
         this.data = JSON.parse(text) as PersistedData;
-        // Ensure shape
         if (!this.data.prs) this.data.prs = {};
       }
     } catch {
@@ -119,7 +116,7 @@ export class ThreadStore {
       if (!existsSync(DATA_DIR)) {
         mkdirSync(DATA_DIR, { recursive: true });
       }
-      Bun.write(DATA_FILE, JSON.stringify(this.data, null, 2));
+      writeFileSync(DATA_FILE, JSON.stringify(this.data, null, 2));
     } catch (err) {
       console.error("orc: failed to persist thread dispositions:", err);
     }

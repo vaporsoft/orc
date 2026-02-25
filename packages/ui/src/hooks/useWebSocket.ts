@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useDashboardStore } from "../store";
-import type { ServerMessage } from "../types";
+import type { ServerMessage, DispositionKind } from "../types";
 
 const RECONNECT_DELAY = 2000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -12,6 +12,7 @@ export function useWebSocket() {
 
   const applyState = useDashboardStore((s) => s.applyState);
   const updateBranch = useDashboardStore((s) => s.updateBranch);
+  const applyThreads = useDashboardStore((s) => s.applyThreads);
   const setConnected = useDashboardStore((s) => s.setConnected);
   const setError = useDashboardStore((s) => s.setError);
 
@@ -37,6 +38,9 @@ export function useWebSocket() {
             break;
           case "branch_updated":
             updateBranch(msg.data);
+            break;
+          case "threads":
+            applyThreads(msg.data);
             break;
           case "error":
             setError(msg.message);
@@ -64,13 +68,38 @@ export function useWebSocket() {
     ws.onerror = () => {
       // onclose will fire after this
     };
-  }, [applyState, updateBranch, setConnected, setError]);
+  }, [applyState, updateBranch, applyThreads, setConnected, setError]);
 
   const sendRefresh = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "refresh" }));
     }
   }, []);
+
+  const fetchThreads = useCallback((prNumber: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      useDashboardStore.getState().setThreadsLoading(prNumber);
+      wsRef.current.send(
+        JSON.stringify({ type: "fetch_threads", prNumber })
+      );
+    }
+  }, []);
+
+  const markThread = useCallback(
+    (prNumber: number, threadId: string, disposition: DispositionKind) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "mark_thread",
+            prNumber,
+            threadId,
+            disposition,
+          })
+        );
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     connect();
@@ -80,5 +109,5 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { sendRefresh };
+  return { sendRefresh, fetchThreads, markThread };
 }

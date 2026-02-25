@@ -1,9 +1,10 @@
 import { join } from "path";
 import { BranchStore } from "./state/store";
+import { ThreadStore } from "./state/thread-store";
 import { GitHubClient } from "./github/client";
 import { listLocalBranches } from "./git/branches";
 import { getRepoRoot, getRepoInfo } from "./git/repo";
-import type { ServerMessage, ClientMessage, DashboardState } from "./types";
+import type { ServerMessage, ClientMessage } from "./types";
 import type { ServerWebSocket } from "bun";
 
 const PORT = parseInt(process.env.ORC_PORT || "3333");
@@ -21,6 +22,8 @@ const github = new GitHubClient(repoInfo.owner, repoInfo.repo);
 const store = new BranchStore();
 store.setRepoInfo(repoInfo);
 
+const threadStore = new ThreadStore();
+
 // --- WebSocket clients ---
 
 const clients = new Set<ServerWebSocket<unknown>>();
@@ -32,6 +35,10 @@ function broadcast(msg: ServerMessage) {
   }
 }
 
+function sendTo(ws: ServerWebSocket<unknown>, msg: ServerMessage) {
+  ws.send(JSON.stringify(msg));
+}
+
 // --- Refresh loop ---
 
 async function refresh() {
@@ -41,11 +48,60 @@ async function refresh() {
       github.listOpenPRs(),
     ]);
     store.update(branches, prs);
+
+    // Prune dispositions for PRs that are no longer open
+    threadStore.pruneClosedPRs(prs.map((pr) => pr.number));
+
     broadcast({ type: "state", data: store.getState() });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`orc: refresh failed: ${message}`);
     broadcast({ type: "error", message });
+  }
+}
+
+// --- Thread operations ---
+
+async function fetchAndSendThreads(
+  ws: ServerWebSocket<unknown>,
+  prNumber: number
+) {
+  try {
+    const threads = await github.listReviewThreads(prNumber);
+    const dispositions = threadStore.getDispositions(prNumber);
+    sendTo(ws, {
+      type: "threads",
+      data: { prNumber, threads, dispositions },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`orc: failed to fetch threads for PR #${prNumber}: ${message}`);
+    sendTo(ws, { type: "error", message: `Failed to fetch threads: ${message}` });
+  }
+}
+
+async function handleMarkThread(
+  ws: ServerWebSocket<unknown>,
+  prNumber: number,
+  threadId: string,
+  disposition: ClientMessage & { type: "mark_thread" }
+) {
+  threadStore.markThread(prNumber, threadId, disposition.disposition);
+  // Re-fetch threads and broadcast full state to all clients
+  try {
+    const threads = await github.listReviewThreads(prNumber);
+    const dispositions = threadStore.getDispositions(prNumber);
+    broadcast({
+      type: "threads",
+      data: { prNumber, threads, dispositions },
+    });
+  } catch {
+    // If re-fetch fails, at least send dispositions-only to the requester
+    const dispositions = threadStore.getDispositions(prNumber);
+    sendTo(ws, {
+      type: "threads",
+      data: { prNumber, threads: [], dispositions },
+    });
   }
 }
 
@@ -78,6 +134,49 @@ const server = Bun.serve({
       return Response.json({ ok: true });
     }
 
+    // REST: get threads for a PR
+    const threadsMatch = url.pathname.match(/^\/api\/pr\/(\d+)\/threads$/);
+    if (threadsMatch) {
+      const prNumber = parseInt(threadsMatch[1]);
+      try {
+        const threads = await github.listReviewThreads(prNumber);
+        const dispositions = threadStore.getDispositions(prNumber);
+        return Response.json({ prNumber, threads, dispositions });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: message }, { status: 500 });
+      }
+    }
+
+    // REST: mark a thread
+    const markMatch = url.pathname.match(
+      /^\/api\/pr\/(\d+)\/threads\/([^/]+)\/disposition$/
+    );
+    if (markMatch && req.method === "PUT") {
+      const prNumber = parseInt(markMatch[1]);
+      const threadId = decodeURIComponent(markMatch[2]);
+      try {
+        const body = (await req.json()) as { disposition: string };
+        const record = threadStore.markThread(
+          prNumber,
+          threadId,
+          body.disposition as import("./types").DispositionKind
+        );
+        return Response.json(record);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: message }, { status: 500 });
+      }
+    }
+
+    // REST: unmark a thread
+    if (markMatch && req.method === "DELETE") {
+      const prNumber = parseInt(markMatch[1]);
+      const threadId = decodeURIComponent(markMatch[2]);
+      threadStore.unmarkThread(prNumber, threadId);
+      return Response.json({ ok: true });
+    }
+
     // Serve static UI files
     const filePath =
       url.pathname === "/" ? "/index.html" : url.pathname;
@@ -99,14 +198,27 @@ const server = Bun.serve({
     open(ws) {
       clients.add(ws);
       // Send current state on connect
-      ws.send(JSON.stringify({ type: "state", data: store.getState() } satisfies ServerMessage));
+      ws.send(
+        JSON.stringify({
+          type: "state",
+          data: store.getState(),
+        } satisfies ServerMessage)
+      );
     },
 
     message(ws, msg) {
       try {
         const data = JSON.parse(String(msg)) as ClientMessage;
-        if (data.type === "refresh") {
-          refresh();
+        switch (data.type) {
+          case "refresh":
+            refresh();
+            break;
+          case "fetch_threads":
+            fetchAndSendThreads(ws, data.prNumber);
+            break;
+          case "mark_thread":
+            handleMarkThread(ws, data.prNumber, data.threadId, data);
+            break;
         }
       } catch {
         // Ignore malformed messages
