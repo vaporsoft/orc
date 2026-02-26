@@ -1,4 +1,4 @@
-import type { Branch, BranchPR, DashboardState, GHPullRequest, MergedPR, RepoInfo, ThreadDisposition } from "../types";
+import type { Branch, BranchPR, DashboardState, GHPullRequest, MergedPR, RepoInfo } from "../types";
 import type { LocalBranch } from "../git/branches";
 
 export interface ThreadSummary {
@@ -55,12 +55,6 @@ export class BranchStore {
           addressedCount: summary?.addressedCount ?? 0,
         },
       };
-
-      // Preserve agent state from previous refresh
-      const prev = this.branches.get(pr.headRefName);
-      if (prev?.agent) {
-        branch.agent = prev.agent;
-      }
 
       updated.set(pr.headRefName, branch);
     }
@@ -120,10 +114,6 @@ function mapChecksState(
 }
 
 function branchSort(a: Branch, b: Branch): number {
-  // Agent running first
-  if (a.agent?.status === "running" && b.agent?.status !== "running") return -1;
-  if (b.agent?.status === "running" && a.agent?.status !== "running") return 1;
-
   // HEAD branch first
   if (a.isHead && !b.isHead) return -1;
   if (b.isHead && !a.isHead) return 1;

@@ -6,4 +6,4 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 export ORC_REPO="${ORC_REPO:-$(pwd)}"
 
-exec node --import tsx "$PROJECT_ROOT/packages/server/src/index.ts"
+exec node --import tsx "$PROJECT_ROOT/src/index.tsx"

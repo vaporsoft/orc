@@ -2,27 +2,31 @@
   "name": "@vaporsoft/orc",
   "version": "1.0.0-alpha.0",
   "private": true,
+  "type": "module",
   "bin": {
     "orc": "./bin/orc.sh"
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
-    "orc": "ORC_REPO=$(pwd) node --import tsx packages/server/src/index.ts",
-    "dev": "concurrently -k -n server,ui -c blue,magenta \"yarn dev:server\" \"yarn dev:ui\"",
-    "dev:server": "yarn workspace @orc/server dev",
-    "dev:ui": "yarn workspace @orc/ui dev",
-    "build": "yarn build:ui && yarn build:server",
-    "build:ui": "yarn workspace @orc/ui build",
-    "build:server": "yarn workspace @orc/server build",
-    "start": "yarn build && ORC_REPO=$(pwd) node --import tsx packages/server/src/index.ts",
-    "test": "yarn workspace @orc/server test",
-    "typecheck": "yarn workspace @orc/ui typecheck && yarn workspace @orc/server typecheck"
+    "start": "ORC_REPO=$(pwd) tsx src/index.tsx",
+    "dev": "ORC_REPO=$(pwd) tsx watch src/index.tsx",
+    "build": "tsc",
+    "test": "vitest run ./src",
+    "test:watch": "vitest ./src",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ink": "^5.1.0",
+    "react": "^18.3.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   },
   "author": "vaporsoft",
-  "license": "UNLICENSED",
-  "devDependencies": {
-    "concurrently": "^9.2.1"
-  }
+  "license": "UNLICENSED"
 }
