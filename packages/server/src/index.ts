@@ -1,7 +1,7 @@
 import { join } from "path";
 import { BranchStore, type ThreadSummary } from "./state/store";
 import { ThreadStore } from "./state/thread-store";
-import { GitHubClient } from "./github/client";
+import { GitHubClient, resolveToken } from "./github/client";
 import { listLocalBranches } from "./git/branches";
 import { getRepoRoot, getRepoInfo } from "./git/repo";
 import type { ServerMessage, ClientMessage } from "./types";
@@ -18,7 +18,9 @@ const repoRoot = await getRepoRoot(REPO_PATH);
 const repoInfo = await getRepoInfo(repoRoot);
 console.log(`orc: ${repoInfo.owner}/${repoInfo.repo} (default: ${repoInfo.defaultBranch})`);
 
-const github = new GitHubClient(repoInfo.owner, repoInfo.repo);
+const token = await resolveToken();
+console.log(`orc: GitHub token resolved`);
+const github = new GitHubClient(repoInfo.owner, repoInfo.repo, token);
 const store = new BranchStore();
 store.setRepoInfo(repoInfo);
 
