@@ -49,12 +49,13 @@ function sendTo(ws: ServerWebSocket<unknown>, msg: ServerMessage) {
 
 async function refresh() {
   try {
-    const [branches, prs] = await Promise.all([
+    const [branches, prs, recentlyMerged] = await Promise.all([
       listLocalBranches(repoRoot),
       github.listOpenPRs(),
+      github.listRecentlyMergedPRs(24).catch(() => []),
     ]);
 
-    console.log(`orc: found ${prs.length} open PR(s), ${branches.length} local branch(es)`);
+    console.log(`orc: found ${prs.length} open PR(s), ${recentlyMerged.length} recently merged, ${branches.length} local branch(es)`);
 
     // Fetch thread summaries for all PRs (best-effort, don't block refresh)
     const threadSummaries = new Map<number, ThreadSummary>();
@@ -87,6 +88,7 @@ async function refresh() {
     }
 
     store.update(branches, prs, threadSummaries);
+    store.setRecentlyMerged(recentlyMerged);
     store.lastError = null;
 
     // Prune dispositions for PRs that are no longer open

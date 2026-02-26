@@ -1,4 +1,4 @@
-import type { GHPullRequest, GHReviewThread, ReviewThread } from "../types";
+import type { GHPullRequest, GHReviewThread, MergedPR, ReviewThread } from "../types";
 
 const GITHUB_API = "https://api.github.com";
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
@@ -296,6 +296,54 @@ export class GitHubClient {
         })),
       };
     });
+  }
+
+  /** Fetch PRs merged in the last N hours */
+  async listRecentlyMergedPRs(hours = 24): Promise<MergedPR[]> {
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+    const query = `
+      query($owner: String!, $repo: String!, $query: String!) {
+        search(query: $query, type: ISSUE, first: 25) {
+          nodes {
+            ... on PullRequest {
+              number
+              title
+              url
+              headRefName
+              mergedAt
+              author { login }
+            }
+          }
+        }
+      }
+    `;
+
+    const searchQuery = `repo:${this.owner}/${this.repo} is:pr is:merged merged:>=${since}`;
+
+    const data = await this.graphql<{
+      search: {
+        nodes: Array<{
+          number: number;
+          title: string;
+          url: string;
+          headRefName: string;
+          mergedAt: string;
+          author: { login: string } | null;
+        }>;
+      };
+    }>(query, { owner: this.owner, repo: this.repo, query: searchQuery });
+
+    return data.search.nodes
+      .filter((n) => n.number) // filter out any non-PR nodes
+      .map((pr) => ({
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        headRefName: pr.headRefName,
+        mergedAt: pr.mergedAt,
+        author: pr.author?.login ?? "unknown",
+      }));
   }
 
   /** Make a GraphQL request to the GitHub API */

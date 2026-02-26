@@ -36,9 +36,19 @@ export interface RepoInfo {
   defaultBranch: string;
 }
 
+export interface MergedPR {
+  number: number;
+  title: string;
+  url: string;
+  headRefName: string;
+  mergedAt: string;
+  author: string;
+}
+
 export interface DashboardState {
   repo: RepoInfo;
   branches: Branch[];
+  recentlyMerged: MergedPR[];
   lastUpdated: string;
 }
 

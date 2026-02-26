@@ -10,7 +10,7 @@ export function Footer() {
     <footer className="flex items-center justify-between px-4 py-1.5 border-t border-zinc-800 bg-zinc-900/80 text-[11px] text-zinc-600">
       <div className="flex items-center gap-4">
         <span>
-          {branches.length} branches · {prCount} open PRs
+          {prCount} open PR{prCount !== 1 ? "s" : ""}
         </span>
       </div>
       <div className="flex items-center gap-3">

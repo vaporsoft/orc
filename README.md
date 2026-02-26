@@ -2,49 +2,58 @@
 
 Automate PR feedback loops with [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Poll reviews & CI, fix issues, push, repeat.
 
-![orc terminal dashboard](https://i.imgur.com/E3q8QTQ.png)
-
 ## What it does
 
 orc monitors your open pull requests and handles review feedback automatically. It polls for new comments and CI results, categorizes feedback by severity, fixes issues using Claude Code in isolated git worktrees, verifies the changes, and pushes — looping until your PRs are clean.
 
-You stay in control via an interactive terminal dashboard. Start and stop monitoring per PR, watch logs in real time, or let it run hands-free.
+You stay in control via a web dashboard. See all open PRs at a glance, drill into review threads, and watch fixes happen in real time.
 
 ## Getting started
 
-orc requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and the [GitHub CLI](https://cli.github.com/) (`gh`). Both must be installed and authenticated before running orc — it will check `gh auth status` on startup and uses Claude Code to apply fixes.
+### Prerequisites
 
-### Install
+- **[Bun](https://bun.sh/)** runtime
+- **[GitHub CLI](https://cli.github.com/)** (`gh`) installed and authenticated, or a `GITHUB_TOKEN`
+- **Git** installed
+- **[Yarn 4](https://yarnpkg.com/)** for package management
 
-```bash
-npm install -g @vaporsoft/orc
-# or
-yarn global add @vaporsoft/orc
-# or
-pnpm add -g @vaporsoft/orc
-# or
-bun add -g @vaporsoft/orc
-```
-
-### Run
+### Install & run
 
 ```bash
-orc
+git clone https://github.com/vaporsoft/orc.git
+cd orc
+yarn install
+yarn start
 ```
 
-That's it. orc discovers your open PRs and starts the dashboard. You can also pass specific branches if you want to focus on a subset:
+The dashboard opens at **http://localhost:3333**.
+
+### Development
 
 ```bash
-orc start my-branch other-branch
+yarn dev          # Server (hot-reload) + UI (Vite HMR) concurrently
+yarn build        # Production build (UI + server)
+yarn start        # Build + start server (serves built UI)
+yarn orc          # Start server only (skip build, quick iteration)
+yarn test         # Run tests
+yarn typecheck    # Type-check all packages
 ```
 
-### Initialize a repo (optional)
+### Authentication
+
+orc needs a GitHub token to fetch PR data. Set one of these (checked in order):
+
+1. `GITHUB_TOKEN` environment variable
+2. `GH_TOKEN` environment variable
+3. `gh auth token` (uses your existing GitHub CLI login)
+
+For convenience, create a `.env` file at the repo root:
 
 ```bash
-orc init
+GITHUB_TOKEN=ghp_your_token_here
 ```
 
-Generates `ORC.md` and `orc.config.json` in your repo with sensible defaults based on your project's ecosystem (Node, Rust, Go, Python, etc.).
+The token needs `repo` scope. Generate one at [github.com/settings/tokens](https://github.com/settings/tokens).
 
 ## Configuration
 
@@ -93,29 +102,22 @@ All fields are optional:
 | `autoFix.verify_and_fix` | Auto-fix CI/verification failures | `true` |
 | `autoFix.needs_clarification` | Attempt to fix ambiguous comments | `true` |
 
-## Dashboard controls
+## Environment variables
 
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `r` | Refresh all PRs |
-| `Tab` | Toggle between Sessions and Logs view |
-| `↑`/`↓` | Navigate sessions or scroll logs |
-| `Enter` | Start/stop monitoring for selected PR |
-| `a` | Start monitoring all PRs |
-| `x` | Stop monitoring all PRs |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GITHUB_TOKEN` | GitHub personal access token | — |
+| `ORC_PORT` | Dashboard server port | `3333` |
+| `ORC_REPO` | Path to the git repo to monitor | Current directory |
 
-## Options
+## Architecture
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--poll-interval <n>` | Seconds between polls | `30` |
-| `--confidence <n>` | Min confidence to act on a comment (0-1) | `0.75` |
-| `--model <model>` | Claude model for fixes | `sonnet` |
-| `--session-timeout <n>` | Hours before stopping (0 = unlimited) | `0` |
-| `--claude-timeout <n>` | Seconds before killing a Claude Code session | `900` |
-| `--dry-run` | Preview what would be done without executing | — |
-| `--verbose` | Show detailed output | — |
+- **Bun** — server runtime
+- **React + Vite** — web dashboard
+- **Zustand** — client state management
+- **Tailwind CSS** — styling
+- **GitHub GraphQL API** — PR data fetching
+- **WebSocket** — real-time updates between server and dashboard
 
 ## FAQ
 
@@ -131,8 +133,6 @@ No. orc invokes Claude Code as a subprocess via the official [Agent SDK](https:/
 - **Autonomous code changes.** orc automatically modifies, commits, and pushes code to your repositories. The authors make no guarantees about correctness or safety. You are solely responsible for reviewing changes.
 - **No liability.** The authors are not liable for any damages arising from use of this software, including data loss, repository corruption, or unintended modifications.
 - **Third-party services.** orc depends on GitHub and Claude Code, which have their own terms and pricing.
-
-Use `--dry-run` to preview behavior before enabling autonomous fixes.
 
 ## License
 

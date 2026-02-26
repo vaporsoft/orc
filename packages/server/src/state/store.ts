@@ -1,4 +1,4 @@
-import type { Branch, BranchPR, DashboardState, GHPullRequest, RepoInfo, ThreadDisposition } from "../types";
+import type { Branch, BranchPR, DashboardState, GHPullRequest, MergedPR, RepoInfo, ThreadDisposition } from "../types";
 import type { LocalBranch } from "../git/branches";
 
 export interface ThreadSummary {
@@ -9,6 +9,7 @@ export interface ThreadSummary {
 
 export class BranchStore {
   private branches: Map<string, Branch> = new Map();
+  private _recentlyMerged: MergedPR[] = [];
   private repoInfo: RepoInfo = {
     owner: "",
     repo: "",
@@ -67,10 +68,15 @@ export class BranchStore {
     this.branches = updated;
   }
 
+  setRecentlyMerged(merged: MergedPR[]) {
+    this._recentlyMerged = merged;
+  }
+
   getState(): DashboardState {
     return {
       repo: this.repoInfo,
       branches: Array.from(this.branches.values()).sort(branchSort),
+      recentlyMerged: this._recentlyMerged,
       lastUpdated: new Date().toISOString(),
     };
   }

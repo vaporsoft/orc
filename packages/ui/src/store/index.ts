@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   Branch,
   DashboardState,
+  MergedPR,
   RepoInfo,
   PRThreadState,
   ReviewThread,
@@ -13,6 +14,7 @@ import type {
 interface DashboardStore {
   // --- Dashboard state ---
   branches: Branch[];
+  recentlyMerged: MergedPR[];
   selectedBranch: string | null;
   repo: RepoInfo | null;
   lastUpdated: string | null;
@@ -44,6 +46,7 @@ export const useDashboardStore = create<DashboardStore>()(
     (set) => ({
       // Dashboard defaults
       branches: [],
+      recentlyMerged: [],
       selectedBranch: null,
       repo: null,
       lastUpdated: null,
@@ -61,6 +64,7 @@ export const useDashboardStore = create<DashboardStore>()(
       applyState: (state) =>
         set({
           branches: state.branches,
+          recentlyMerged: state.recentlyMerged ?? [],
           repo: state.repo,
           lastUpdated: state.lastUpdated,
           error: null,

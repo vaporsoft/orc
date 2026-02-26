@@ -2,17 +2,21 @@
   "name": "@vaporsoft/orc",
   "version": "1.0.0-alpha.0",
   "private": true,
+  "bin": {
+    "orc": "./bin/orc.sh"
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "orc": "ORC_REPO=$(pwd) bun packages/server/src/index.ts",
     "dev": "concurrently -k -n server,ui -c blue,magenta \"yarn dev:server\" \"yarn dev:ui\"",
     "dev:server": "yarn workspace @orc/server dev",
     "dev:ui": "yarn workspace @orc/ui dev",
     "build": "yarn build:ui && yarn build:server",
     "build:ui": "yarn workspace @orc/ui build",
     "build:server": "yarn workspace @orc/server build",
-    "start": "yarn workspace @orc/server start",
+    "start": "yarn build && ORC_REPO=$(pwd) bun packages/server/src/index.ts",
     "test": "yarn workspace @orc/server test",
     "typecheck": "yarn workspace @orc/ui typecheck && yarn workspace @orc/server typecheck"
   },
