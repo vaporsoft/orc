@@ -4,14 +4,15 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "dev": "bun run --filter '*' dev",
-    "dev:server": "bun run --filter @orc/server dev",
-    "dev:ui": "bun run --filter @orc/ui dev",
-    "build": "bun run --filter @orc/ui build && bun run --filter @orc/server build",
-    "build:ui": "bun run --filter @orc/ui build",
-    "build:server": "bun run --filter @orc/server build",
-    "start": "bun run --filter @orc/server start",
-    "typecheck": "bun run --filter '*' typecheck"
+    "dev": "yarn dev:server & yarn dev:ui",
+    "dev:server": "yarn workspace @orc/server dev",
+    "dev:ui": "yarn workspace @orc/ui dev",
+    "build": "yarn build:ui && yarn build:server",
+    "build:ui": "yarn workspace @orc/ui build",
+    "build:server": "yarn workspace @orc/server build",
+    "start": "yarn workspace @orc/server start",
+    "test": "yarn workspace @orc/server test",
+    "typecheck": "yarn workspace @orc/ui typecheck && yarn workspace @orc/server typecheck"
   },
   "author": "vaporsoft",
   "license": "UNLICENSED"
