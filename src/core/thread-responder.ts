@@ -1,13 +1,12 @@
 /**
- * Replies to review threads and PR conversation comments via GitHub API.
- * Auto-resolves inline threads after successful "addressed" or "verified fixed" replies.
+ * Replies to inline review threads via GitHub API.
+ * Auto-resolves threads after successful "addressed" or "verified fixed" replies.
  */
 
 import { GHClient } from "../github/gh-client.js";
 import type { CategorizedComment } from "../types/index.js";
 import type { VerifyOutcome } from "./fix-executor.js";
 import { logger } from "../utils/logger.js";
-import { quoteCommentBody } from "../utils/quoting.js";
 
 export class ThreadResponder {
   private ghClient: GHClient;
@@ -40,12 +39,10 @@ export class ThreadResponder {
           `Replied to addressed comment on ${comment.path}`,
           this.branch,
         );
-        if (comment.path !== "(conversation)") {
-          try {
-            await this.ghClient.resolveThread(comment.threadId);
-          } catch (err) {
-            logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
-          }
+        try {
+          await this.ghClient.resolveThread(comment.threadId);
+        } catch (err) {
+          logger.warn(`Failed to resolve thread ${comment.threadId}: ${err}`, this.branch);
         }
       } catch (err) {
         logger.warn(
@@ -95,7 +92,7 @@ export class ThreadResponder {
           `Replied to verified comment on ${comment.path} (${outcome?.status ?? "unknown"})`,
           this.branch,
         );
-        if (outcome?.status === "fixed" && comment.path !== "(conversation)") {
+        if (outcome?.status === "fixed") {
           try {
             await this.ghClient.resolveThread(comment.threadId);
           } catch (err) {
@@ -131,18 +128,10 @@ export class ThreadResponder {
   }
 
   private buildClarificationReply(comment: CategorizedComment): string {
-    const isConversation = comment.path === "(conversation)";
     const parts: string[] = [];
 
-    if (isConversation) {
-      const quotedBody = quoteCommentBody(comment.body);
-      parts.push(quotedBody);
-      parts.push("");
-    }
-
-    const prefix = isConversation ? `@${comment.author} ` : "";
     const question = comment.clarificationQuestion ?? "Could you clarify what change you'd like here?";
-    parts.push(`${prefix}${question}`);
+    parts.push(question);
 
     parts.push("");
     parts.push(`*Orc — ${comment.category} (confidence: ${comment.confidence.toFixed(2)})*`);
@@ -151,24 +140,12 @@ export class ThreadResponder {
   }
 
   private buildAddressedReply(comment: CategorizedComment, commitRef: string, summary?: string): string {
-    const isConversation = comment.path === "(conversation)";
-
     const parts: string[] = [];
 
-    if (isConversation) {
-      // Quote the original comment and tag the author
-      const quotedBody = quoteCommentBody(comment.body);
-      parts.push(quotedBody);
-      parts.push("");
-    }
-
-    const prefix = isConversation ? `@${comment.author} ` : "";
-
     if (summary) {
-      // Use the summary from Claude Code describing what was actually done
-      parts.push(`${prefix}${summary} (${commitRef}).`);
+      parts.push(`${summary} (${commitRef}).`);
     } else {
-      parts.push(`${prefix}Addressed in ${commitRef}.`);
+      parts.push(`Addressed in ${commitRef}.`);
     }
 
     parts.push("");
@@ -178,22 +155,12 @@ export class ThreadResponder {
   }
 
   private buildSkippedReply(comment: CategorizedComment): string {
-    const isConversation = comment.path === "(conversation)";
-
     const parts: string[] = [];
 
-    if (isConversation) {
-      const quotedBody = quoteCommentBody(comment.body);
-      parts.push(quotedBody);
-      parts.push("");
-    }
-
-    const prefix = isConversation ? `@${comment.author} ` : "";
-
     if (comment.category === "false_positive") {
-      parts.push(`${prefix}Took a look — skipping this one. ${comment.reasoning}`);
+      parts.push(`Took a look — skipping this one. ${comment.reasoning}`);
     } else {
-      parts.push(`${prefix}Skipping this — auto-fix for \`${comment.category}\` is disabled. ${comment.reasoning}`);
+      parts.push(`Skipping this — auto-fix for \`${comment.category}\` is disabled. ${comment.reasoning}`);
     }
 
     parts.push("");
@@ -209,30 +176,21 @@ export class ThreadResponder {
     outcome: VerifyOutcome | undefined,
     commitRef: string,
   ): string {
-    const isConversation = comment.path === "(conversation)";
     const parts: string[] = [];
-
-    if (isConversation) {
-      const quotedBody = quoteCommentBody(comment.body);
-      parts.push(quotedBody);
-      parts.push("");
-    }
-
-    const prefix = isConversation ? `@${comment.author} ` : "";
 
     if (outcome?.status === "fixed") {
       if (outcome.summary) {
-        parts.push(`${prefix}${outcome.summary} (${commitRef}).`);
+        parts.push(`${outcome.summary} (${commitRef}).`);
       } else {
-        parts.push(`${prefix}Verified and addressed in ${commitRef}.`);
+        parts.push(`Verified and addressed in ${commitRef}.`);
       }
     } else if (outcome?.status === "not_applicable") {
       const reason = outcome.reason ? ` ${outcome.reason}` : "";
-      parts.push(`${prefix}Took a look — this doesn't appear to apply here.${reason}`);
+      parts.push(`Took a look — this doesn't appear to apply here.${reason}`);
     } else {
       // Unknown or missing outcome
       const reason = outcome?.reason ? ` ${outcome.reason}` : "";
-      parts.push(`${prefix}Wasn't able to verify whether this was fully addressed.${reason}`);
+      parts.push(`Wasn't able to verify whether this was fully addressed.${reason}`);
     }
 
     parts.push("");
@@ -241,14 +199,8 @@ export class ThreadResponder {
     return parts.join("\n");
   }
 
-  /** Route reply to the correct API based on comment type. */
+  /** Post reply to the inline review thread. */
   private async reply(comment: CategorizedComment, body: string): Promise<void> {
-    if (comment.path === "(conversation)") {
-      // PR conversation comment — reply as a new top-level comment
-      await this.ghClient.addPRComment(this.prNumber, body);
-    } else {
-      // Inline review thread — reply in the thread
-      await this.ghClient.addThreadReply(comment.threadId, body);
-    }
+    await this.ghClient.addThreadReply(comment.threadId, body);
   }
 }

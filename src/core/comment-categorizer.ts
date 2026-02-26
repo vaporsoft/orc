@@ -69,23 +69,6 @@ export class CommentCategorizer {
 
     for (const { thread, rawThread } of comments) {
       if (abortSignal?.aborted) break;
-      // Conversation comments lack diff context — delegate verification to fix executor
-      if (thread.path === "(conversation)") {
-        results.push({
-          threadId: thread.threadId,
-          path: thread.path,
-          line: thread.line,
-          body: thread.body,
-          author: thread.author,
-          diffHunk: thread.diffHunk,
-          category: "verify_and_fix",
-          confidence: 1.0,
-          reasoning: "Conversation comment — delegating verification to fix executor",
-          suggestedAction: "Verify and fix if applicable",
-          replies: thread.replies,
-        });
-        continue;
-      }
 
       try {
         const { analysis, costUsd, inputTokens, outputTokens } = await this.classifyComment(thread, abortSignal);

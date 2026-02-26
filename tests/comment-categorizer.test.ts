@@ -122,17 +122,6 @@ describe("CommentCategorizer", () => {
     expect(result.comments[0].category).toBe("needs_clarification");
   });
 
-  it("auto-classifies conversation comments as verify_and_fix", async () => {
-    const comment = makeComment({ path: "(conversation)" });
-    const categorizer = new CommentCategorizer("/repo");
-    const result = await categorizer.categorize([comment]);
-
-    expect(result.comments[0].category).toBe("verify_and_fix");
-    expect(result.comments[0].confidence).toBe(1.0);
-    expect(result.comments[0].reasoning).toContain("Conversation comment");
-    expect(result.costUsd).toBe(0);
-  });
-
   it("caps clarification rounds — promotes to should_fix on second round", async () => {
     setStreamResult(JSON.stringify({
       confidence: 0.9,

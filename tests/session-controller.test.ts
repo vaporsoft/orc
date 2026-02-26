@@ -124,7 +124,6 @@ function setupFullCycle(ctrl: SessionController) {
     { id: 1, name: "build", status: "completed", conclusion: "success", html_url: "", app: { slug: "github-actions" } },
   ]);
   vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
-  vi.spyOn(ghClient, "getPRComments").mockResolvedValue([]);
   vi.spyOn(ghClient, "addThreadReply").mockResolvedValue(undefined);
   vi.spyOn(ghClient, "addPRComment").mockResolvedValue(undefined);
   vi.spyOn(ghClient, "resolveThread").mockResolvedValue(undefined);
@@ -914,57 +913,6 @@ describe("SessionController", () => {
       await ctrl.start();
 
       expect(ctrl.getState().unresolvedCount).toBe(0);
-    });
-
-    it("excludes conversation comments from resolved thread IDs", async () => {
-      const ctrl = createController();
-      const { gitManager, ghClient } = setupFullCycle(ctrl);
-
-      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([]);
-      vi.spyOn(ghClient, "getPRComments").mockResolvedValue([
-        {
-          id: "conv1",
-          databaseId: 100,
-          body: "Please update the README",
-          author: { login: "reviewer" },
-          createdAt: "2024-01-01T00:00:00Z",
-        },
-      ]);
-
-      const categorizer = (ctrl as any).categorizer;
-      vi.spyOn(categorizer, "categorize").mockResolvedValue({
-        comments: [{
-          threadId: "conv1",
-          path: "(conversation)",
-          line: null,
-          body: "Please update the README",
-          author: "reviewer",
-          diffHunk: "",
-          category: "should_fix",
-          confidence: 0.9,
-          reasoning: "Valid",
-          suggestedAction: "Update README",
-        }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
-      });
-
-      let headCallCount = 0;
-      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
-        headCallCount++;
-        return headCallCount <= 1 ? "abc123" : "def456";
-      });
-
-      const resolvedEvents: Array<[string, string[]]> = [];
-      ctrl.on("commentsResolved", (branch: string, threadIds: string[]) => {
-        resolvedEvents.push([branch, threadIds]);
-      });
-
-      await ctrl.start();
-
-      // Conversation comments should not appear in resolved thread IDs
-      expect(resolvedEvents).toHaveLength(0);
     });
 
     it("does not emit commentsResolved when fix fails", async () => {

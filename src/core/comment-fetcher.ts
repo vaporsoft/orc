@@ -1,7 +1,7 @@
 /**
- * Fetches review comments from GitHub — both inline review threads
- * and top-level PR conversation comments.
- * Filters out resolved, outdated, and already-replied-to comments.
+ * Fetches inline review threads from GitHub.
+ * Filters out resolved, outdated, and already-replied-to threads.
+ * Only processes the first comment in each thread (ignores follow-ups).
  *
  * Since Orc runs under the user's own GitHub account, we can't
  * detect bot replies by author login. Instead we detect them by the
@@ -12,7 +12,6 @@ import { GHClient } from "../github/gh-client.js";
 import type { GHReviewThread } from "../github/types.js";
 import type { ReviewThread, ThreadReply } from "../types/index.js";
 import { logger } from "../utils/logger.js";
-import { containsQuotedComment } from "../utils/quoting.js";
 
 /** Signature Orc leaves in every reply — e.g. "*Orc — bug_fix (confidence: 0.95)*" */
 const BOT_SIGNATURE_RE = /^\*Orc — .+ \(confidence: [\d.]+\)\*$/m;
@@ -22,13 +21,6 @@ function isOrcReply(body: string): boolean {
 }
 
 
-/** Comments that are just bot mentions/commands (e.g. "@cursor review"). Not review feedback. */
-function isBotCommand(body: string): boolean {
-  const trimmed = body.trim();
-  // Matches "@something" optionally followed by a single word — e.g. "@cursor review", "@copilot fix"
-  return /^@\w+(\s+\w+)?$/.test(trimmed);
-}
-
 /** GitHub bot account — author login ends with [bot] (e.g. "claude[bot]", "copilot[bot]"). */
 function isBotAuthor(login: string): boolean {
   return login.endsWith("[bot]");
@@ -36,8 +28,7 @@ function isBotAuthor(login: string): boolean {
 
 export interface FetchedComment {
   thread: ReviewThread;
-  /** Present for inline review threads, null for PR conversation comments. */
-  rawThread: GHReviewThread | null;
+  rawThread: GHReviewThread;
 }
 
 export interface ThreadCounts {
@@ -67,10 +58,7 @@ export class CommentFetcher {
     /** Resolved thread IDs where a non-orc comment was posted after orc's last reply (follow-up detection). */
     followUpResolvedThreadIds: string[];
   }> {
-    const [allThreads, prComments] = await Promise.all([
-      this.ghClient.getReviewThreads(this.prNumber),
-      this.fetchPRConversationComments(),
-    ]);
+    const allThreads = await this.ghClient.getReviewThreads(this.prNumber);
 
     // Count resolved/total from the full unfiltered list
     let resolved = 0;
@@ -108,11 +96,10 @@ export class CommentFetcher {
     }
     const threadCounts: ThreadCounts = { resolved, total: allThreads.length };
 
-    // Filter to actionable threads (same logic as fetchReviewThreads)
-    const threadComments = this.filterActionableThreads(allThreads);
-    const comments = [...threadComments, ...prComments];
+    // Filter to actionable threads
+    const comments = this.filterActionableThreads(allThreads);
     logger.info(
-      `Fetched ${comments.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
+      `Fetched ${comments.length} inline review threads`,
       this.branch,
     );
     return { comments, threadCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds, followUpResolvedThreadIds };
@@ -154,22 +141,8 @@ export class CommentFetcher {
         continue;
       }
 
-      // Exclude orc's own replies and bot reactions (bot comments posted
-      // after orc's first reply are reactions, not review feedback).
-      const firstOrcReplyAt = thread.comments.nodes
-        .filter((c) => isOrcReply(c.body))
-        .reduce<string | null>(
-          (earliest, c) => (!earliest || c.createdAt < earliest ? c.createdAt : earliest),
-          null,
-        );
-      const body = thread.comments.nodes
-        .filter((c) => {
-          if (isOrcReply(c.body)) return false;
-          if (firstOrcReplyAt && isBotAuthor(c.author?.login ?? "") && c.createdAt > firstOrcReplyAt) return false;
-          return true;
-        })
-        .map((c) => c.body)
-        .join("\n\n---\n\n");
+      // Only use the first comment in the thread (ignore follow-up replies)
+      const body = firstComment.body;
       const replies: ThreadReply[] = thread.comments.nodes.map((c) => ({
         id: c.id,
         author: c.author.login,
@@ -197,67 +170,4 @@ export class CommentFetcher {
     return results;
   }
 
-  private async fetchPRConversationComments(): Promise<FetchedComment[]> {
-    const comments = await this.ghClient.getPRComments(this.prNumber);
-    const results: FetchedComment[] = [];
-
-    for (const comment of comments) {
-      // Skip Orc's own replies
-      if (isOrcReply(comment.body)) continue;
-
-      // Skip bot comments that arrived after Orc was already active on this PR.
-      // These are reactions to Orc's replies (e.g. claude[bot] "finished task"
-      // messages), not fresh review feedback. Without this, Orc replies to the
-      // bot reaction, which triggers another bot reaction — infinite loop.
-      // Bot comments posted BEFORE any Orc reply are treated as original review
-      // feedback (e.g. bugbot findings) and processed normally.
-      if (isBotAuthor(comment.author.login)) {
-        const orcWasActive = comments.some(
-          (c) => isOrcReply(c.body) && c.createdAt < comment.createdAt,
-        );
-        if (orcWasActive) {
-          logger.debug(`Skipping PR comment ${comment.id} — bot reaction after orc activity (${comment.author.login})`, this.branch);
-          continue;
-        }
-      }
-
-      // Skip bot commands like "@cursor review" — not review feedback
-      if (isBotCommand(comment.body)) {
-        logger.debug(`Skipping PR comment ${comment.id} — bot command`, this.branch);
-        continue;
-      }
-
-      // Check if a later Orc reply addresses this specific comment.
-      // Orc quotes the original comment body in its replies, so match on
-      // that rather than a blanket timestamp comparison (which would
-      // falsely shadow unrelated comments posted before any Orc reply).
-      const alreadyReplied = comments.some(
-        (c) =>
-          isOrcReply(c.body) &&
-          c.createdAt > comment.createdAt &&
-          containsQuotedComment(c.body, comment.body),
-      );
-      if (alreadyReplied) {
-        logger.debug(`Skipping PR comment ${comment.id} — already replied`, this.branch);
-        continue;
-      }
-
-      results.push({
-        thread: {
-          id: comment.id,
-          threadId: comment.id,
-          path: "(conversation)",
-          line: null,
-          body: comment.body,
-          author: comment.author.login,
-          isResolved: false,
-          diffHunk: "",
-          createdAt: comment.createdAt,
-        },
-        rawThread: null,
-      });
-    }
-
-    return results;
-  }
 }

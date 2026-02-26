@@ -89,20 +89,6 @@ describe("ThreadResponder", () => {
       expect(body).toContain("Addressed in latest commit.");
     });
 
-    it("uses addPRComment for conversation comments and does not resolve", async () => {
-      const comment = makeComment({ path: "(conversation)", body: "Please fix tests" });
-      await responder.replyToAddressed([comment], "abc123def");
-
-      expect(client.addPRComment).toHaveBeenCalledTimes(1);
-      expect(client.addThreadReply).not.toHaveBeenCalled();
-      expect(client.resolveThread).not.toHaveBeenCalled();
-
-      const body = client.addPRComment.mock.calls[0][1] as string;
-      // Conversation replies quote the original and tag the author
-      expect(body).toContain("> Please fix tests");
-      expect(body).toContain("@reviewer");
-    });
-
     it("continues on reply failure", async () => {
       client.addThreadReply.mockRejectedValueOnce(new Error("API error"));
       const comments = [makeComment(), makeComment({ threadId: "t2" })];
@@ -149,19 +135,6 @@ describe("ThreadResponder", () => {
       expect(client.resolveThread).not.toHaveBeenCalled();
     });
 
-    it("quotes and tags author for conversation comments", async () => {
-      const comment = makeComment({
-        path: "(conversation)",
-        body: "Some feedback",
-        category: "false_positive",
-        reasoning: "Not applicable",
-      });
-      await responder.replyToSkipped([comment]);
-
-      const body = client.addPRComment.mock.calls[0][1] as string;
-      expect(body).toContain("> Some feedback");
-      expect(body).toContain("@reviewer");
-    });
   });
 
   describe("replyToVerified", () => {
@@ -205,13 +178,6 @@ describe("ThreadResponder", () => {
       expect(body).toContain("Wasn't able to verify");
     });
 
-    it("does not resolve thread for conversation comments even when fixed", async () => {
-      const comment = makeComment({ category: "verify_and_fix", path: "(conversation)" });
-      const results = new Map([["t1", { status: "fixed" as const }]]);
-      await responder.replyToVerified([comment], results, "abc123def");
-
-      expect(client.resolveThread).not.toHaveBeenCalled();
-    });
   });
 
   describe("replyToClarifications", () => {
@@ -235,35 +201,13 @@ describe("ThreadResponder", () => {
       expect(body).toContain("Could you clarify what change you'd like here?");
     });
 
-    it("quotes and tags author for conversation clarifications", async () => {
-      const comment = makeComment({
-        path: "(conversation)",
-        category: "needs_clarification",
-        body: "Vague feedback here",
-        clarificationQuestion: "What specifically should change?",
-      });
-      await responder.replyToClarifications([comment]);
-
-      const body = client.addPRComment.mock.calls[0][1] as string;
-      expect(body).toContain("> Vague feedback here");
-      expect(body).toContain("@reviewer What specifically should change?");
-    });
   });
 
   describe("reply routing", () => {
-    it("routes inline comments via addThreadReply", async () => {
+    it("routes all comments via addThreadReply", async () => {
       await responder.replyToAddressed([makeComment()], "abc123def");
       expect(client.addThreadReply).toHaveBeenCalledTimes(1);
       expect(client.addPRComment).not.toHaveBeenCalled();
-    });
-
-    it("routes conversation comments via addPRComment", async () => {
-      await responder.replyToAddressed(
-        [makeComment({ path: "(conversation)" })],
-        "abc123def",
-      );
-      expect(client.addPRComment).toHaveBeenCalledTimes(1);
-      expect(client.addThreadReply).not.toHaveBeenCalled();
     });
   });
 });

@@ -708,18 +708,14 @@ export class SessionController extends EventEmitter {
     const resolvedThreadIds: string[] = [];
     if (fixSucceeded) {
       for (const c of regularComments) {
-        if (c.path !== "(conversation)") {
-          resolvedThreadIds.push(c.threadId);
-        }
+        resolvedThreadIds.push(c.threadId);
       }
     }
     if (fixSucceeded || (!fixResult.isError && !madeCommits && verifyComments.length > 0)) {
       for (const c of verifyComments) {
-        if (c.path !== "(conversation)") {
-          const outcome = fixResult.verifyResults.get(c.threadId);
-          if (outcome?.status === "fixed") {
-            resolvedThreadIds.push(c.threadId);
-          }
+        const outcome = fixResult.verifyResults.get(c.threadId);
+        if (outcome?.status === "fixed") {
+          resolvedThreadIds.push(c.threadId);
         }
       }
     }
