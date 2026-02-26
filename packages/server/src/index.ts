@@ -2,10 +2,14 @@ import { join } from "path";
 import { BranchStore, type ThreadSummary } from "./state/store";
 import { ThreadStore } from "./state/thread-store";
 import { GitHubClient, resolveToken } from "./github/client";
+import { loadEnv } from "./env";
 import { listLocalBranches } from "./git/branches";
 import { getRepoRoot, getRepoInfo } from "./git/repo";
 import type { ServerMessage, ClientMessage } from "./types";
 import type { ServerWebSocket } from "bun";
+
+// Load .env from repo root (before reading any env vars)
+await loadEnv();
 
 const PORT = parseInt(process.env.ORC_PORT || "3333");
 const REPO_PATH = process.env.ORC_REPO || process.cwd();

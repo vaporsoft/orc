@@ -12,6 +12,7 @@ bun.lock
 .orc/
 .env
 .env.*
+!.env.example
 
 # Logs
 *.log
