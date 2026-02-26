@@ -11,92 +11,55 @@ export function BranchTable({ onRefresh }: BranchTableProps) {
   const selectedBranch = useDashboardStore((s) => s.selectedBranch);
   const selectBranch = useDashboardStore((s) => s.selectBranch);
 
-  const withPR = branches.filter((b) => b.pr);
-  const withoutPR = branches.filter((b) => !b.pr);
+  // Only show branches with open PRs
+  const prBranches = branches.filter((b) => b.pr);
 
   return (
     <div className="h-full overflow-y-auto">
-      {/* Open PRs section */}
-      {withPR.length > 0 && (
-        <section>
-          <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50">
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">
-              Open Branches
-            </span>
-          </div>
-          <table className="w-full">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-zinc-600 border-b border-zinc-800/50">
-                <th className="text-left py-1.5 px-4 font-medium">Branch</th>
-                <th className="text-left py-1.5 px-2 font-medium w-16">PR</th>
-                <th className="text-left py-1.5 px-2 font-medium w-20">Status</th>
-                <th className="text-center py-1.5 px-2 font-medium w-12">CI</th>
-                <th className="text-center py-1.5 px-2 font-medium w-24">Comments</th>
-                <th className="text-center py-1.5 px-2 font-medium w-24">Resolved</th>
-                <th className="text-right py-1.5 px-4 font-medium w-24">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {withPR.map((branch) => (
-                <BranchRow
-                  key={branch.name}
-                  branch={branch}
-                  isSelected={selectedBranch === branch.name}
-                  onSelect={() =>
-                    selectBranch(
-                      selectedBranch === branch.name ? null : branch.name
-                    )
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {/* Local branches without PRs */}
-      {withoutPR.length > 0 && (
-        <section>
-          <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 mt-0">
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">
-              Local Branches
-            </span>
-          </div>
-          <table className="w-full">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-zinc-600 border-b border-zinc-800/50">
-                <th className="text-left py-1.5 px-4 font-medium">Branch</th>
-                <th className="text-left py-1.5 px-2 font-medium w-16">PR</th>
-                <th className="text-left py-1.5 px-2 font-medium w-20">Status</th>
-                <th className="text-center py-1.5 px-2 font-medium w-12">CI</th>
-                <th className="text-center py-1.5 px-2 font-medium w-24">Comments</th>
-                <th className="text-center py-1.5 px-2 font-medium w-24">Resolved</th>
-                <th className="text-right py-1.5 px-4 font-medium w-24">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {withoutPR.map((branch) => (
-                <BranchRow
-                  key={branch.name}
-                  branch={branch}
-                  isSelected={selectedBranch === branch.name}
-                  onSelect={() =>
-                    selectBranch(
-                      selectedBranch === branch.name ? null : branch.name
-                    )
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {branches.length === 0 && (
-        <div className="flex items-center justify-center h-full text-zinc-600">
-          <p>No branches found</p>
+      <section>
+        <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50">
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">
+            Open Branches
+          </span>
+          <span className="text-[10px] text-zinc-600 ml-2">
+            {prBranches.length}
+          </span>
         </div>
-      )}
+
+        {prBranches.length > 0 ? (
+          <table className="w-full">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-zinc-600 border-b border-zinc-800/50">
+                <th className="text-left py-1.5 px-4 font-medium">Branch</th>
+                <th className="text-left py-1.5 px-2 font-medium w-16">PR</th>
+                <th className="text-left py-1.5 px-2 font-medium w-20">Review</th>
+                <th className="text-center py-1.5 px-2 font-medium w-12">CI</th>
+                <th className="text-center py-1.5 px-2 font-medium w-24">Comments</th>
+                <th className="text-center py-1.5 px-2 font-medium w-24">Resolved</th>
+                <th className="text-right py-1.5 px-4 font-medium w-24">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prBranches.map((branch) => (
+                <BranchRow
+                  key={branch.name}
+                  branch={branch}
+                  isSelected={selectedBranch === branch.name}
+                  onSelect={() =>
+                    selectBranch(
+                      selectedBranch === branch.name ? null : branch.name
+                    )
+                  }
+                />
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+            No open PRs found. Make sure <code className="text-zinc-500">gh</code> is authenticated.
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -112,46 +75,38 @@ function BranchRow({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const pr = branch.pr;
+  const pr = branch.pr!; // Only rendered for branches with PRs
   const agent = branch.agent;
 
-  const agentLabel = agent?.status === "running"
-    ? "running"
-    : agent?.status === "error"
-      ? "error"
-      : pr
-        ? "ready"
-        : "—";
+  const reviewLabel = pr.reviewState === "changes_requested"
+    ? "changes"
+    : pr.reviewState;
 
-  const agentColor = agent?.status === "running"
-    ? "text-amber-400"
-    : agent?.status === "error"
-      ? "text-red-400"
-      : pr
-        ? "text-emerald-400"
-        : "text-zinc-600";
-
-  const ciIcon = pr?.checksState === "success"
-    ? "✓"
-    : pr?.checksState === "failure"
-      ? "✗"
-      : pr?.checksState === "pending"
-        ? "○"
-        : "—";
-
-  const ciColor = pr?.checksState === "success"
+  const reviewColor = pr.reviewState === "approved"
     ? "text-emerald-400"
-    : pr?.checksState === "failure"
+    : pr.reviewState === "changes_requested"
       ? "text-red-400"
-      : pr?.checksState === "pending"
+      : pr.reviewState === "pending"
         ? "text-yellow-400"
         : "text-zinc-600";
 
-  const commentCount = pr?.commentCount ?? 0;
-  const threadCount = pr?.threadCount ?? 0;
-  const resolvedCount = pr?.resolvedCount ?? 0;
-  const addressedCount = pr?.addressedCount ?? 0;
-  const totalHandled = resolvedCount + addressedCount;
+  const ciIcon = pr.checksState === "success"
+    ? "✓"
+    : pr.checksState === "failure"
+      ? "✗"
+      : pr.checksState === "pending"
+        ? "○"
+        : "—";
+
+  const ciColor = pr.checksState === "success"
+    ? "text-emerald-400"
+    : pr.checksState === "failure"
+      ? "text-red-400"
+      : pr.checksState === "pending"
+        ? "text-yellow-400"
+        : "text-zinc-600";
+
+  const totalHandled = pr.resolvedCount + pr.addressedCount;
 
   const updatedTime = new Date(branch.updatedAt).toLocaleTimeString([], {
     hour: "2-digit",
@@ -178,28 +133,27 @@ function BranchRow({
             <span className="text-amber-400 animate-pulse text-xs">⚡</span>
           )}
         </div>
+        <div className="text-[11px] text-zinc-600 truncate mt-0.5">
+          {pr.title}
+        </div>
       </td>
 
       {/* PR number */}
-      <td className="py-2 px-2 text-zinc-500">
-        {pr ? (
-          <a
-            href={pr.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-zinc-400 hover:text-zinc-200 transition-colors"
-          >
-            #{pr.number}
-          </a>
-        ) : (
-          "—"
-        )}
+      <td className="py-2 px-2">
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-zinc-400 hover:text-zinc-200 transition-colors"
+        >
+          #{pr.number}
+        </a>
       </td>
 
-      {/* Status */}
+      {/* Review */}
       <td className="py-2 px-2">
-        <span className={cn("text-xs", agentColor)}>{agentLabel}</span>
+        <span className={cn("text-xs", reviewColor)}>{reviewLabel}</span>
       </td>
 
       {/* CI */}
@@ -209,15 +163,8 @@ function BranchRow({
 
       {/* Comments */}
       <td className="py-2 px-2 text-center">
-        {commentCount > 0 ? (
-          <span
-            className={cn(
-              "text-xs",
-              commentCount > 0 ? "text-zinc-300" : "text-zinc-600"
-            )}
-          >
-            {commentCount}
-          </span>
+        {pr.commentCount > 0 ? (
+          <span className="text-xs text-zinc-300">{pr.commentCount}</span>
         ) : (
           <span className="text-zinc-600">—</span>
         )}
@@ -225,18 +172,18 @@ function BranchRow({
 
       {/* Resolved */}
       <td className="py-2 px-2 text-center">
-        {threadCount > 0 ? (
+        {pr.threadCount > 0 ? (
           <span
             className={cn(
               "text-xs",
-              totalHandled === threadCount
+              totalHandled === pr.threadCount
                 ? "text-emerald-400"
                 : totalHandled > 0
                   ? "text-yellow-400"
                   : "text-zinc-400"
             )}
           >
-            {totalHandled}/{threadCount}
+            {totalHandled}/{pr.threadCount}
           </span>
         ) : (
           <span className="text-zinc-600">—</span>

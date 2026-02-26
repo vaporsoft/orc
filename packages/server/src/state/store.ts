@@ -33,6 +33,12 @@ export class BranchStore {
     const updated = new Map<string, Branch>();
     for (const local of localBranches) {
       const pr = prMap.get(local.name);
+
+      // Only include branches with open PRs or HEAD
+      if (!pr && !local.isHead) continue;
+      // Skip the default branch (main/master) unless it has a PR
+      if (!pr && local.name === this.repoInfo.defaultBranch) continue;
+
       const branch: Branch = {
         name: local.name,
         isHead: local.isHead,
