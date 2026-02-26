@@ -54,6 +54,8 @@ async function refresh() {
       github.listOpenPRs(),
     ]);
 
+    console.log(`orc: found ${prs.length} open PR(s), ${branches.length} local branch(es)`);
+
     // Fetch thread summaries for all PRs (best-effort, don't block refresh)
     const threadSummaries = new Map<number, ThreadSummary>();
     try {
@@ -85,6 +87,7 @@ async function refresh() {
     }
 
     store.update(branches, prs, threadSummaries);
+    store.lastError = null;
 
     // Prune dispositions for PRs that are no longer open
     threadStore.pruneClosedPRs(prs.map((pr) => pr.number));
@@ -93,6 +96,7 @@ async function refresh() {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`orc: refresh failed: ${message}`);
+    store.lastError = message;
     broadcast({ type: "error", message });
   }
 }
@@ -142,7 +146,12 @@ async function handleMarkThread(
   }
 }
 
-await refresh();
+// Run first refresh — log errors to console since no WS clients yet
+try {
+  await refresh();
+} catch (err) {
+  console.error("orc: initial refresh failed:", err);
+}
 setInterval(refresh, REFRESH_INTERVAL);
 
 // --- HTTP + WebSocket server ---
@@ -241,6 +250,15 @@ const server = Bun.serve({
           data: store.getState(),
         } satisfies ServerMessage)
       );
+      // Send last error if there is one (e.g. from initial refresh before client connected)
+      if (store.lastError) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: store.lastError,
+          } satisfies ServerMessage)
+        );
+      }
     },
 
     message(ws, msg) {

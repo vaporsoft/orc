@@ -15,6 +15,7 @@ export class BranchStore {
     root: "",
     defaultBranch: "main",
   };
+  lastError: string | null = null;
 
   setRepoInfo(info: RepoInfo) {
     this.repoInfo = info;
@@ -25,29 +26,23 @@ export class BranchStore {
     prs: GHPullRequest[],
     threadSummaries?: Map<number, ThreadSummary>
   ) {
-    const prMap = new Map<string, GHPullRequest>();
-    for (const pr of prs) {
-      prMap.set(pr.headRefName, pr);
+    const localMap = new Map<string, LocalBranch>();
+    for (const local of localBranches) {
+      localMap.set(local.name, local);
     }
 
     const updated = new Map<string, Branch>();
-    for (const local of localBranches) {
-      const pr = prMap.get(local.name);
 
-      // Only include branches with open PRs or HEAD
-      if (!pr && !local.isHead) continue;
-      // Skip the default branch (main/master) unless it has a PR
-      if (!pr && local.name === this.repoInfo.defaultBranch) continue;
+    // Add all open PRs (whether or not the branch exists locally)
+    for (const pr of prs) {
+      const local = localMap.get(pr.headRefName);
+      const summary = threadSummaries?.get(pr.number);
 
       const branch: Branch = {
-        name: local.name,
-        isHead: local.isHead,
+        name: pr.headRefName,
+        isHead: local?.isHead ?? false,
         updatedAt: new Date().toISOString(),
-      };
-
-      if (pr) {
-        const summary = threadSummaries?.get(pr.number);
-        branch.pr = {
+        pr: {
           number: pr.number,
           title: pr.title,
           url: pr.url,
@@ -57,16 +52,16 @@ export class BranchStore {
           threadCount: summary?.threadCount ?? 0,
           resolvedCount: summary?.resolvedCount ?? 0,
           addressedCount: summary?.addressedCount ?? 0,
-        };
-      }
+        },
+      };
 
       // Preserve agent state from previous refresh
-      const prev = this.branches.get(local.name);
+      const prev = this.branches.get(pr.headRefName);
       if (prev?.agent) {
         branch.agent = prev.agent;
       }
 
-      updated.set(local.name, branch);
+      updated.set(pr.headRefName, branch);
     }
 
     this.branches = updated;
