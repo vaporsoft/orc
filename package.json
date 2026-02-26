@@ -2,9 +2,11 @@
   "name": "@vaporsoft/orc",
   "version": "1.0.0-alpha.0",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "yarn dev:server & yarn dev:ui",
+    "dev": "concurrently -k -n server,ui -c blue,magenta \"yarn dev:server\" \"yarn dev:ui\"",
     "dev:server": "yarn workspace @orc/server dev",
     "dev:ui": "yarn workspace @orc/ui dev",
     "build": "yarn build:ui && yarn build:server",
@@ -15,5 +17,8 @@
     "typecheck": "yarn workspace @orc/ui typecheck && yarn workspace @orc/server typecheck"
   },
   "author": "vaporsoft",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

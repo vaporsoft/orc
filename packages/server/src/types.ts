@@ -5,6 +5,12 @@ export interface BranchPR {
   reviewState: "approved" | "changes_requested" | "pending" | "none";
   checksState: "success" | "failure" | "pending" | "none";
   commentCount: number;
+  /** Total review threads on the PR */
+  threadCount: number;
+  /** Threads resolved on GitHub */
+  resolvedCount: number;
+  /** Threads locally addressed (via disposition store) */
+  addressedCount: number;
 }
 
 export interface BranchAgent {

@@ -1,5 +1,11 @@
-import type { Branch, BranchPR, DashboardState, GHPullRequest, RepoInfo } from "../types";
+import type { Branch, BranchPR, DashboardState, GHPullRequest, RepoInfo, ThreadDisposition } from "../types";
 import type { LocalBranch } from "../git/branches";
+
+export interface ThreadSummary {
+  threadCount: number;
+  resolvedCount: number;
+  addressedCount: number;
+}
 
 export class BranchStore {
   private branches: Map<string, Branch> = new Map();
@@ -14,7 +20,11 @@ export class BranchStore {
     this.repoInfo = info;
   }
 
-  update(localBranches: LocalBranch[], prs: GHPullRequest[]) {
+  update(
+    localBranches: LocalBranch[],
+    prs: GHPullRequest[],
+    threadSummaries?: Map<number, ThreadSummary>
+  ) {
     const prMap = new Map<string, GHPullRequest>();
     for (const pr of prs) {
       prMap.set(pr.headRefName, pr);
@@ -30,6 +40,7 @@ export class BranchStore {
       };
 
       if (pr) {
+        const summary = threadSummaries?.get(pr.number);
         branch.pr = {
           number: pr.number,
           title: pr.title,
@@ -37,6 +48,9 @@ export class BranchStore {
           reviewState: mapReviewDecision(pr.reviewDecision),
           checksState: mapChecksState(pr.statusCheckRollup),
           commentCount: pr.comments?.totalCount ?? 0,
+          threadCount: summary?.threadCount ?? 0,
+          resolvedCount: summary?.resolvedCount ?? 0,
+          addressedCount: summary?.addressedCount ?? 0,
         };
       }
 

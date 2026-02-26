@@ -1,5 +1,5 @@
 import { join } from "path";
-import { BranchStore } from "./state/store";
+import { BranchStore, type ThreadSummary } from "./state/store";
 import { ThreadStore } from "./state/thread-store";
 import { GitHubClient } from "./github/client";
 import { listLocalBranches } from "./git/branches";
@@ -47,7 +47,38 @@ async function refresh() {
       listLocalBranches(repoRoot),
       github.listOpenPRs(),
     ]);
-    store.update(branches, prs);
+
+    // Fetch thread summaries for all PRs (best-effort, don't block refresh)
+    const threadSummaries = new Map<number, ThreadSummary>();
+    try {
+      const summaryResults = await Promise.allSettled(
+        prs.map(async (pr) => {
+          const threads = await github.listReviewThreads(pr.number);
+          const dispositions = threadStore.getDispositions(pr.number);
+          const resolvedCount = threads.filter((t) => t.isResolved).length;
+          const addressedCount = threads.filter(
+            (t) => !t.isResolved && dispositions[t.id]
+          ).length;
+          return {
+            prNumber: pr.number,
+            summary: {
+              threadCount: threads.length,
+              resolvedCount,
+              addressedCount,
+            },
+          };
+        })
+      );
+      for (const result of summaryResults) {
+        if (result.status === "fulfilled") {
+          threadSummaries.set(result.value.prNumber, result.value.summary);
+        }
+      }
+    } catch {
+      // Thread fetching is best-effort — table still works without it
+    }
+
+    store.update(branches, prs, threadSummaries);
 
     // Prune dispositions for PRs that are no longer open
     threadStore.pruneClosedPRs(prs.map((pr) => pr.number));

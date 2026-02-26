@@ -5,6 +5,9 @@ export interface BranchPR {
   reviewState: "approved" | "changes_requested" | "pending" | "none";
   checksState: "success" | "failure" | "pending" | "none";
   commentCount: number;
+  threadCount: number;
+  resolvedCount: number;
+  addressedCount: number;
 }
 
 export interface BranchAgent {
