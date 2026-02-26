@@ -1,4 +1,8 @@
-import { join } from "path";
+import { createServer } from "http";
+import { join, dirname } from "path";
+import { existsSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { WebSocketServer, WebSocket } from "ws";
 import { BranchStore, type ThreadSummary } from "./state/store";
 import { ThreadStore } from "./state/thread-store";
 import { GitHubClient, resolveToken } from "./github/client";
@@ -6,7 +10,6 @@ import { loadEnv } from "./env";
 import { listLocalBranches } from "./git/branches";
 import { getRepoRoot, getRepoInfo } from "./git/repo";
 import type { ServerMessage, ClientMessage } from "./types";
-import type { ServerWebSocket } from "bun";
 
 // Load .env from repo root (before reading any env vars)
 await loadEnv();
@@ -32,17 +35,21 @@ const threadStore = new ThreadStore();
 
 // --- WebSocket clients ---
 
-const clients = new Set<ServerWebSocket<unknown>>();
+const clients = new Set<WebSocket>();
 
 function broadcast(msg: ServerMessage) {
   const payload = JSON.stringify(msg);
   for (const client of clients) {
-    client.send(payload);
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
   }
 }
 
-function sendTo(ws: ServerWebSocket<unknown>, msg: ServerMessage) {
-  ws.send(JSON.stringify(msg));
+function sendTo(ws: WebSocket, msg: ServerMessage) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
 }
 
 // --- Refresh loop ---
@@ -91,7 +98,6 @@ async function refresh() {
     store.setRecentlyMerged(recentlyMerged);
     store.lastError = null;
 
-    // Prune dispositions for PRs that are no longer open
     threadStore.pruneClosedPRs(prs.map((pr) => pr.number));
 
     broadcast({ type: "state", data: store.getState() });
@@ -105,10 +111,7 @@ async function refresh() {
 
 // --- Thread operations ---
 
-async function fetchAndSendThreads(
-  ws: ServerWebSocket<unknown>,
-  prNumber: number
-) {
+async function fetchAndSendThreads(ws: WebSocket, prNumber: number) {
   try {
     const threads = await github.listReviewThreads(prNumber);
     const dispositions = threadStore.getDispositions(prNumber);
@@ -124,13 +127,12 @@ async function fetchAndSendThreads(
 }
 
 async function handleMarkThread(
-  ws: ServerWebSocket<unknown>,
+  ws: WebSocket,
   prNumber: number,
   threadId: string,
   disposition: ClientMessage & { type: "mark_thread" }
 ) {
   threadStore.markThread(prNumber, threadId, disposition.disposition);
-  // Re-fetch threads and broadcast full state to all clients
   try {
     const threads = await github.listReviewThreads(prNumber);
     const dispositions = threadStore.getDispositions(prNumber);
@@ -139,7 +141,6 @@ async function handleMarkThread(
       data: { prNumber, threads, dispositions },
     });
   } catch {
-    // If re-fetch fails, at least send dispositions-only to the requester
     const dispositions = threadStore.getDispositions(prNumber);
     sendTo(ws, {
       type: "threads",
@@ -148,7 +149,7 @@ async function handleMarkThread(
   }
 }
 
-// Run first refresh — log errors to console since no WS clients yet
+// Run first refresh
 try {
   await refresh();
 } catch (err) {
@@ -158,134 +159,147 @@ setInterval(refresh, REFRESH_INTERVAL);
 
 // --- HTTP + WebSocket server ---
 
-const UI_DIST = join(import.meta.dir, "../../ui/dist");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const UI_DIST = join(__dirname, "../../ui/dist");
 
-const server = Bun.serve({
-  port: PORT,
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
 
-  async fetch(req, server) {
-    const url = new URL(req.url);
+function getMime(path: string): string {
+  const ext = path.slice(path.lastIndexOf("."));
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
 
-    // WebSocket upgrade
-    if (url.pathname === "/ws") {
-      if (server.upgrade(req)) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
+const httpServer = createServer(async (req, res) => {
+  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+
+  const json = (data: unknown, status = 200) => {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(data));
+  };
+
+  const readBody = (): Promise<string> =>
+    new Promise((resolve) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk));
+      req.on("end", () => resolve(body));
+    });
+
+  // REST API
+  if (url.pathname === "/api/state") {
+    return json(store.getState());
+  }
+
+  if (url.pathname === "/api/refresh" && req.method === "POST") {
+    await refresh();
+    return json({ ok: true });
+  }
+
+  const threadsMatch = url.pathname.match(/^\/api\/pr\/(\d+)\/threads$/);
+  if (threadsMatch) {
+    const prNumber = parseInt(threadsMatch[1]);
+    try {
+      const threads = await github.listReviewThreads(prNumber);
+      const dispositions = threadStore.getDispositions(prNumber);
+      return json({ prNumber, threads, dispositions });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return json({ error: message }, 500);
     }
+  }
 
-    // REST API
-    if (url.pathname === "/api/state") {
-      return Response.json(store.getState());
-    }
-
-    if (url.pathname === "/api/refresh" && req.method === "POST") {
-      await refresh();
-      return Response.json({ ok: true });
-    }
-
-    // REST: get threads for a PR
-    const threadsMatch = url.pathname.match(/^\/api\/pr\/(\d+)\/threads$/);
-    if (threadsMatch) {
-      const prNumber = parseInt(threadsMatch[1]);
-      try {
-        const threads = await github.listReviewThreads(prNumber);
-        const dispositions = threadStore.getDispositions(prNumber);
-        return Response.json({ prNumber, threads, dispositions });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: message }, { status: 500 });
-      }
-    }
-
-    // REST: mark a thread
-    const markMatch = url.pathname.match(
-      /^\/api\/pr\/(\d+)\/threads\/([^/]+)\/disposition$/
-    );
-    if (markMatch && req.method === "PUT") {
-      const prNumber = parseInt(markMatch[1]);
-      const threadId = decodeURIComponent(markMatch[2]);
-      try {
-        const body = (await req.json()) as { disposition: string };
-        const record = threadStore.markThread(
-          prNumber,
-          threadId,
-          body.disposition as import("./types").DispositionKind
-        );
-        return Response.json(record);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: message }, { status: 500 });
-      }
-    }
-
-    // REST: unmark a thread
-    if (markMatch && req.method === "DELETE") {
-      const prNumber = parseInt(markMatch[1]);
-      const threadId = decodeURIComponent(markMatch[2]);
-      threadStore.unmarkThread(prNumber, threadId);
-      return Response.json({ ok: true });
-    }
-
-    // Serve static UI files
-    const filePath =
-      url.pathname === "/" ? "/index.html" : url.pathname;
-    const file = Bun.file(join(UI_DIST, filePath));
-    if (await file.exists()) {
-      return new Response(file);
-    }
-
-    // SPA fallback — serve index.html for client-side routing
-    const index = Bun.file(join(UI_DIST, "index.html"));
-    if (await index.exists()) {
-      return new Response(index);
-    }
-
-    return new Response("Not Found", { status: 404 });
-  },
-
-  websocket: {
-    open(ws) {
-      clients.add(ws);
-      // Send current state on connect
-      ws.send(
-        JSON.stringify({
-          type: "state",
-          data: store.getState(),
-        } satisfies ServerMessage)
+  const markMatch = url.pathname.match(
+    /^\/api\/pr\/(\d+)\/threads\/([^/]+)\/disposition$/
+  );
+  if (markMatch && req.method === "PUT") {
+    const prNumber = parseInt(markMatch[1]);
+    const threadId = decodeURIComponent(markMatch[2]);
+    try {
+      const body = JSON.parse(await readBody()) as { disposition: string };
+      const record = threadStore.markThread(
+        prNumber,
+        threadId,
+        body.disposition as import("./types").DispositionKind
       );
-      // Send last error if there is one (e.g. from initial refresh before client connected)
-      if (store.lastError) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: store.lastError,
-          } satisfies ServerMessage)
-        );
-      }
-    },
+      return json(record);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return json({ error: message }, 500);
+    }
+  }
 
-    message(ws, msg) {
-      try {
-        const data = JSON.parse(String(msg)) as ClientMessage;
-        switch (data.type) {
-          case "refresh":
-            refresh();
-            break;
-          case "fetch_threads":
-            fetchAndSendThreads(ws, data.prNumber);
-            break;
-          case "mark_thread":
-            handleMarkThread(ws, data.prNumber, data.threadId, data);
-            break;
-        }
-      } catch {
-        // Ignore malformed messages
-      }
-    },
+  if (markMatch && req.method === "DELETE") {
+    const prNumber = parseInt(markMatch[1]);
+    const threadId = decodeURIComponent(markMatch[2]);
+    threadStore.unmarkThread(prNumber, threadId);
+    return json({ ok: true });
+  }
 
-    close(ws) {
-      clients.delete(ws);
-    },
-  },
+  // Serve static UI files
+  const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+  const fullPath = join(UI_DIST, filePath);
+
+  if (existsSync(fullPath) && !fullPath.includes("..")) {
+    const content = readFileSync(fullPath);
+    res.writeHead(200, { "Content-Type": getMime(filePath) });
+    return res.end(content);
+  }
+
+  // SPA fallback
+  const indexPath = join(UI_DIST, "index.html");
+  if (existsSync(indexPath)) {
+    const content = readFileSync(indexPath);
+    res.writeHead(200, { "Content-Type": "text/html" });
+    return res.end(content);
+  }
+
+  res.writeHead(404);
+  res.end("Not Found");
 });
 
-console.log(`orc: dashboard at http://localhost:${server.port}`);
+// WebSocket server
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+wss.on("connection", (ws) => {
+  clients.add(ws);
+
+  sendTo(ws, { type: "state", data: store.getState() });
+
+  if (store.lastError) {
+    sendTo(ws, { type: "error", message: store.lastError });
+  }
+
+  ws.on("message", (raw) => {
+    try {
+      const data = JSON.parse(String(raw)) as ClientMessage;
+      switch (data.type) {
+        case "refresh":
+          refresh();
+          break;
+        case "fetch_threads":
+          fetchAndSendThreads(ws, data.prNumber);
+          break;
+        case "mark_thread":
+          handleMarkThread(ws, data.prNumber, data.threadId, data);
+          break;
+      }
+    } catch {
+      // Ignore malformed messages
+    }
+  });
+
+  ws.on("close", () => {
+    clients.delete(ws);
+  });
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`orc: dashboard at http://localhost:${PORT}`);
+});

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["@types/bun"],
+    "types": ["node"],
     "noEmit": true
   },
   "include": ["src/**/*"]

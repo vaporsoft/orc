@@ -1,6 +1,6 @@
 import type { GHPullRequest, GHReviewThread, MergedPR, ReviewThread } from "../types";
+import { exec } from "../utils/exec";
 
-const GITHUB_API = "https://api.github.com";
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
 
 /**
@@ -12,20 +12,13 @@ const GITHUB_GRAPHQL = "https://api.github.com/graphql";
  * Throws if no token can be found.
  */
 export async function resolveToken(): Promise<string> {
-  // Env vars first — fast, no subprocess
   const envToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (envToken) return envToken;
 
-  // Fall back to gh CLI auth
   try {
-    const proc = Bun.spawn(["gh", "auth", "token"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const output = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    if (exitCode === 0 && output.trim()) {
-      return output.trim();
+    const { stdout, exitCode } = await exec("gh", ["auth", "token"]);
+    if (exitCode === 0 && stdout.trim()) {
+      return stdout.trim();
     }
   } catch {
     // gh not installed or not in PATH

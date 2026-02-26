@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, rmSync, mkdirSync } from "fs";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { existsSync, rmSync } from "fs";
 import { join } from "path";
 
 // Point ThreadStore at a temp directory so tests don't touch ~/.orc
-const TEST_DIR = join(import.meta.dir, "../.test-data");
+const TEST_DIR = join(import.meta.dirname, "../.test-data");
 process.env.HOME = TEST_DIR;
 
 // Import after setting HOME so the store picks up the test path
@@ -90,7 +90,6 @@ describe("ThreadStore", () => {
     const store = new ThreadStore();
     store.markThread(1, "thread-1", "fixed");
 
-    // Comment timestamp before the disposition
     const oldTimestamp = new Date(Date.now() - 60_000).toISOString();
     const result = store.shouldSkip(1, "thread-1", oldTimestamp);
     expect(result.skip).toBe(true);
@@ -101,7 +100,6 @@ describe("ThreadStore", () => {
     const store = new ThreadStore();
     store.markThread(1, "thread-1", "fixed");
 
-    // Wait a tick so the follow-up timestamp is after lastAttemptAt
     const futureTimestamp = new Date(Date.now() + 60_000).toISOString();
     const result = store.shouldSkip(1, "thread-1", futureTimestamp);
     expect(result.skip).toBe(false);
@@ -125,7 +123,6 @@ describe("ThreadStore", () => {
     store1.markThread(1, "thread-1", "fixed");
     store1.markThread(1, "thread-2", "addressed");
 
-    // Create a new store instance — should load from disk
     const store2 = new ThreadStore();
     const disps = store2.getDispositions(1);
     expect(Object.keys(disps)).toHaveLength(2);

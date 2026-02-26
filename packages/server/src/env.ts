@@ -1,4 +1,5 @@
 import { resolve } from "path";
+import { existsSync, readFileSync } from "fs";
 
 /**
  * Load a .env file into process.env.
@@ -10,8 +11,7 @@ export async function loadEnv(): Promise<void> {
   if (!envPath) return;
 
   try {
-    const file = Bun.file(envPath);
-    const text = await file.text();
+    const text = readFileSync(envPath, "utf-8");
     const vars = parse(text);
     let loaded = 0;
 
@@ -37,16 +37,8 @@ function findEnvFile(from: string): string | null {
 
   while (dir !== root) {
     const candidate = resolve(dir, ".env");
-    // Use sync check — this runs once at startup
-    try {
-      const stat = Bun.file(candidate);
-      // Bun.file doesn't throw on missing files, but .size will be 0
-      // Use a sync existence check via the fs module instead
-      if (require("fs").existsSync(candidate)) {
-        return candidate;
-      }
-    } catch {
-      // continue
+    if (existsSync(candidate)) {
+      return candidate;
     }
     dir = resolve(dir, "..");
   }
@@ -60,7 +52,6 @@ function parse(content: string): Record<string, string> {
 
   for (const raw of content.split("\n")) {
     const line = raw.trim();
-    // Skip empty lines and comments
     if (!line || line.startsWith("#")) continue;
 
     const eqIdx = line.indexOf("=");
