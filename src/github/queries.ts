@@ -80,6 +80,7 @@ query PullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
       url
       title
       state
+      isDraft
       headRefName
       baseRefName
       headRefOid
@@ -98,6 +99,7 @@ query MyOpenPRs($searchQuery: String!) {
         url
         title
         state
+        isDraft
         headRefName
         baseRefName
         headRefOid
@@ -170,6 +172,7 @@ query BrowseOpenPRs($owner: String!, $repo: String!, $cursor: String) {
         url
         title
         state
+        isDraft
         headRefName
         baseRefName
         headRefOid
@@ -218,6 +221,7 @@ query SearchOpenPRs($searchQuery: String!, $cursor: String) {
         url
         title
         state
+        isDraft
         headRefName
         baseRefName
         headRefOid
@@ -263,6 +267,7 @@ query PRForBranch($owner: String!, $repo: String!, $branch: String!) {
         url
         title
         state
+        isDraft
         headRefName
         baseRefName
         headRefOid

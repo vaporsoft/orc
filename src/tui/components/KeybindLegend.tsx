@@ -4,6 +4,7 @@ import { useTheme } from "../theme.js";
 
 interface KeybindLegendProps {
   showingLogs: boolean;
+  defaultBranch: string;
   onClose: () => void;
 }
 
@@ -12,7 +13,7 @@ interface KeybindGroup {
   binds: { key: string; label: string }[];
 }
 
-function getGroups(showingLogs: boolean): KeybindGroup[] {
+function getGroups(showingLogs: boolean, defaultBranch: string): KeybindGroup[] {
   return [
     {
       title: "navigation",
@@ -33,6 +34,7 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
         { key: "+", label: "add branch" },
         { key: "c", label: "copy branch name" },
         { key: "C", label: "checkout branch" },
+        { key: "M", label: `checkout ${defaultBranch}` },
         { key: "u", label: "copy PR URL" },
         { key: "o", label: "view PR / CI check in browser" },
         { key: "x", label: "stop" },
@@ -51,9 +53,9 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
   ];
 }
 
-export function KeybindLegend({ showingLogs, onClose }: KeybindLegendProps) {
+export function KeybindLegend({ showingLogs, defaultBranch, onClose }: KeybindLegendProps) {
   const theme = useTheme();
-  const groups = getGroups(showingLogs);
+  const groups = getGroups(showingLogs, defaultBranch);
 
   useInput((input, key) => {
     if (key.escape || input === "h" || input === "q") {

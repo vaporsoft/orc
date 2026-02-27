@@ -30,6 +30,7 @@ import type {
 export interface RepoInfo {
   owner: string;
   repo: string;
+  defaultBranch: string;
 }
 
 const RATE_LIMIT_PATTERN = /rate limit|abuse detection/i;
@@ -64,10 +65,14 @@ export class GHClient {
     if (this.repoInfo) return this.repoInfo;
 
     const { stdout } = await this.execGH(
-      ["repo", "view", "--json", "owner,name"],
+      ["repo", "view", "--json", "owner,name,defaultBranchRef"],
     );
     const parsed = JSON.parse(stdout);
-    this.repoInfo = { owner: parsed.owner.login, repo: parsed.name };
+    this.repoInfo = {
+      owner: parsed.owner.login,
+      repo: parsed.name,
+      defaultBranch: parsed.defaultBranchRef?.name ?? "main",
+    };
     return this.repoInfo;
   }
 

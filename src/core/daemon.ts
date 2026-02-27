@@ -53,6 +53,7 @@ export class Daemon extends EventEmitter {
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
+  private defaultBranch: string = "main";
   private cachedNotificationSettings: boolean | null = null;
   private isInitialDiscovery = true;
   private nextCheckAt: number | null = null;
@@ -154,6 +155,10 @@ export class Daemon extends EventEmitter {
     return this.cwd;
   }
 
+  getDefaultBranch(): string {
+    return this.defaultBranch;
+  }
+
   getReviewStates(): Map<string, { state: "approved" | "changes_requested" | "pending" | "unknown"; reviewers: string[] }> {
     return new Map(this.reviewStates);
   }
@@ -228,7 +233,8 @@ export class Daemon extends EventEmitter {
 
     const user = await this.ghClient.getCurrentUser();
     this.botLogin = user;
-    const { owner, repo } = await this.ghClient.getRepoInfo();
+    const { owner, repo, defaultBranch } = await this.ghClient.getRepoInfo();
+    this.defaultBranch = defaultBranch;
     logger.info(
       `Watching ${owner}/${repo} for open PRs by ${user}`,
     );
