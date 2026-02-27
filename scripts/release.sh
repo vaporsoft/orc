@@ -70,7 +70,7 @@ if ! npm publish; then
   echo "Error: npm publish failed. Rolling back version bump..."
   git tag -d "$NEW_VERSION" 2>/dev/null || true
   git reset --hard HEAD~1
-  git push --force-with-lease
+  git push --force-with-lease || true
   git push origin --delete "$NEW_VERSION" 2>/dev/null || true
   echo "Rolled back to $(git describe --tags --abbrev=0 2>/dev/null || echo 'previous state')."
   exit 1
