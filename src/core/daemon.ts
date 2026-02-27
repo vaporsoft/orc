@@ -53,7 +53,7 @@ export class Daemon extends EventEmitter {
   private running = false;
   private abortController = new AbortController();
   private botLogin: string | null = null;
-  private defaultBranch: string = "main";
+  private defaultBranch = "main";
   private cachedNotificationSettings: boolean | null = null;
   private isInitialDiscovery = true;
   private nextCheckAt: number | null = null;

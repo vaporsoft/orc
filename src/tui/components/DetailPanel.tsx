@@ -57,8 +57,8 @@ const MAX_CONFLICTS = 10;
 const MAX_CI_CHECKS = 10;
 const MAX_COMMENTS = 8;
 const FULLSCREEN_MAX_CYCLES = 50;
-const FULLSCREEN_MAX_CONFLICTS = 50;
-const FULLSCREEN_MAX_CI_CHECKS = 50;
+export const FULLSCREEN_MAX_CONFLICTS = 50;
+export const FULLSCREEN_MAX_CI_CHECKS = 50;
 const MAX_CONFLICT_CONTENT_LINES = 50;
 
 function SectionHeader({ label, color, focused }: {
