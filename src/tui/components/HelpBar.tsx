@@ -31,7 +31,7 @@ export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }:
   } else if (fullscreenSection === "ci") {
     hints = [
       { k: "↑↓", label: "select check" },
-      { k: "o", label: "open" },
+      { k: "O", label: "open" },
       { k: "q", label: "close" },
     ];
   } else if (fullscreenSection === "conflicts") {
@@ -71,7 +71,7 @@ export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }:
       { k: "↑↓", label: "branches" },
       { k: "tab", label: "details" },
       { k: "c", label: "copy branch" },
-      { k: "o", label: "view PR" },
+      { k: "O", label: "view PR" },
       { k: "h", label: "help" },
     ];
   }

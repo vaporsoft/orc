@@ -36,7 +36,7 @@ function getGroups(showingLogs: boolean, defaultBranch: string): KeybindGroup[] 
         { key: "C", label: "checkout branch" },
         { key: "M", label: `checkout ${defaultBranch}` },
         { key: "u", label: "copy PR URL" },
-        { key: "o", label: "view PR / CI check in browser" },
+        { key: "O", label: "view PR / CI check in browser" },
         { key: "x", label: "stop" },
         { key: "d", label: "clear merged" },
       ],
