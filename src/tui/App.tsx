@@ -21,7 +21,9 @@ import { HelpBar } from "./components/HelpBar.js";
 import { KeybindLegend } from "./components/KeybindLegend.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { AddBranchModal } from "./components/AddBranchModal.js";
+import { Toast } from "./components/Toast.js";
 import { useThemeContext } from "./theme.js";
+import { useToast } from "./hooks/useToast.js";
 
 type Pane = "sessions" | "logs";
 
@@ -39,6 +41,7 @@ export function App({ daemon, startTime }: AppProps) {
   const { entries: logEntries } = useLogBuffer();
   const nextCheckIn = useNextCheckCountdown(daemon);
   const isDiscovering = useInitialDiscovery(daemon);
+  const { toast, showToast } = useToast();
   const [focusedPane, setFocusedPane] = useState<Pane>("sessions");
   const [sessionIndex, setSessionIndex] = useState(0);
   const [logOffset, setLogOffset] = useState(0);
@@ -218,7 +221,7 @@ export function App({ daemon, startTime }: AppProps) {
         const check = checks[ciScroll];
         if (check?.htmlUrl) {
           openInBrowser(check.htmlUrl);
-          logger.info(`Opening CI check: ${check.name}`, selectedBranch ?? undefined);
+          showToast(`Opened ${check.name} in browser`, "info");
         }
         return;
       } else if (fullscreenSection === "conflicts" && (up || down)) {
@@ -381,7 +384,7 @@ export function App({ daemon, startTime }: AppProps) {
       const branch = openBranches[clampedSessionIndex];
       if (branch) {
         copyToClipboard(branch);
-        logger.info(`Copied branch name: ${branch}`, branch);
+        showToast(`Copied branch: ${branch}`, "success");
       }
       return;
     }
@@ -390,9 +393,10 @@ export function App({ daemon, startTime }: AppProps) {
     if (input === "C" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       if (branch) {
+        showToast(`Checking out ${branch}...`, "info");
         exec("git", ["checkout", branch], { cwd: daemon.getCwd() })
-          .then(() => logger.info(`Checked out branch: ${branch}`, branch))
-          .catch((err) => logger.error(`Failed to checkout ${branch}: ${err}`, branch));
+          .then(() => showToast(`Checked out ${branch}`, "success"))
+          .catch((err) => showToast(`Failed to checkout ${branch}: ${err}`, "error"));
       }
       return;
     }
@@ -400,9 +404,10 @@ export function App({ daemon, startTime }: AppProps) {
     // Checkout default branch
     if (input === "M") {
       const defaultBranch = daemon.getDefaultBranch();
+      showToast(`Checking out ${defaultBranch}...`, "info");
       exec("git", ["checkout", defaultBranch], { cwd: daemon.getCwd() })
-        .then(() => logger.info(`Checked out ${defaultBranch}`))
-        .catch((err) => logger.error(`Failed to checkout ${defaultBranch}: ${err}`));
+        .then(() => showToast(`Checked out ${defaultBranch}`, "success"))
+        .catch((err) => showToast(`Failed to checkout ${defaultBranch}: ${err}`, "error"));
       return;
     }
 
@@ -412,7 +417,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       if (entry) {
         copyToClipboard(entry.pr.url);
-        logger.info(`Copied PR URL: ${entry.pr.url}`, branch);
+        showToast(`Copied PR URL`, "success");
       }
       return;
     }
@@ -423,7 +428,7 @@ export function App({ daemon, startTime }: AppProps) {
       const entry = branch ? entries.get(branch) : undefined;
       if (entry) {
         openInBrowser(entry.pr.url);
-        logger.info(`Opening PR in browser: ${entry.pr.url}`, branch);
+        showToast(`Opened PR #${entry.pr.number} in browser`, "info");
       }
       return;
     }
@@ -599,6 +604,7 @@ export function App({ daemon, startTime }: AppProps) {
         borderTop={false}
         borderBottom={false}
       />
+      {toast && <Toast toast={toast} />}
       <HelpBar detailMode={detailMode} fullscreenSection={fullscreenSection} sectionFocus={sectionFocus} />
     </Box>
   );
