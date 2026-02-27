@@ -397,6 +397,15 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
+    // Checkout default branch
+    if (input === "M") {
+      const defaultBranch = daemon.getDefaultBranch();
+      exec("git", ["checkout", defaultBranch], { cwd: daemon.getCwd() })
+        .then(() => logger.info(`Checked out ${defaultBranch}`))
+        .catch((err) => logger.error(`Failed to checkout ${defaultBranch}: ${err}`));
+      return;
+    }
+
     // Copy PR URL to clipboard
     if (input === "u" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
@@ -572,6 +581,7 @@ export function App({ daemon, startTime }: AppProps) {
       {showLegend && (
         <KeybindLegend
           showingLogs={showLogs}
+          defaultBranch={daemon.getDefaultBranch()}
           onClose={() => setShowLegend(false)}
         />
       )}

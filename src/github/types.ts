@@ -5,6 +5,7 @@ export interface GHPullRequest {
   url: string;
   title: string;
   state: "OPEN" | "CLOSED" | "MERGED";
+  isDraft: boolean;
   headRefName: string;
   baseRefName: string;
   headRefOid: string;

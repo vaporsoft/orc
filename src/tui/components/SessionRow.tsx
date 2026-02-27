@@ -1,7 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
-import { StatusBadge } from "./StatusBadge.js";
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
 import type { CIStatus } from "../../types/index.js";
@@ -50,6 +49,7 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
   return (
     p.branch === n.branch &&
     p.pr.number === n.pr.number &&
+    p.pr.isDraft === n.pr.isDraft &&
     p.commentCount === n.commentCount &&
     p.ciStatus === n.ciStatus &&
     p.mergedAt === n.mergedAt &&
@@ -73,7 +73,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
     : entry.branch;
 
   const prLabel = `#${pr.number}`;
-  const status = entry.mergedAt ? "merged" as const : (state?.status ?? "stopped");
   const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
   // If CI is unknown but we pushed recently, show yellow dash (waiting for checks to start)
@@ -82,10 +81,25 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
   const ci = ciWaiting ? { symbol: "—", color: "yellow" } : CI_INDICATORS[ciStatus];
   const review = REVIEW_INDICATORS[reviewState];
 
+  // PR status: merged > draft > changes requested > approved > needs review
+  let prStatus: { label: string; color: string };
+  if (entry.mergedAt) {
+    prStatus = { label: "merged", color: theme.merged };
+  } else if (pr.isDraft) {
+    prStatus = { label: "draft", color: theme.muted };
+  } else if (reviewState === "changes_requested") {
+    prStatus = { label: "changes req", color: theme.warning };
+  } else if (reviewState === "approved") {
+    prStatus = { label: "approved", color: "green" };
+  } else {
+    prStatus = { label: "needs review", color: theme.info };
+  }
+
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
+  const internalStatus = entry.mergedAt ? "merged" : (state?.status ?? "stopped");
   const doneStatuses = ["stopped", "ready", "error", "merged"];
-  const isActive = isWatch && !doneStatuses.includes(status);
+  const isActive = isWatch && !doneStatuses.includes(internalStatus);
   const isUnlimited = isWatch && !expiresAt;
   const showTimeLeft = isActive && expiresAt;
   const timeLeft = showTimeLeft ? formatTimeLeft(expiresAt) : null;
@@ -106,7 +120,7 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         <Text dimColor>{prLabel}</Text>
       </Box>
       <Box width={16}>
-        <StatusBadge status={status} />
+        <Text color={prStatus.color}>{prStatus.label}</Text>
         {isActive && <Text color={theme.info}> ⟳</Text>}
       </Box>
       <Box width={10}>
