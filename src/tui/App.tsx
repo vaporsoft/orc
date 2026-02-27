@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useLayoutEffect, useMemo } from "react";
 import { Box, useApp, useInput, useStdin, useStdout } from "ink";
 import type { Daemon } from "../core/daemon.js";
-import { openTerminal, shellEscape } from "../utils/open-terminal.js";
+import { copyToClipboard } from "../utils/clipboard.js";
+import { openInBrowser } from "../utils/open-url.js";
+import { exec } from "../utils/process.js";
 import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
@@ -52,6 +54,10 @@ export function App({ daemon, startTime }: AppProps) {
   const [sectionFocus, setSectionFocus] = useState(false); // true when arrow keys navigate sections instead of branches
   const [fullscreenSection, setFullscreenSection] = useState<DetailSection | null>(null);
   const [commentScroll, setCommentScroll] = useState(0);
+  const [ciScroll, setCiScroll] = useState(0);
+  const [conflictScroll, setConflictScroll] = useState(0);
+  const [conflictContent, setConflictContent] = useState<string | null>(null);
+  const [conflictContentLoading, setConflictContentLoading] = useState(false);
 
   const termHeight = stdout?.rows ?? 24;
   const logVisibleLines = Math.max(3, termHeight - 12);
@@ -105,6 +111,10 @@ export function App({ daemon, startTime }: AppProps) {
       setSectionFocus(false);
       setFullscreenSection(null);
       setCommentScroll(0);
+      setCiScroll(0);
+      setConflictScroll(0);
+      setConflictContent(null);
+      setConflictContentLoading(false);
       prevSelectedBranchRef.current = selectedBranch;
     }
   }, [selectedBranch]);
@@ -150,8 +160,6 @@ export function App({ daemon, startTime }: AppProps) {
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Add Branch", action: () => setShowAddBranch(true) },
-    { label: "Fix All", action: () => daemon.startAll("once", "all").catch((err) => logger.error(`startAll failed: ${err}`)) },
-    { label: "Watch All", action: () => daemon.watchAll().catch((err) => logger.error(`watchAll failed: ${err}`)) },
     { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
     { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
   ];
@@ -196,6 +204,53 @@ export function App({ daemon, startTime }: AppProps) {
           setCommentScroll((prev) => Math.min(maxIdx, prev + 1));
         }
         return;
+      } else if (fullscreenSection === "ci" && (up || down)) {
+        // Navigate between CI checks in fullscreen
+        const checks = selectedEntry?.failedChecks ?? [];
+        const maxIdx = Math.max(0, checks.length - 1);
+        if (up) {
+          setCiScroll((prev) => Math.max(0, prev - 1));
+        } else {
+          setCiScroll((prev) => Math.min(maxIdx, prev + 1));
+        }
+        return;
+      } else if (fullscreenSection === "ci" && input === "o") {
+        // Open selected CI check in browser
+        const checks = selectedEntry?.failedChecks ?? [];
+        const check = checks[ciScroll];
+        if (check?.htmlUrl) {
+          openInBrowser(check.htmlUrl);
+          logger.info(`Opening CI check: ${check.name}`, selectedBranch ?? undefined);
+        }
+        return;
+      } else if (fullscreenSection === "conflicts" && (up || down)) {
+        // Navigate between conflict files in fullscreen
+        const files = selectedEntry?.conflicted ?? [];
+        const maxIdx = Math.max(0, files.length - 1);
+        if (up) {
+          setConflictScroll((prev) => Math.max(0, prev - 1));
+        } else {
+          setConflictScroll((prev) => Math.min(maxIdx, prev + 1));
+        }
+        setConflictContent(null);
+        setConflictContentLoading(false);
+        return;
+      } else if (fullscreenSection === "conflicts" && (key.return || input === "\n")) {
+        // Load conflict content for selected file
+        const branch = openBranches[clampedSessionIndex];
+        const files = selectedEntry?.conflicted ?? [];
+        const file = files[conflictScroll];
+        if (branch && file && file !== "(unknown)") {
+          setConflictContentLoading(true);
+          daemon.getConflictContent(branch, file).then((content) => {
+            setConflictContent(content);
+            setConflictContentLoading(false);
+          }).catch(() => {
+            setConflictContent(null);
+            setConflictContentLoading(false);
+          });
+        }
+        return;
       } else {
         return;
       }
@@ -230,26 +285,6 @@ export function App({ daemon, startTime }: AppProps) {
     if (input === "d" && mergedBranches.length > 0) {
       onClearMerged();
       return;
-    }
-
-    // Conflict resolution: R to resolve once, Y to always auto-resolve
-    if (focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      const entry = branch ? entries.get(branch) : undefined;
-      if (entry?.state?.status === "conflict_prompt") {
-        if (input === "r" || input === "R") {
-          daemon.resolveConflicts(branch, false);
-          return;
-        }
-        if (input === "y" || input === "Y") {
-          daemon.resolveConflicts(branch, true);
-          return;
-        }
-        if (key.escape) {
-          daemon.dismissConflictResolution(branch);
-          return;
-        }
-      }
     }
 
     // G (shift+g): toggle global logs pane
@@ -343,74 +378,46 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Fix CI only for selected branch
-    if (input === "f" && focusedPane === "sessions") {
+    // Copy branch name to clipboard
+    if (input === "c" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "ci").catch(() => {});
+      if (branch) {
+        copyToClipboard(branch);
+        logger.info(`Copied branch name: ${branch}`, branch);
       }
       return;
     }
 
-    // Address comments only for selected branch
-    if (input === "a" && focusedPane === "sessions") {
+    // Checkout branch locally
+    if (input === "C" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.startBranch(branch, "once", "comments").catch(() => {});
+      if (branch) {
+        exec("git", ["checkout", branch], { cwd: daemon.getCwd() })
+          .then(() => logger.info(`Checked out branch: ${branch}`, branch))
+          .catch((err) => logger.error(`Failed to checkout ${branch}: ${err}`, branch));
       }
       return;
     }
 
-    // Watch selected branch (continuous)
-    if (input === "w" && focusedPane === "sessions") {
-      const branch = openBranches[clampedSessionIndex];
-      if (branch && !daemon.isRunning(branch)) {
-        daemon.watchBranch(branch).catch(() => {});
-      }
-      return;
-    }
-
-    // Open worktree shell in new terminal
-    if (input === "e" && focusedPane === "sessions") {
+    // Copy PR URL to clipboard
+    if (input === "u" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
-      const st = entry?.state;
-      if (st?.workDir) {
-        openTerminal(`cd ${shellEscape(st.workDir)}`);
-        logger.info(`Opening shell at ${st.workDir}`, branch);
-      } else {
-        logger.warn("No worktree directory for this branch", branch);
+      if (entry) {
+        copyToClipboard(entry.pr.url);
+        logger.info(`Copied PR URL: ${entry.pr.url}`, branch);
       }
       return;
     }
 
-    // Resume Claude session in new terminal
-    if (input === "E" && focusedPane === "sessions") {
+    // Open PR in browser
+    if (input === "o" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
-      const st = entry?.state;
-      if (st?.lastSessionId && st.workDir) {
-        openTerminal(`cd ${shellEscape(st.workDir)} && claude --resume ${shellEscape(st.lastSessionId)}`);
-        logger.info(`Resuming Claude session ${st.lastSessionId}`, branch);
-      } else {
-        logger.warn("No Claude session to resume for this branch", branch);
+      if (entry) {
+        openInBrowser(entry.pr.url);
+        logger.info(`Opening PR in browser: ${entry.pr.url}`, branch);
       }
-      return;
-    }
-
-    // Fix CI all branches
-    if (input === "F") {
-      daemon.startAll("once", "ci").catch((err) => {
-        logger.error(`startAll failed: ${err}`);
-      });
-      return;
-    }
-
-    // Address comments all branches
-    if (input === "A") {
-      daemon.startAll("once", "comments").catch((err) => {
-        logger.error(`startAll failed: ${err}`);
-      });
       return;
     }
 
@@ -542,6 +549,10 @@ export function App({ daemon, startTime }: AppProps) {
           focusedSection={detailMode === "detail" && sectionFocus ? focusedSection : null}
           fullscreenSection={fullscreenSection}
           commentScroll={commentScroll}
+          ciScroll={ciScroll}
+          conflictScroll={conflictScroll}
+          conflictContent={conflictContent}
+          conflictContentLoading={conflictContentLoading}
         />
       )}
       {detailMode === "logs" && !fullscreenSection && (

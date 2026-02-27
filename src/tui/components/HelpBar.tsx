@@ -28,6 +28,18 @@ export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }:
       { k: "↑↓", label: "prev/next" },
       { k: "q", label: "close" },
     ];
+  } else if (fullscreenSection === "ci") {
+    hints = [
+      { k: "↑↓", label: "select check" },
+      { k: "o", label: "open" },
+      { k: "q", label: "close" },
+    ];
+  } else if (fullscreenSection === "conflicts") {
+    hints = [
+      { k: "↑↓", label: "select file" },
+      { k: "enter", label: "view" },
+      { k: "q", label: "close" },
+    ];
   } else if (fullscreenSection) {
     hints = [
       { k: "q", label: "close" },
@@ -58,7 +70,8 @@ export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }:
     hints = [
       { k: "↑↓", label: "branches" },
       { k: "tab", label: "details" },
-      { k: "g", label: "logs" },
+      { k: "c", label: "copy branch" },
+      { k: "o", label: "open PR" },
       { k: "h", label: "help" },
     ];
   }

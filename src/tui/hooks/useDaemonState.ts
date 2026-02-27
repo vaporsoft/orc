@@ -4,6 +4,8 @@ import type { CIStatus, FailedCheck, ReviewThread } from "../../types/index.js";
 import type { ThreadCounts } from "../../core/comment-fetcher.js";
 import type { GHPullRequest } from "../../github/types.js";
 
+export type ReviewState = "approved" | "changes_requested" | "pending" | "unknown";
+
 export interface PREntry {
   branch: string;
   pr: GHPullRequest;
@@ -14,6 +16,7 @@ export interface PREntry {
   ciStatus: CIStatus;
   failedChecks: FailedCheck[];
   conflicted: string[];
+  reviewState: ReviewState;
   /** Timestamp (ms) when the PR was detected as merged. Undefined for open PRs. */
   mergedAt?: number;
 }
@@ -28,6 +31,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const ciStatuses = daemon.getCIStatuses();
   const ciFailedChecks = daemon.getCIFailedChecks();
   const conflictStatuses = daemon.getConflictStatuses();
+  const reviewStates = daemon.getReviewStates();
   for (const [branch, pr] of daemon.getDiscoveredPRs()) {
     const session = daemon.getSessions().get(branch);
     let state = session ? session.getState() : (lastStates.get(branch) ?? null);
@@ -79,6 +83,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       ciStatus: isActive && state!.ciStatus !== "unknown" ? state!.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
       failedChecks: isActive && state!.ciStatus !== "unknown" ? (state!.failedChecks ?? []) : (ciFailedChecks.get(branch) ?? []),
       conflicted: isActive ? (state!.conflicted ?? []) : (conflictStatuses.get(branch) ?? []),
+      reviewState: reviewStates.get(branch)?.state ?? "unknown",
     });
   }
   // Include merged PRs (but skip if there's already an open PR for the same branch)
@@ -94,6 +99,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
         ciStatus: "unknown" as const,
         failedChecks: [],
         conflicted: [],
+        reviewState: "unknown" as const,
         mergedAt,
       });
     }
@@ -141,6 +147,7 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
     daemon.on("commentCountUpdate", rebuild);
     daemon.on("ciStatusUpdate", rebuild);
     daemon.on("conflictStatusUpdate", rebuild);
+    daemon.on("reviewStateUpdate", rebuild);
 
     return () => {
       daemon.off("prDiscovered", rebuild);
@@ -151,6 +158,7 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
       daemon.off("commentCountUpdate", rebuild);
       daemon.off("ciStatusUpdate", rebuild);
       daemon.off("conflictStatusUpdate", rebuild);
+      daemon.off("reviewStateUpdate", rebuild);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
