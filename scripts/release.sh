@@ -39,6 +39,12 @@ if [[ "$BRANCH" != "main" ]]; then
   exit 1
 fi
 
+# Verify npm auth before doing anything
+if ! npm whoami &>/dev/null; then
+  echo "Error: not authenticated with npm. Run 'npm login' first."
+  exit 1
+fi
+
 # Get previous version tag before bumping
 PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "")"
 
@@ -59,7 +65,16 @@ git push
 git push origin "$NEW_VERSION"
 
 # Publish to npm (build runs via prepublishOnly hook)
-npm publish
+if ! npm publish; then
+  echo ""
+  echo "Error: npm publish failed. Rolling back version bump..."
+  git push origin --delete "$NEW_VERSION" 2>/dev/null || true
+  git tag -d "$NEW_VERSION" 2>/dev/null || true
+  git reset --hard HEAD~1
+  git push --force-with-lease
+  echo "Rolled back to $(git describe --tags --abbrev=0 2>/dev/null || echo 'previous state')."
+  exit 1
+fi
 
 # Generate release notes with Claude Code
 echo "Generating release notes with Claude Code..."
