@@ -54,7 +54,7 @@ describe("GHClient", () => {
 
       const client = new GHClient("/repo");
       const info = await client.getRepoInfo();
-      expect(info).toEqual({ owner: "acme", repo: "app" });
+      expect(info).toEqual({ owner: "acme", repo: "app", defaultBranch: "main" });
     });
 
     it("caches repo info after first call", async () => {
