@@ -212,7 +212,7 @@ export function App({ daemon, startTime }: AppProps) {
           setCiScroll((prev) => Math.min(maxIdx, prev + 1));
         }
         return;
-      } else if (fullscreenSection === "ci" && input === "o") {
+      } else if (fullscreenSection === "ci" && input === "O") {
         // Open selected CI check in browser
         const checks = selectedEntry?.failedChecks ?? [];
         const check = checks[ciScroll];
@@ -418,7 +418,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Open PR in browser
-    if (input === "o" && focusedPane === "sessions") {
+    if (input === "O" && focusedPane === "sessions") {
       const branch = openBranches[clampedSessionIndex];
       const entry = branch ? entries.get(branch) : undefined;
       if (entry) {
