@@ -4,7 +4,6 @@ import type { Daemon } from "../core/daemon.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { openInBrowser } from "../utils/open-url.js";
 import { exec } from "../utils/process.js";
-import { logger } from "../utils/logger.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
@@ -13,7 +12,7 @@ import { useInitialDiscovery } from "./hooks/useInitialDiscovery.js";
 import { Header } from "./components/Header.js";
 import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
-import { DetailPanel, getVisibleSections } from "./components/DetailPanel.js";
+import { DetailPanel, getVisibleSections, FULLSCREEN_MAX_CI_CHECKS, FULLSCREEN_MAX_CONFLICTS } from "./components/DetailPanel.js";
 import type { DetailSection } from "./components/DetailPanel.js";
 import { LogPane } from "./components/LogPane.js";
 
@@ -208,7 +207,7 @@ export function App({ daemon, startTime }: AppProps) {
       } else if (fullscreenSection === "ci" && (up || down)) {
         // Navigate between CI checks in fullscreen
         const checks = selectedEntry?.failedChecks ?? [];
-        const maxIdx = Math.max(0, checks.length - 1);
+        const maxIdx = Math.max(0, Math.min(checks.length, FULLSCREEN_MAX_CI_CHECKS) - 1);
         if (up) {
           setCiScroll((prev) => Math.max(0, prev - 1));
         } else {
@@ -227,7 +226,7 @@ export function App({ daemon, startTime }: AppProps) {
       } else if (fullscreenSection === "conflicts" && (up || down)) {
         // Navigate between conflict files in fullscreen
         const files = selectedEntry?.conflicted ?? [];
-        const maxIdx = Math.max(0, files.length - 1);
+        const maxIdx = Math.max(0, Math.min(files.length, FULLSCREEN_MAX_CONFLICTS) - 1);
         if (up) {
           setConflictScroll((prev) => Math.max(0, prev - 1));
         } else {
