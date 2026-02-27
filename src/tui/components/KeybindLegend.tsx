@@ -36,7 +36,6 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
         { key: "u", label: "copy PR URL" },
         { key: "o", label: "view PR / CI check in browser" },
         { key: "x", label: "stop" },
-        { key: "X", label: "stop all" },
         { key: "d", label: "clear merged" },
       ],
     },
