@@ -31,11 +31,10 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
       title: "actions",
       binds: [
         { key: "+", label: "add branch" },
-        { key: "f", label: "fix branch (ci + conflicts)" },
-        { key: "a", label: "address comments" },
-        { key: "w", label: "watch (fix + address continuously)" },
-        { key: "F", label: "fix branch (all branches)" },
-        { key: "A", label: "address comments (all branches)" },
+        { key: "c", label: "copy branch name" },
+        { key: "C", label: "checkout branch" },
+        { key: "u", label: "copy PR URL" },
+        { key: "o", label: "open PR / CI check in browser" },
         { key: "x", label: "stop" },
         { key: "X", label: "stop all" },
         { key: "d", label: "clear merged" },
@@ -44,8 +43,6 @@ function getGroups(showingLogs: boolean): KeybindGroup[] {
     {
       title: "tools",
       binds: [
-        { key: "e", label: "open shell" },
-        { key: "E", label: "resume claude" },
         { key: "t", label: "toggle theme" },
         { key: ",", label: "settings" },
         { key: "h", label: "this help" },

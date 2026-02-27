@@ -26,6 +26,12 @@ export interface GHPullRequest {
       };
     }[];
   };
+  latestReviews?: {
+    nodes: {
+      state: string;
+      author: { login: string };
+    }[];
+  };
 }
 
 export interface GHReviewComment {

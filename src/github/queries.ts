@@ -121,6 +121,12 @@ query MyOpenPRs($searchQuery: String!) {
             }
           }
         }
+        latestReviews(last: 10) {
+          nodes {
+            state
+            author { login }
+          }
+        }
       }
     }
   }
@@ -187,6 +193,12 @@ query BrowseOpenPRs($owner: String!, $repo: String!, $cursor: String) {
             }
           }
         }
+        latestReviews(last: 10) {
+          nodes {
+            state
+            author { login }
+          }
+        }
       }
     }
   }
@@ -227,6 +239,12 @@ query SearchOpenPRs($searchQuery: String!, $cursor: String) {
                 }
               }
             }
+          }
+        }
+        latestReviews(last: 10) {
+          nodes {
+            state
+            author { login }
           }
         }
       }

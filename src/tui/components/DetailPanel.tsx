@@ -28,6 +28,10 @@ interface DetailPanelProps {
   focusedSection?: DetailSection | null;
   fullscreenSection?: DetailSection | null;
   commentScroll?: number;
+  ciScroll?: number;
+  conflictScroll?: number;
+  conflictContent?: string | null;
+  conflictContentLoading?: boolean;
 }
 
 const CATEGORY_COLORS: Record<CommentCategory, string> = {
@@ -58,6 +62,7 @@ const FULLSCREEN_MAX_CYCLES = 50;
 const FULLSCREEN_MAX_CONFLICTS = 50;
 const FULLSCREEN_MAX_CI_CHECKS = 50;
 const FULLSCREEN_MAX_ACTIVITY = 50;
+const MAX_CONFLICT_CONTENT_LINES = 50;
 
 function SectionHeader({ label, color, focused }: {
   label: string;
@@ -94,9 +99,9 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
   if (lower.includes("checked out")) {
     hints.push("run: git checkout main");
   } else if (lower.includes("rebase") || lower.includes("conflict")) {
-    hints.push("e to open worktree and resolve conflicts");
+    hints.push("tab to view conflict details");
   } else if (lower.includes("ci") || lower.includes("check")) {
-    hints.push("CI is failing — orc will auto-fix on next cycle");
+    hints.push("tab to view CI failures");
   } else if (lower.includes("push")) {
     hints.push("check remote branch state");
   } else if (lower.includes("no open pr")) {
@@ -105,10 +110,9 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("check gh auth status");
   } else {
     hints.push("g to check logs for details");
-    hints.push("E to resume claude session");
   }
 
-  hints.push("f to fix branch · a to address comments · w to watch");
+  hints.push("o to open PR in browser");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -137,7 +141,6 @@ function CycleHistory({ cycles, resolved, total, accentColor, maxCycles = MAX_CY
   const totalTokens = cycles.reduce((sum, c) => sum + (c.inputTokens ?? 0) + (c.outputTokens ?? 0), 0);
   const visibleCycles = cycles.length > maxCycles ? cycles.slice(cycles.length - maxCycles) : cycles;
   const hiddenCount = cycles.length - visibleCycles.length;
-  // Compute the starting index offset for hidden cycles
   const startIndex = hiddenCount;
 
   return (
@@ -178,6 +181,41 @@ function CycleHistory({ cycles, resolved, total, accentColor, maxCycles = MAX_CY
   );
 }
 
+function ConflictContentView({ content, loading }: { content: string | null; loading: boolean }) {
+  const theme = useTheme();
+  if (loading) {
+    return (
+      <Box marginTop={1} marginLeft={4}>
+        <Text dimColor>Loading conflict content...</Text>
+      </Box>
+    );
+  }
+  if (!content) return null;
+
+  const lines = content.split("\n");
+  const visibleLines = lines.slice(0, MAX_CONFLICT_CONTENT_LINES);
+  const hiddenCount = lines.length - visibleLines.length;
+
+  return (
+    <Box marginTop={1} marginLeft={4} flexDirection="column">
+      <Text color={theme.accent} dimColor>{"─".repeat(40)}</Text>
+      {visibleLines.map((line, i) => {
+        const isOurs = line.startsWith("<<<<<<<");
+        const isTheirs = line.startsWith(">>>>>>>");
+        const isSep = line.startsWith("=======");
+        const color = isOurs ? "green" : isTheirs ? "red" : isSep ? "yellow" : undefined;
+        const bold = isOurs || isTheirs || isSep;
+        return (
+          <Text key={i} color={color} dimColor={!color} bold={bold}>
+            {line}
+          </Text>
+        );
+      })}
+      {hiddenCount > 0 && <MoreIndicator hidden={hiddenCount} label="lines" />}
+    </Box>
+  );
+}
+
 export function DetailPanel({
   entries,
   selectedBranch,
@@ -186,6 +224,10 @@ export function DetailPanel({
   focusedSection = null,
   fullscreenSection = null,
   commentScroll = 0,
+  ciScroll = 0,
+  conflictScroll = 0,
+  conflictContent = null,
+  conflictContentLoading = false,
 }: DetailPanelProps) {
   const theme = useTheme();
   const branch = selectedBranch;
@@ -263,42 +305,28 @@ export function DetailPanel({
 
           {/* Fullscreen: conflicts */}
           {fullscreenSection === "conflicts" && (
-            state?.status === "conflict_prompt" && conflicted.length > 0 ? (
-              <>
-                <SectionHeader label={conflictLabel} color={theme.warning} focused={true} />
-                {conflicted.slice(0, FULLSCREEN_MAX_CONFLICTS).map((file, i) => (
-                  <Box key={i} marginLeft={2}>
-                    <Text color="yellow">{"· "}</Text>
-                    <Text>{file}</Text>
-                  </Box>
-                ))}
-                <MoreIndicator hidden={conflicted.length - FULLSCREEN_MAX_CONFLICTS} label="files" />
-                <Box marginTop={1} marginLeft={2}>
-                  <Text color="green" bold>[R]</Text>
-                  <Text> Resolve with Claude  </Text>
-                  <Text color="cyan" bold>[Y]</Text>
-                  <Text> Always resolve with Claude  </Text>
-                  <Text dimColor bold>[Esc]</Text>
-                  <Text dimColor> Dismiss</Text>
-                </Box>
-              </>
-            ) : conflicted.length > 0 ? (
+            conflicted.length > 0 ? (
               <>
                 <SectionHeader label={conflictLabel} color={theme.error} focused={true} />
-                {conflicted.slice(0, FULLSCREEN_MAX_CONFLICTS).map((file, i) => (
-                  <Box key={i} marginLeft={2}>
-                    <Text color="red">{"· "}</Text>
-                    <Text>{file}</Text>
-                  </Box>
-                ))}
+                <Box marginLeft={2} marginBottom={1}>
+                  <Text dimColor>
+                    <Text color={theme.accent}>↑↓</Text> select file · <Text color={theme.accent}>enter</Text> view conflicts
+                  </Text>
+                </Box>
+                {conflicted.slice(0, FULLSCREEN_MAX_CONFLICTS).map((file, i) => {
+                  const isSelected = i === conflictScroll;
+                  return (
+                    <Box key={i} marginLeft={2}>
+                      <Text color={isSelected ? theme.accent : undefined} bold={isSelected}>
+                        {isSelected ? "▸ " : "  "}
+                      </Text>
+                      <Text color="red">{"· "}</Text>
+                      <Text>{file}</Text>
+                    </Box>
+                  );
+                })}
                 <MoreIndicator hidden={conflicted.length - FULLSCREEN_MAX_CONFLICTS} label="files" />
-                {!state && (
-                  <Box marginLeft={2}>
-                    <Text dimColor>
-                      <Text color={theme.accent}>f</Text> to fix with claude
-                    </Text>
-                  </Box>
-                )}
+                <ConflictContentView content={conflictContent} loading={conflictContentLoading} />
               </>
             ) : (
               <>
@@ -313,18 +341,38 @@ export function DetailPanel({
             ciStatus === "failing" && failedChecks.length > 0 ? (
               <>
                 <SectionHeader label={ciLabel} color={theme.error} focused={true} />
-                {failedChecks.slice(0, FULLSCREEN_MAX_CI_CHECKS).map((check) => (
-                  <Box key={check.id} marginLeft={2}>
-                    <Text color="red">{"✗ "}</Text>
-                    <Text color="white">{check.name}</Text>
-                    {check.appSlug && check.appSlug !== "github-actions" && (
-                      <Text dimColor> [{check.appSlug}]</Text>
-                    )}
-                    {check.logSnippet && (
-                      <Text dimColor>  {check.logSnippet.slice(0, 60)}…</Text>
-                    )}
-                  </Box>
-                ))}
+                <Box marginLeft={2} marginBottom={1}>
+                  <Text dimColor>
+                    <Text color={theme.accent}>↑↓</Text> select · <Text color={theme.accent}>o</Text> open in browser
+                  </Text>
+                </Box>
+                {failedChecks.slice(0, FULLSCREEN_MAX_CI_CHECKS).map((check, i) => {
+                  const isSelected = i === ciScroll;
+                  return (
+                    <Box key={check.id} marginLeft={2} flexDirection="column">
+                      <Box>
+                        <Text color={isSelected ? theme.accent : undefined} bold={isSelected}>
+                          {isSelected ? "▸ " : "  "}
+                        </Text>
+                        <Text color="red">{"✗ "}</Text>
+                        <Text color="white">{check.name}</Text>
+                        {check.appSlug && check.appSlug !== "github-actions" && (
+                          <Text dimColor> [{check.appSlug}]</Text>
+                        )}
+                      </Box>
+                      {isSelected && check.htmlUrl && (
+                        <Box marginLeft={4}>
+                          <Text dimColor>{check.htmlUrl}</Text>
+                        </Box>
+                      )}
+                      {isSelected && check.logSnippet && (
+                        <Box marginLeft={4}>
+                          <Text dimColor>{check.logSnippet.slice(0, 120)}{check.logSnippet.length > 120 ? "…" : ""}</Text>
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
                 <MoreIndicator hidden={failedChecks.length - FULLSCREEN_MAX_CI_CHECKS} label="checks" />
                 {state && state.ciFixAttempts > 0 && (
                   <Box marginLeft={2}>
@@ -445,7 +493,7 @@ export function DetailPanel({
       >
         <Box marginLeft={2}>
           <Text dimColor>
-            <Text color={theme.accent}>f</Text> fix branch · <Text color={theme.accent}>a</Text> address comments · <Text color={theme.accent}>w</Text> watch · <Text color={theme.accent}>tab</Text> details
+            <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> open PR · <Text color={theme.accent}>tab</Text> details
             {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
           </Text>
         </Box>
@@ -482,7 +530,7 @@ export function DetailPanel({
       {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
-          <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>f</Text> fix branch · <Text color={theme.accent}>a</Text> address comments · <Text color={theme.accent}>w</Text> watch
+          <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> open PR
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
       </Box>
@@ -554,26 +602,7 @@ export function DetailPanel({
         )}
 
         {/* Conflicts section */}
-        {state?.status === "conflict_prompt" && conflicted.length > 0 ? (
-          <>
-            <SectionHeader label={conflictLabel} color={theme.warning} focused={isFocused("conflicts")} />
-            {conflicted.slice(0, MAX_CONFLICTS).map((file, i) => (
-              <Box key={i} marginLeft={2}>
-                <Text color="yellow">{"· "}</Text>
-                <Text>{file}</Text>
-              </Box>
-            ))}
-            <MoreIndicator hidden={conflicted.length - MAX_CONFLICTS} label="files" />
-            <Box marginTop={1} marginLeft={2}>
-              <Text color="green" bold>[R]</Text>
-              <Text> Resolve with Claude  </Text>
-              <Text color="cyan" bold>[Y]</Text>
-              <Text> Always resolve with Claude  </Text>
-              <Text dimColor bold>[Esc]</Text>
-              <Text dimColor> Dismiss</Text>
-            </Box>
-          </>
-        ) : conflicted.length > 0 ? (
+        {conflicted.length > 0 ? (
           <>
             <SectionHeader label={conflictLabel} color={theme.error} focused={isFocused("conflicts")} />
             {conflicted.slice(0, MAX_CONFLICTS).map((file, i) => (
@@ -583,13 +612,6 @@ export function DetailPanel({
               </Box>
             ))}
             <MoreIndicator hidden={conflicted.length - MAX_CONFLICTS} label="files" />
-            {!state && (
-              <Box marginLeft={2}>
-                <Text dimColor>
-                  <Text color={theme.accent}>enter</Text> to fix with Claude
-                </Text>
-              </Box>
-            )}
           </>
         ) : (
           <>

@@ -44,6 +44,8 @@ export class Daemon extends EventEmitter {
   private ciStatuses = new Map<string, CIStatus>();
   private ciFailedChecks = new Map<string, FailedCheck[]>();
   private conflictStatuses = new Map<string, string[]>();
+  private conflictTreeHashes = new Map<string, string>();
+  private reviewStates = new Map<string, { state: "approved" | "changes_requested" | "pending" | "unknown"; reviewers: string[] }>();
   /** Tracks resolved threads with ORC replies per branch for deleted-reply detection. */
   private orcResolvedThreads = new Map<string, Set<string>>();
   /** Guards against concurrent startBranch calls for the same branch (TOCTOU race). */
@@ -148,6 +150,27 @@ export class Daemon extends EventEmitter {
     return new Map(this.conflictStatuses);
   }
 
+  getCwd(): string {
+    return this.cwd;
+  }
+
+  getReviewStates(): Map<string, { state: "approved" | "changes_requested" | "pending" | "unknown"; reviewers: string[] }> {
+    return new Map(this.reviewStates);
+  }
+
+  async getConflictContent(branch: string, filePath: string): Promise<string | null> {
+    const treeHash = this.conflictTreeHashes.get(branch);
+    if (!treeHash) return null;
+    try {
+      const { stdout } = await exec("git", [
+        "-c", "gc.auto=0", "show", `${treeHash}:${filePath}`,
+      ], { cwd: this.cwd, allowFailure: true });
+      return stdout || null;
+    } catch {
+      return null;
+    }
+  }
+
   private maybeNotify(title: string, message: string): void {
     if (this.cachedNotificationSettings === null) {
       const settings = loadSettings();
@@ -186,6 +209,7 @@ export class Daemon extends EventEmitter {
 
     // Fetch initial data for the new branch
     this.updateCIStatusesFromPRs([pr]);
+    this.updateReviewStatesFromPRs([pr]);
     await Promise.all([
       this.updateCommentCounts([pr]),
       this.updateConflictStatuses([pr]),
@@ -451,8 +475,9 @@ export class Daemon extends EventEmitter {
       this.emit("initialDiscoveryComplete");
     }
 
-    // Extract CI statuses from PR data (no extra API calls)
+    // Extract CI statuses and review states from PR data (no extra API calls)
     this.updateCIStatusesFromPRs(prs);
+    this.updateReviewStatesFromPRs(prs);
 
     // Fetch comment counts and conflict statuses in parallel
     await Promise.all([
@@ -511,6 +536,8 @@ export class Daemon extends EventEmitter {
         this.ciStatuses.delete(branch);
         this.ciFailedChecks.delete(branch);
         this.conflictStatuses.delete(branch);
+        this.conflictTreeHashes.delete(branch);
+        this.reviewStates.delete(branch);
         try {
           await this.teardownSession(branch);
         } catch (err) {
@@ -886,6 +913,30 @@ export class Daemon extends EventEmitter {
 
   }
 
+  private updateReviewStatesFromPRs(prs: GHPullRequest[]): void {
+    for (const pr of prs) {
+      const reviews = pr.latestReviews?.nodes ?? [];
+      const reviewers = reviews.map((r) => r.author.login);
+
+      let state: "approved" | "changes_requested" | "pending" | "unknown";
+      if (reviews.length === 0) {
+        state = "unknown";
+      } else if (reviews.some((r) => r.state === "CHANGES_REQUESTED")) {
+        state = "changes_requested";
+      } else if (reviews.every((r) => r.state === "APPROVED")) {
+        state = "approved";
+      } else {
+        state = "pending";
+      }
+
+      const prev = this.reviewStates.get(pr.headRefName);
+      this.reviewStates.set(pr.headRefName, { state, reviewers });
+      if (prev?.state !== state) {
+        this.emit("reviewStateUpdate", pr.headRefName, state);
+      }
+    }
+  }
+
   private updateCIStatus(branch: string, status: CIStatus, failedChecks: FailedCheck[]): void {
     const prev = this.ciStatuses.get(branch);
 
@@ -993,7 +1044,13 @@ export class Daemon extends EventEmitter {
 
         const conflictPaths: string[] = [];
         if (exitCode !== 0) {
-          for (const line of stdout.split("\n")) {
+          const lines = stdout.split("\n");
+          // First line is the tree hash (even with conflicts)
+          const treeHash = lines[0]?.trim() ?? "";
+          if (treeHash) {
+            this.conflictTreeHashes.set(pr.headRefName, treeHash);
+          }
+          for (const line of lines) {
             const match = line.match(/^CONFLICT \([^)]+\): Merge conflict in (.+)$/);
             if (match) {
               conflictPaths.push(match[1]);
@@ -1002,6 +1059,8 @@ export class Daemon extends EventEmitter {
           if (conflictPaths.length === 0) {
             conflictPaths.push("(unknown)");
           }
+        } else {
+          this.conflictTreeHashes.delete(pr.headRefName);
         }
 
         const prev = this.conflictStatuses.get(pr.headRefName);

@@ -5,6 +5,7 @@ import { StatusBadge } from "./StatusBadge.js";
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
 import type { CIStatus } from "../../types/index.js";
+import type { ReviewState } from "../hooks/useDaemonState.js";
 
 interface SessionRowProps {
   entry: PREntry;
@@ -35,6 +36,13 @@ const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
   unknown: { symbol: "—", color: "gray" },
 };
 
+const REVIEW_INDICATORS: Record<ReviewState, { symbol: string; color: string }> = {
+  approved: { symbol: "✓", color: "green" },
+  changes_requested: { symbol: "✗", color: "yellow" },
+  pending: { symbol: "·", color: "gray" },
+  unknown: { symbol: "—", color: "gray" },
+};
+
 function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
   if (prev.selected !== next.selected || prev.dimmed !== next.dimmed || prev.tick !== next.tick) return false;
   const p = prev.entry;
@@ -52,13 +60,14 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
     p.state?.lastPushAt === n.state?.lastPushAt &&
     p.state?.sessionExpiresAt === n.state?.sessionExpiresAt &&
     p.threadCounts?.total === n.threadCounts?.total &&
-    p.threadCounts?.resolved === n.threadCounts?.resolved
+    p.threadCounts?.resolved === n.threadCounts?.resolved &&
+    p.reviewState === n.reviewState
   );
 }
 
 export const SessionRow = React.memo(function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
   const theme = useTheme();
-  const { pr, state, commentCount, ciStatus, conflicted } = entry;
+  const { pr, state, commentCount, ciStatus, conflicted, reviewState } = entry;
   const branch = entry.branch.length > 26
     ? entry.branch.slice(0, 25) + "…"
     : entry.branch;
@@ -71,6 +80,7 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
   const pushAge = state?.lastPushAt ? Date.now() - new Date(state.lastPushAt).getTime() : Infinity;
   const ciWaiting = ciStatus === "unknown" && pushAge < 5 * 60_000;
   const ci = ciWaiting ? { symbol: "—", color: "yellow" } : CI_INDICATORS[ciStatus];
+  const review = REVIEW_INDICATORS[reviewState];
 
   const isWatch = state?.mode === "watch";
   const expiresAt = state?.sessionExpiresAt ?? null;
@@ -110,6 +120,9 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
       </Box>
       <Box width={4}>
         <Text color={ci.color}>{ci.symbol}</Text>
+      </Box>
+      <Box width={8}>
+        <Text color={review.color}>{review.symbol}</Text>
       </Box>
       <Box width={12}>
         <Text color={conflicted.length > 0 ? "red" : "gray"}>
