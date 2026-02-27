@@ -71,7 +71,7 @@ export function HelpBar({ detailMode, fullscreenSection, sectionFocus = false }:
       { k: "↑↓", label: "branches" },
       { k: "tab", label: "details" },
       { k: "c", label: "copy branch" },
-      { k: "o", label: "open PR" },
+      { k: "o", label: "view PR" },
       { k: "h", label: "help" },
     ];
   }
