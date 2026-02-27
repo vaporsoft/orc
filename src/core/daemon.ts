@@ -468,10 +468,7 @@ export class Daemon extends EventEmitter {
         // Remove any stale merged entry for this branch to prevent conflicts
         this.mergedPRs.delete(pr.headRefName);
         this.emit("prDiscovered", pr.headRefName, pr);
-        // Only notify for newly discovered PRs after initial discovery to avoid flooding
-        if (!this.isInitialDiscovery) {
-          this.maybeNotify("New PR Discovered", `Found pull request #${pr.number}: ${pr.title}`);
-        }
+        // No notification for new PR discovery — we only notify on actionable state changes
       }
     }
 
@@ -529,7 +526,6 @@ export class Daemon extends EventEmitter {
         if (wasMerged) {
           logger.info(`PR #${pr.number} merged`, branch);
           this.mergedPRs.set(branch, { pr, mergedAt: Date.now() });
-          this.maybeNotify("PR Merged", `Pull request #${pr.number} (${pr.title}) has been merged!`);
         }
 
         // Now remove from discovered PRs and clean up
@@ -643,6 +639,11 @@ export class Daemon extends EventEmitter {
 
         if (count !== prev) {
           this.emit("commentCountUpdate", pr.headRefName, count);
+          // Notify when new comments appear (prev >= 0 means we've fetched before)
+          if (!this.isInitialDiscovery && prev >= 0 && count > prev) {
+            const delta = count - prev;
+            this.maybeNotify("New Comments", `${delta} new comment${delta > 1 ? "s" : ""} on #${pr.number}`);
+          }
         }
       } catch (err) {
         if (err instanceof RateLimitError) {
@@ -739,15 +740,7 @@ export class Daemon extends EventEmitter {
         this.lastStates.set(b, state);
         this.sessions.delete(b);
         this.emit("prUpdate", b);
-        this.maybeNotify("Session Failed", `Session for branch ${b} failed: ${state.error || "Unknown error"}`);
       } else {
-        // Notify on successful completion
-        const commentsAddressed = state.commentsAddressed || 0;
-        if (commentsAddressed > 0) {
-          this.maybeNotify("Session Complete", `Successfully addressed ${commentsAddressed} comment(s) on ${b}`);
-        } else {
-          this.maybeNotify("Session Complete", `Session completed for ${b}`);
-        }
         this.cleanupSession(b).catch((err) => {
           logger.warn(`Cleanup failed for ${b}: ${err}`);
         });
@@ -939,6 +932,10 @@ export class Daemon extends EventEmitter {
       this.reviewStates.set(pr.headRefName, { state, reviewers });
       if (prev?.state !== state) {
         this.emit("reviewStateUpdate", pr.headRefName, state);
+        // Notify on approval (only after initial discovery, when state actually changes)
+        if (!this.isInitialDiscovery && prev && state === "approved") {
+          this.maybeNotify("PR Approved", `#${pr.number} ${pr.title}`);
+        }
       }
     }
   }
@@ -1093,6 +1090,10 @@ export class Daemon extends EventEmitter {
 
         if (changed) {
           this.emit("conflictStatusUpdate", pr.headRefName, conflictPaths);
+          // Notify when conflicts appear (not on initial discovery or when conflicts clear)
+          if (!this.isInitialDiscovery && conflictPaths.length > 0 && (!prev || prev.length === 0)) {
+            this.maybeNotify("Merge Conflict", `#${pr.number} has ${conflictPaths.length} conflicting file${conflictPaths.length > 1 ? "s" : ""}`);
+          }
         }
       } catch (err) {
         logger.debug(`Failed to check conflicts for ${pr.headRefName}: ${err}`);
