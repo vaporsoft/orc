@@ -7,7 +7,7 @@ import { formatTime } from "../../utils/time.js";
 import { formatTokens } from "../../utils/format.js";
 import { stripMarkdown } from "../../utils/markdown.js";
 
-export type DetailSection = "cycles" | "conflicts" | "ci" | "comments" | "claude";
+export type DetailSection = "cycles" | "conflicts" | "ci" | "comments";
 
 /** Returns the ordered list of visible sections for the given entry. */
 export function getVisibleSections(entry: PREntry | undefined): DetailSection[] {
@@ -16,7 +16,7 @@ export function getVisibleSections(entry: PREntry | undefined): DetailSection[] 
   if (entry.state && entry.state.cycleHistory.length > 0) {
     sections.push("cycles");
   }
-  sections.push("conflicts", "ci", "comments", "claude");
+  sections.push("conflicts", "ci", "comments");
   return sections;
 }
 
@@ -56,12 +56,9 @@ const MAX_CYCLES = 8;
 const MAX_CONFLICTS = 10;
 const MAX_CI_CHECKS = 10;
 const MAX_COMMENTS = 8;
-const MAX_ACTIVITY = 6;
-
 const FULLSCREEN_MAX_CYCLES = 50;
 const FULLSCREEN_MAX_CONFLICTS = 50;
 const FULLSCREEN_MAX_CI_CHECKS = 50;
-const FULLSCREEN_MAX_ACTIVITY = 50;
 const MAX_CONFLICT_CONTENT_LINES = 50;
 
 function SectionHeader({ label, color, focused }: {
@@ -450,30 +447,6 @@ export function DetailPanel({
             );
           })()}
 
-          {/* Fullscreen: Claude */}
-          {fullscreenSection === "claude" && (
-            <>
-              <SectionHeader label="Claude" color={theme.accent} focused={true} />
-              {isActive && activityLines.length > 0 ? (
-                <>
-                  {activityLines.length > FULLSCREEN_MAX_ACTIVITY && (
-                    <MoreIndicator hidden={activityLines.length - FULLSCREEN_MAX_ACTIVITY} label="lines" />
-                  )}
-                  {activityLines.slice(Math.max(0, activityLines.length - FULLSCREEN_MAX_ACTIVITY)).map((line, i, arr) => (
-                    <Box key={`${activityLines.length - arr.length + i}`} marginLeft={2}>
-                      <Text dimColor={i < arr.length - 1} color={i === arr.length - 1 ? theme.text : undefined}>
-                        {line}
-                      </Text>
-                    </Box>
-                  ))}
-                </>
-              ) : (
-                <Box marginLeft={2}>
-                  <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
-                </Box>
-              )}
-            </>
-          )}
         </Box>
       </Box>
     );
@@ -717,26 +690,6 @@ export function DetailPanel({
           </>
         )}
 
-        {/* Claude section */}
-        <SectionHeader label="Claude" color={theme.accent} focused={isFocused("claude")} />
-        {isActive && activityLines.length > 0 ? (
-          <>
-            {activityLines.length > MAX_ACTIVITY && (
-              <MoreIndicator hidden={activityLines.length - MAX_ACTIVITY} label="lines" />
-            )}
-            {activityLines.slice(Math.max(0, activityLines.length - MAX_ACTIVITY)).map((line, i, arr) => (
-              <Box key={`${activityLines.length - arr.length + i}`} marginLeft={2}>
-                <Text dimColor={i < arr.length - 1} color={i === arr.length - 1 ? theme.text : undefined}>
-                  {line}
-                </Text>
-              </Box>
-            ))}
-          </>
-        ) : (
-          <Box marginLeft={2}>
-            <Text dimColor>{state ? (isActive ? "Working..." : "Idle") : "Not started"}</Text>
-          </Box>
-        )}
       </Box>
     </Box>
   );

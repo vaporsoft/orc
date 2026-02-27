@@ -160,8 +160,6 @@ export function App({ daemon, startTime }: AppProps) {
 
   const toolbarButtons: ToolbarButton[] = [
     { label: "Add Branch", action: () => setShowAddBranch(true) },
-    { label: "Stop All", action: () => daemon.stopAll().catch((err) => logger.error(`stopAll failed: ${err}`)) },
-    { label: "Refresh", action: () => daemon.refreshNow().catch((err) => logger.error(`refresh failed: ${err}`)) },
   ];
 
   const onQuit = useCallback(() => {
@@ -427,14 +425,6 @@ export function App({ daemon, startTime }: AppProps) {
       if (branch && daemon.isRunning(branch)) {
         daemon.stopBranch(branch).catch(() => {});
       }
-      return;
-    }
-
-    // Stop all branches
-    if (input === "X") {
-      daemon.stopAll().catch((err) => {
-        logger.error(`stopAll failed: ${err}`);
-      });
       return;
     }
 
