@@ -112,7 +112,7 @@ function ErrorAction({ error, errorColor }: { error: string; errorColor: string 
     hints.push("g to check logs for details");
   }
 
-  hints.push("o to open PR in browser");
+  hints.push("o to view PR in browser");
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -493,7 +493,7 @@ export function DetailPanel({
       >
         <Box marginLeft={2}>
           <Text dimColor>
-            <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> open PR · <Text color={theme.accent}>tab</Text> details
+            <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> view PR · <Text color={theme.accent}>tab</Text> details
             {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
           </Text>
         </Box>
@@ -530,7 +530,7 @@ export function DetailPanel({
       {/* Commands bar */}
       <Box marginLeft={2}>
         <Text dimColor>
-          <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> open PR
+          <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>o</Text> view PR
           {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
         </Text>
       </Box>
