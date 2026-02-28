@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare yarn@4.5.1 --activate 2>/dev/null; yarn install 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
