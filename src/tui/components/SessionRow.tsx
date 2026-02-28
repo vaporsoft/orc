@@ -147,19 +147,18 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
       </Box>
       <Box width={10}>
         {(() => {
-          const byType = entry.commentCountsByType;
-          const addressable = byType?.addressable ?? commentCount;
-          const conversation = byType?.conversation ?? 0;
-          if (addressable > 0) {
-            return (
-              <>
-                <Text color={theme.warning} dimColor={dimmed}>{String(addressable)}</Text>
-                {conversation > 0 && <Text dimColor> +{conversation}</Text>}
-              </>
-            );
-          }
+          const conversation = entry.commentCountsByType?.conversation ?? 0;
           if (conversation > 0) {
-            return <Text dimColor> +{conversation}</Text>;
+            return <Text dimColor={dimmed}>{String(conversation)}</Text>;
+          }
+          return <Text color={theme.muted} dimColor={dimmed}>—</Text>;
+        })()}
+      </Box>
+      <Box width={12}>
+        {(() => {
+          const addressable = entry.commentCountsByType?.addressable ?? commentCount;
+          if (addressable > 0) {
+            return <Text color={theme.warning} dimColor={dimmed}>{String(addressable)}</Text>;
           }
           return <Text color={theme.muted} dimColor={dimmed}>—</Text>;
         })()}
