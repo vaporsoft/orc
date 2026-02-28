@@ -234,7 +234,9 @@ export function DetailPanel({
     return null;
   }
 
-  const { pr, state, commentCount, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
+  const { pr, state, commentCount, commentCountsByType, commentThreads, threadCounts, ciStatus, failedChecks, conflicted } = entry;
+  const addressableCount = commentCountsByType?.addressable ?? commentCount;
+  const conversationCount = commentCountsByType?.conversation ?? 0;
   const summary = state?.commentSummary ?? null;
   const activeStatuses = ["fixing", "triaging", "verifying", "pushing", "replying", "preparing", "checking_ci"];
   const isActive = state ? activeStatuses.includes(state.status) : false;
@@ -467,7 +469,8 @@ export function DetailPanel({
         <Box marginLeft={2}>
           <Text dimColor>
             <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>O</Text> view PR · <Text color={theme.accent}>tab</Text> details
-            {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
+            {addressableCount > 0 && <Text color={theme.warning}> · {addressableCount} actionable</Text>}
+            {conversationCount > 0 && <Text dimColor> · {conversationCount} conversation</Text>}
           </Text>
         </Box>
         {state?.error && <ErrorAction error={state.error} errorColor={theme.error} />}
@@ -504,7 +507,8 @@ export function DetailPanel({
       <Box marginLeft={2}>
         <Text dimColor>
           <Text color={theme.accent}>tab</Text> close · <Text color={theme.accent}>enter</Text> sections · <Text color={theme.accent}>c</Text> copy branch · <Text color={theme.accent}>O</Text> view PR
-          {commentCount > 0 && <Text color={theme.warning}> · {commentCount} unresolved</Text>}
+          {addressableCount > 0 && <Text color={theme.warning}> · {addressableCount} actionable</Text>}
+          {conversationCount > 0 && <Text dimColor> · {conversationCount} conversation</Text>}
         </Text>
       </Box>
 
@@ -542,8 +546,11 @@ export function DetailPanel({
               {state.lastPushAt && <Text dimColor> · pushed {formatTime(state.lastPushAt)}</Text>}
             </>
           )}
-          {!state && commentCount > 0 && (
-            <Text dimColor> · <Text color={theme.warning}>{commentCount} unresolved</Text></Text>
+          {!state && addressableCount > 0 && (
+            <Text dimColor> · <Text color={theme.warning}>{addressableCount} actionable</Text></Text>
+          )}
+          {!state && conversationCount > 0 && (
+            <Text dimColor> · {conversationCount} conversation</Text>
           )}
         </Box>
 
