@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme, useThemeContext } from "../theme.js";
 import { loadSettings, saveSettings, type UserSettings, type BranchFilter } from "../../utils/settings.js";
@@ -8,22 +8,6 @@ interface SettingsPanelProps {
   daemon: Daemon;
   onClose: () => void;
 }
-
-const DURATION_OPTIONS = ["unlimited", "1h", "3h", "6h", "12h"];
-const DURATION_TO_HOURS: Record<string, number> = {
-  unlimited: 0,
-  "1h": 1,
-  "3h": 3,
-  "6h": 6,
-  "12h": 12,
-};
-const HOURS_TO_DURATION: Record<number, string> = {
-  0: "unlimited",
-  1: "1h",
-  3: "3h",
-  6: "6h",
-  12: "12h",
-};
 
 interface SettingDef {
   key: string;
@@ -49,65 +33,6 @@ const SETTINGS: SettingDef[] = [
     },
   },
   {
-    key: "autoResolveConflicts",
-    label: "Auto-resolve conflicts",
-    type: "enum",
-    options: ["ask", "always", "never"],
-    get: (s) => {
-      const v = s.autoResolveConflicts;
-      // backward compat: true -> "always", false/undefined -> "ask"
-      if (v === true as unknown) return "always";
-      if (v === false as unknown || v === undefined) return "ask";
-      return v;
-    },
-    apply: (value, _daemon) => {
-      saveSettings({ autoResolveConflicts: value as "always" | "ask" | "never" });
-    },
-  },
-  {
-    key: "pollInterval",
-    label: "Poll interval (seconds)",
-    type: "number",
-    min: 5,
-    max: 300,
-    step: 5,
-    get: (s, daemon) => String(s.pollInterval ?? daemon.getConfig().pollInterval),
-    apply: (value, daemon) => {
-      const n = parseInt(value, 10);
-      saveSettings({ pollInterval: n });
-      daemon.updateConfig({ pollInterval: n });
-    },
-  },
-  {
-    key: "claudeTimeout",
-    label: "Claude timeout (seconds)",
-    type: "number",
-    min: 60,
-    max: 3600,
-    step: 60,
-    get: (s, daemon) => String(s.claudeTimeout ?? daemon.getConfig().claudeTimeout),
-    apply: (value, daemon) => {
-      const n = parseInt(value, 10);
-      saveSettings({ claudeTimeout: n });
-      daemon.updateConfig({ claudeTimeout: n });
-    },
-  },
-  {
-    key: "sessionTimeout",
-    label: "Watch mode duration",
-    type: "enum",
-    options: DURATION_OPTIONS,
-    get: (s, daemon) => {
-      const hours = s.sessionTimeout ?? daemon.getConfig().sessionTimeout;
-      return HOURS_TO_DURATION[hours] ?? "unlimited";
-    },
-    apply: (value, daemon) => {
-      const hours = DURATION_TO_HOURS[value] ?? 0;
-      saveSettings({ sessionTimeout: hours });
-      daemon.updateConfig({ sessionTimeout: hours });
-    },
-  },
-  {
     key: "notifications",
     label: "Desktop notifications",
     type: "enum",
@@ -116,24 +41,6 @@ const SETTINGS: SettingDef[] = [
     apply: (value, daemon) => {
       saveSettings({ notifications: value === "on" });
       daemon.refreshNotificationSettings();
-    },
-  },
-  {
-    key: "maxConcurrentSessions",
-    label: "Max concurrent sessions",
-    type: "enum",
-    options: ["5", "10", "15", "20"],
-    get: (s) => {
-      const n = s.maxConcurrentSessions ?? 10;
-      // Map legacy values to nearest valid option (migration is handled in useEffect)
-      if (n <= 7) return "5";
-      if (n <= 12) return "10";
-      if (n <= 17) return "15";
-      return "20";
-    },
-    apply: (value, _daemon) => {
-      const n = parseInt(value, 10);
-      saveSettings({ maxConcurrentSessions: n });
     },
   },
   {
@@ -153,22 +60,6 @@ export function SettingsPanel({ daemon, onClose }: SettingsPanelProps) {
   const { mode, toggleTheme } = useThemeContext();
   const [selectedRow, setSelectedRow] = useState(0);
   const [settings, setSettings] = useState<UserSettings>(() => loadSettings() ?? { theme: mode });
-
-  // One-time migration for legacy maxConcurrentSessions values
-  useEffect(() => {
-    const n = settings.maxConcurrentSessions ?? 10;
-    const validOptions = [5, 10, 15, 20];
-    if (!validOptions.includes(n)) {
-      // Map legacy value to nearest valid option
-      let mapped: number;
-      if (n <= 7) mapped = 5;
-      else if (n <= 12) mapped = 10;
-      else if (n <= 17) mapped = 15;
-      else mapped = 20;
-      saveSettings({ maxConcurrentSessions: mapped });
-      setSettings(loadSettings() ?? { theme: mode });
-    }
-  }, []);
 
   const getCurrentValue = useCallback(
     (def: SettingDef): string => {
