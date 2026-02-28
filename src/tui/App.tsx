@@ -4,7 +4,7 @@ import type { Daemon } from "../core/daemon.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { openInBrowser } from "../utils/open-url.js";
 import { exec } from "../utils/process.js";
-import { loadSettings, saveSettings, type BranchFilter } from "../utils/settings.js";
+import { loadSettings, type BranchFilter } from "../utils/settings.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
