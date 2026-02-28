@@ -10,6 +10,8 @@ export type Terminal =
   | "wezterm"
   | "alacritty";
 
+export type BranchFilter = "all" | "mine";
+
 export interface UserSettings {
   theme: "dark" | "light";
   terminal?: Terminal;
@@ -19,6 +21,7 @@ export interface UserSettings {
   notifications?: boolean;
   maxConcurrentSessions?: number;
   sessionTimeout?: number;
+  defaultBranchFilter?: BranchFilter;
 }
 
 const settingsDir = join(homedir(), ".config", "orc");
