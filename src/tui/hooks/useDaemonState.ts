@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Daemon } from "../../core/daemon.js";
 import type { CIStatus, FailedCheck, ReviewThread } from "../../types/index.js";
-import type { ThreadCounts } from "../../core/comment-fetcher.js";
+import type { ThreadCounts, CommentCounts } from "../../core/comment-fetcher.js";
 import type { GHPullRequest } from "../../github/types.js";
 
 export type ReviewState = "approved" | "changes_requested" | "pending" | "unknown";
@@ -11,6 +11,8 @@ export interface PREntry {
   pr: GHPullRequest;
   state: import("../../types/index.js").BranchState | null; // null = discovered but not running
   commentCount: number;
+  /** Breakdown of actionable comments by type (addressable inline threads vs conversation). */
+  commentCountsByType: CommentCounts | null;
   commentThreads: ReviewThread[];
   threadCounts: ThreadCounts | null;
   ciStatus: CIStatus;
@@ -24,6 +26,7 @@ export interface PREntry {
 function buildEntries(daemon: Daemon): Map<string, PREntry> {
   const entries = new Map<string, PREntry>();
   const counts = daemon.getCommentCounts();
+  const countsByType = daemon.getCommentCountsByType();
   const threads = daemon.getCommentThreads();
   const lastStates = daemon.getLastStates();
   const progressStore = daemon.getProgressStore();
@@ -78,6 +81,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
       pr,
       state,
       commentCount: counts.get(branch) ?? state?.unresolvedCount ?? 0,
+      commentCountsByType: countsByType.get(branch) ?? null,
       commentThreads: threads.get(branch) ?? [],
       threadCounts: allThreadCounts.get(branch) ?? null,
       ciStatus: isActive && state!.ciStatus !== "unknown" ? state!.ciStatus : (ciStatuses.get(branch) ?? "unknown"),
@@ -94,6 +98,7 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
         pr,
         state: lastStates.get(branch) ?? null,
         commentCount: 0,
+        commentCountsByType: null,
         commentThreads: [],
         threadCounts: null,
         ciStatus: "unknown" as const,

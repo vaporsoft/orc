@@ -6,7 +6,7 @@
 
 import { EventEmitter } from "node:events";
 import { SessionController } from "./session-controller.js";
-import { CommentFetcher, type ThreadCounts } from "./comment-fetcher.js";
+import { CommentFetcher, type ThreadCounts, type CommentCounts } from "./comment-fetcher.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { ProgressStore } from "./progress-store.js";
 import { GHClient } from "../github/gh-client.js";
@@ -36,6 +36,7 @@ export class Daemon extends EventEmitter {
   private sessions = new Map<string, ActiveSession>();
   private discoveredPRs = new Map<string, GHPullRequest>();
   private commentCounts = new Map<string, number>();
+  private commentCountsByType = new Map<string, CommentCounts>();
   private commentThreads = new Map<string, ReviewThread[]>();
   private threadCounts = new Map<string, ThreadCounts>();
   private lastStates = new Map<string, BranchState>();
@@ -94,6 +95,10 @@ export class Daemon extends EventEmitter {
 
   getCommentCounts(): Map<string, number> {
     return new Map(this.commentCounts);
+  }
+
+  getCommentCountsByType(): Map<string, CommentCounts> {
+    return new Map(this.commentCountsByType);
   }
 
   getCommentThreads(): Map<string, ReviewThread[]> {
@@ -536,6 +541,7 @@ export class Daemon extends EventEmitter {
         this.discoveredPRs.delete(branch);
         this.externalBranches.delete(branch);
         this.commentCounts.delete(branch);
+        this.commentCountsByType.delete(branch);
         this.commentThreads.delete(branch);
         this.threadCounts.delete(branch);
         this.orcResolvedThreads.delete(branch);
@@ -575,6 +581,7 @@ export class Daemon extends EventEmitter {
         const {
           comments: fetched,
           threadCounts,
+          commentCounts,
           orcRepliedResolvedThreadIds,
           resolvedNoOrcReplyThreadIds,
           followUpResolvedThreadIds,
@@ -617,11 +624,13 @@ export class Daemon extends EventEmitter {
         // Re-fetch if we unresolved any threads so TUI shows fresh state
         let finalFetched = fetched;
         let finalThreadCounts = threadCounts;
+        let finalCommentCounts = commentCounts;
         let finalOrcRepliedResolvedThreadIds = orcRepliedResolvedThreadIds;
         if (unresolvedCount > 0) {
           const refreshed = await fetcher.fetchWithCounts();
           finalFetched = refreshed.comments;
           finalThreadCounts = refreshed.threadCounts;
+          finalCommentCounts = refreshed.commentCounts;
           finalOrcRepliedResolvedThreadIds = refreshed.orcRepliedResolvedThreadIds;
         }
 
@@ -635,6 +644,7 @@ export class Daemon extends EventEmitter {
         const count = finalFetched.length;
         const prev = this.commentCounts.get(pr.headRefName) ?? -1;
         this.commentCounts.set(pr.headRefName, count);
+        this.commentCountsByType.set(pr.headRefName, finalCommentCounts);
         this.threadCounts.set(pr.headRefName, finalThreadCounts);
         this.commentThreads.set(
           pr.headRefName,
@@ -967,6 +977,15 @@ export class Daemon extends EventEmitter {
     const currentCount = this.commentCounts.get(branch) ?? 0;
     const newCount = Math.max(0, currentCount - uniqueCount);
     this.commentCounts.set(branch, newCount);
+
+    // Decrease addressable count (only inline threads get resolved)
+    const byType = this.commentCountsByType.get(branch);
+    if (byType) {
+      this.commentCountsByType.set(branch, {
+        addressable: Math.max(0, byType.addressable - uniqueCount),
+        conversation: byType.conversation,
+      });
+    }
 
     // Bump resolved count in thread counts
     const tc = this.threadCounts.get(branch);

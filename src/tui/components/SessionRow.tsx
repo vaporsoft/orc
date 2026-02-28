@@ -51,6 +51,8 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
     p.pr.number === n.pr.number &&
     p.pr.isDraft === n.pr.isDraft &&
     p.commentCount === n.commentCount &&
+    p.commentCountsByType?.addressable === n.commentCountsByType?.addressable &&
+    p.commentCountsByType?.conversation === n.commentCountsByType?.conversation &&
     p.ciStatus === n.ciStatus &&
     p.mergedAt === n.mergedAt &&
     p.conflicted.length === n.conflicted.length &&
@@ -144,9 +146,23 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         </Text>
       </Box>
       <Box width={10}>
-        <Text color={commentCount > 0 ? theme.warning : theme.muted} dimColor={dimmed}>
-          {commentCount > 0 ? String(commentCount) : "—"}
-        </Text>
+        {(() => {
+          const byType = entry.commentCountsByType;
+          const addressable = byType?.addressable ?? commentCount;
+          const conversation = byType?.conversation ?? 0;
+          if (addressable > 0) {
+            return (
+              <>
+                <Text color={theme.warning} dimColor={dimmed}>{String(addressable)}</Text>
+                {conversation > 0 && <Text dimColor> +{conversation}</Text>}
+              </>
+            );
+          }
+          if (conversation > 0) {
+            return <Text dimColor> +{conversation}</Text>;
+          }
+          return <Text color={theme.muted} dimColor={dimmed}>—</Text>;
+        })()}
       </Box>
       <Box width={12}>
         {entry.threadCounts && entry.threadCounts.total > 0 ? (

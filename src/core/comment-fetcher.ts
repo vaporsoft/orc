@@ -45,6 +45,13 @@ export interface ThreadCounts {
   total: number;
 }
 
+export interface CommentCounts {
+  /** Inline review thread comments — can be resolved on GitHub. */
+  addressable: number;
+  /** Top-level PR conversation comments — cannot be resolved. */
+  conversation: number;
+}
+
 export class CommentFetcher {
   private ghClient: GHClient;
   private prNumber: number;
@@ -60,6 +67,7 @@ export class CommentFetcher {
   async fetchWithCounts(): Promise<{
     comments: FetchedComment[];
     threadCounts: ThreadCounts;
+    commentCounts: CommentCounts;
     /** Resolved thread IDs that still contain an ORC reply (for deleted-reply detection). */
     orcRepliedResolvedThreadIds: string[];
     /** Resolved thread IDs that do NOT contain an ORC reply. */
@@ -111,11 +119,15 @@ export class CommentFetcher {
     // Filter to actionable threads (same logic as fetchReviewThreads)
     const threadComments = this.filterActionableThreads(allThreads);
     const comments = [...threadComments, ...prComments];
+    const commentCounts: CommentCounts = {
+      addressable: threadComments.length,
+      conversation: prComments.length,
+    };
     logger.info(
       `Fetched ${comments.length} comments (${threadComments.length} inline, ${prComments.length} conversation)`,
       this.branch,
     );
-    return { comments, threadCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds, followUpResolvedThreadIds };
+    return { comments, threadCounts, commentCounts, orcRepliedResolvedThreadIds, resolvedNoOrcReplyThreadIds, followUpResolvedThreadIds };
   }
 
   /** Fetch all actionable comments: unresolved review threads + PR conversation comments. */
