@@ -64,8 +64,11 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       borderBottom={false}
     >
       {/* Open Branches section header */}
-      <Box paddingX={1}>
+      <Box paddingX={1} gap={2}>
         <Text color={theme.accent} bold>Open Branches</Text>
+        <Text dimColor color={theme.muted}>
+          [+] add branch
+        </Text>
       </Box>
       {columnHeaders}
       {openBranches.length === 0 ? (

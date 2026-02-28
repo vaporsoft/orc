@@ -88,6 +88,10 @@ export class Daemon extends EventEmitter {
     return new Map(this.discoveredPRs);
   }
 
+  getExternalBranches(): Set<string> {
+    return new Set(this.externalBranches);
+  }
+
   getCommentCounts(): Map<string, number> {
     return new Map(this.commentCounts);
   }

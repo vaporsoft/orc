@@ -4,13 +4,13 @@ import type { Daemon } from "../core/daemon.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { openInBrowser } from "../utils/open-url.js";
 import { exec } from "../utils/process.js";
+import { loadSettings, saveSettings, type BranchFilter } from "../utils/settings.js";
 import { useDaemonState } from "./hooks/useDaemonState.js";
 import { useLogBuffer } from "./hooks/useLogBuffer.js";
 import { useBranchLogs } from "./hooks/useBranchLogs.js";
 import { useNextCheckCountdown } from "./hooks/useNextCheckCountdown.js";
 import { useInitialDiscovery } from "./hooks/useInitialDiscovery.js";
 import { Header } from "./components/Header.js";
-import type { ToolbarButton } from "./components/Toolbar.js";
 import { SessionList } from "./components/SessionList.js";
 import { DetailPanel, getVisibleSections, FULLSCREEN_MAX_CI_CHECKS, FULLSCREEN_MAX_CONFLICTS } from "./components/DetailPanel.js";
 import type { DetailSection } from "./components/DetailPanel.js";
@@ -48,7 +48,11 @@ export function App({ daemon, startTime }: AppProps) {
   const [detailModeBeforeLogs, setDetailModeBeforeLogs] = useState<"off" | "detail" | "logs">("off");
   const [fullscreenBeforeLogs, setFullscreenBeforeLogs] = useState<DetailSection | null>(null);
   const [branchLogOffset, setBranchLogOffset] = useState(0);
-  const [toolbarIndex, setToolbarIndex] = useState(-1);
+  const [filterFocused, setFilterFocused] = useState(false);
+  const [branchFilter, setBranchFilter] = useState<BranchFilter>(() => {
+    const settings = loadSettings();
+    return settings?.defaultBranchFilter ?? "all";
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [showAddBranch, setShowAddBranch] = useState(false);
@@ -67,21 +71,23 @@ export function App({ daemon, startTime }: AppProps) {
 
   const showLogs = focusedPane === "logs";
 
-  // Split branches into open and merged
+  // Split branches into open and merged, applying the branch filter
   const { openBranches, mergedBranches } = useMemo(() => {
+    const externalBranches = daemon.getExternalBranches();
     const open: string[] = [];
     const merged: string[] = [];
     for (const [branch, entry] of entries) {
       if (entry.mergedAt != null) {
         merged.push(branch);
       } else {
+        if (branchFilter === "mine" && externalBranches.has(branch)) continue;
         open.push(branch);
       }
     }
     open.sort();
     merged.sort();
     return { openBranches: open, mergedBranches: merged };
-  }, [entries]);
+  }, [entries, branchFilter, daemon]);
 
   const openCount = openBranches.length;
 
@@ -160,9 +166,12 @@ export function App({ daemon, startTime }: AppProps) {
     setPrevConflictBranches(currentConflictBranches);
   }, [entries, openBranches]);
 
-  const toolbarButtons: ToolbarButton[] = [
-    { label: "Add Branch", action: () => setShowAddBranch(true) },
-  ];
+  const toggleBranchFilter = useCallback(() => {
+    setBranchFilter((prev) => {
+      const next = prev === "all" ? "mine" : "all";
+      return next;
+    });
+  }, []);
 
   const onQuit = useCallback(() => {
     exit();
@@ -307,31 +316,21 @@ export function App({ daemon, startTime }: AppProps) {
       return;
     }
 
-    // Toolbar: Enter activates focused button
-    if ((key.return || input === "\n") && toolbarIndex >= 0) {
-      toolbarButtons[toolbarIndex]?.action();
-      return;
-    }
-
-    // Toolbar: Escape deselects
-    if (key.escape && toolbarIndex >= 0) {
-      setToolbarIndex(-1);
-      return;
-    }
-
-    // Toolbar: left/right navigate between buttons
-    if (left && toolbarIndex >= 0) {
-      setToolbarIndex((prev) => Math.max(0, prev - 1));
-      return;
-    }
-    if (right && toolbarIndex >= 0) {
-      setToolbarIndex((prev) => Math.min(toolbarButtons.length - 1, prev + 1));
-      return;
-    }
-
-    // Toolbar: down arrow exits toolbar back to session list
-    if (down && toolbarIndex >= 0) {
-      setToolbarIndex(-1);
+    // Filter tabs: left/right toggle filter when focused
+    if (filterFocused) {
+      if (left || right || (key.return || input === "\n")) {
+        toggleBranchFilter();
+        return;
+      }
+      if (key.escape) {
+        setFilterFocused(false);
+        return;
+      }
+      if (down) {
+        setFilterFocused(false);
+        return;
+      }
+      // Block other keys while filter is focused
       return;
     }
 
@@ -442,7 +441,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Tab: toggle detail panel open/closed
-    if (tab && focusedPane === "sessions" && toolbarIndex < 0) {
+    if (tab && focusedPane === "sessions") {
       if (detailMode === "detail") {
         // Close detail
         setDetailMode("off");
@@ -458,7 +457,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Right: enter section focus when detail is open
-    if (right && focusedPane === "sessions" && toolbarIndex < 0) {
+    if (right && focusedPane === "sessions") {
       if (detailMode === "detail" && !sectionFocus && visibleSections.length > 0) {
         setSectionFocus(true);
         setFocusedSection(visibleSections[0] ?? null);
@@ -467,7 +466,7 @@ export function App({ daemon, startTime }: AppProps) {
     }
 
     // Left: exit section focus back to branch navigation (without closing detail)
-    if (left && focusedPane === "sessions" && toolbarIndex < 0) {
+    if (left && focusedPane === "sessions") {
       if (sectionFocus) {
         setSectionFocus(false);
         setFocusedSection(null);
@@ -502,8 +501,8 @@ export function App({ daemon, startTime }: AppProps) {
       } else {
         // Branch navigation (default — works even with detail open)
         if (up) {
-          if (sessionIndex === 0) {
-            setToolbarIndex(0);
+          if (sessionIndex <= 0) {
+            setFilterFocused(true);
           } else {
             const nextIndex = sessionIndex - 1;
             setBranchLogOffset(0);
@@ -532,12 +531,12 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column" height={termHeight}>
-      <Header entries={entries} startTime={startTime} nextCheckIn={nextCheckIn} buttons={toolbarButtons} selectedButton={toolbarIndex} />
+      <Header entries={entries} startTime={startTime} nextCheckIn={nextCheckIn} branchFilter={branchFilter} filterFocused={filterFocused} />
       {!fullscreenSection && (
         <SessionList
           entries={entries}
           selectedIndex={clampedSessionIndex}
-          focused={focusedPane === "sessions" && toolbarIndex < 0}
+          focused={focusedPane === "sessions" && !filterFocused}
           openBranches={openBranches}
           mergedBranches={mergedBranches}
           isDiscovering={isDiscovering}

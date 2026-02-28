@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme, useThemeContext } from "../theme.js";
-import { loadSettings, saveSettings, type UserSettings } from "../../utils/settings.js";
+import { loadSettings, saveSettings, type UserSettings, type BranchFilter } from "../../utils/settings.js";
 import type { Daemon } from "../../core/daemon.js";
 
 interface SettingsPanelProps {
@@ -134,6 +134,16 @@ const SETTINGS: SettingDef[] = [
     apply: (value, _daemon) => {
       const n = parseInt(value, 10);
       saveSettings({ maxConcurrentSessions: n });
+    },
+  },
+  {
+    key: "defaultBranchFilter",
+    label: "Default branch filter",
+    type: "enum",
+    options: ["all", "mine"],
+    get: (s) => s.defaultBranchFilter ?? "all",
+    apply: (value, _daemon) => {
+      saveSettings({ defaultBranchFilter: value as BranchFilter });
     },
   },
 ];
