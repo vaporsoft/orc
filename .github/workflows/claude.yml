@@ -1,0 +1,146 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    timeout-minutes: 10
+    if: |
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') &&
+          (github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') &&
+          (github.event.review.author_association == 'MEMBER' ||
+           github.event.review.author_association == 'OWNER' ||
+           github.event.review.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+          (github.event.issue.author_association == 'MEMBER' ||
+           github.event.issue.author_association == 'OWNER' ||
+           github.event.issue.author_association == 'COLLABORATOR'))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # For PR-related events, check out the PR branch; otherwise use default
+          ref: ${{ github.event.pull_request.number && format('refs/pull/{0}/head', github.event.pull_request.number) || github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number) || github.ref }}
+          fetch-depth: 0  # Fetch full history so Claude can see diffs
+
+      - name: Hide existing Claude reviews
+        if: |
+          github.event.issue.pull_request &&
+          (contains(github.event.comment.body, 'review') || contains(github.event.comment.body, 'Review') || contains(github.event.comment.body, 'REVIEW'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_COMMENT_ID: ${{ github.event.comment.node_id }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          REPO=${{ github.repository }}
+
+          echo "Hiding existing Claude reviews on PR #${PR_NUMBER}..."
+          echo "Will exclude triggering comment: $TRIGGER_COMMENT_ID"
+
+          # Fetch and minimize inline review comments from the bot
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" --paginate > /tmp/review_comments.json
+
+          # Get node IDs of comments from github-actions[bot], excluding the triggering comment
+          BOT_COMMENT_IDS=$(jq -r --arg trigger "$TRIGGER_COMMENT_ID" \
+            '.[] | select((.user.login == "github-actions[bot]" or .user.login == "github-actions") and .node_id != $trigger) | .node_id' \
+            /tmp/review_comments.json)
+
+          if [ -z "$BOT_COMMENT_IDS" ]; then
+            echo "No inline review comments from bot found"
+          else
+            for COMMENT_ID in $BOT_COMMENT_IDS; do
+              echo "Minimizing review comment: $COMMENT_ID"
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$COMMENT_ID" || echo "Failed to minimize comment $COMMENT_ID"
+              sleep 0.1  # Rate limit protection
+            done
+          fi
+
+          # Fetch regular PR comments (used for both bot responses and review requests)
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate > /tmp/issue_comments.json
+
+          # Minimize PR comments from the bot
+          BOT_ISSUE_COMMENT_IDS=$(jq -r --arg trigger "$TRIGGER_COMMENT_ID" \
+            '.[] | select((.user.login == "github-actions[bot]" or .user.login == "github-actions") and .node_id != $trigger) | .node_id' \
+            /tmp/issue_comments.json)
+
+          if [ -z "$BOT_ISSUE_COMMENT_IDS" ]; then
+            echo "No PR comments from bot found"
+          else
+            for COMMENT_ID in $BOT_ISSUE_COMMENT_IDS; do
+              echo "Minimizing bot PR comment: $COMMENT_ID"
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$COMMENT_ID" || echo "Failed to minimize comment $COMMENT_ID"
+              sleep 0.1  # Rate limit protection
+            done
+          fi
+
+          # Minimize previous "@claude review" request comments (from any user)
+          # This reduces clutter by hiding old review requests
+          REVIEW_REQUEST_IDS=$(jq -r --arg trigger "$TRIGGER_COMMENT_ID" \
+            '.[] | select(.node_id != $trigger and ((.body | ascii_downcase | contains("@claude")) and (.body | ascii_downcase | contains("review")))) | .node_id' \
+            /tmp/issue_comments.json)
+
+          if [ -z "$REVIEW_REQUEST_IDS" ]; then
+            echo "No previous review request comments found"
+          else
+            for COMMENT_ID in $REVIEW_REQUEST_IDS; do
+              echo "Minimizing review request comment: $COMMENT_ID"
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$COMMENT_ID" || echo "Failed to minimize comment $COMMENT_ID"
+              sleep 0.1  # Rate limit protection
+            done
+          fi
+
+          echo "Finished hiding existing Claude reviews and requests"
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_CI }}
+
+          claude_args: |
+            --model opus
+            --max-turns 30
+            --allowedTools "Bash(yarn:*),Bash(git:*),Bash(gh:*),Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,mcp__github__create_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review"
+            --system-prompt "Follow our coding standards. Before committing, run yarn lint, yarn typecheck, and yarn test:nowatch to verify all checks pass."
