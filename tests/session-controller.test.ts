@@ -63,9 +63,6 @@ const MOCK_REPO_CONFIG: RepoConfig = {
 function makeFakeFixResult(overrides: Partial<FixResult> = {}): FixResult {
   return {
     sessionId: "test-session",
-    costUsd: 0.05,
-    inputTokens: 500,
-    outputTokens: 200,
     durationMs: 1000,
     isError: false,
     changedFiles: [],
@@ -270,9 +267,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       // Claude makes commits (head changes)
@@ -330,9 +324,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       vi.spyOn(executor, "execute").mockResolvedValue(
@@ -383,9 +374,6 @@ describe("SessionController", () => {
           reasoning: "Nice but optional",
           suggestedAction: "Consider it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       await ctrl.start();
@@ -524,9 +512,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       await ctrl.start();
@@ -586,9 +571,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       let headCallCount = 0;
@@ -642,9 +624,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       let headCallCount = 0;
@@ -700,69 +679,6 @@ describe("SessionController", () => {
     });
   });
 
-  describe("cost tracking", () => {
-    it("accumulates categorization and fix costs", async () => {
-      const ctrl = createController();
-      const { gitManager, executor, ghClient } = setupFullCycle(ctrl);
-
-      vi.spyOn(ghClient, "getReviewThreads").mockResolvedValue([
-        {
-          id: "t1",
-          isResolved: false,
-          isOutdated: false,
-          comments: {
-            pageInfo: { hasNextPage: false },
-            nodes: [{
-              id: "c1",
-              databaseId: 1,
-              body: "Fix this",
-              author: { login: "reviewer" },
-              path: "src/main.ts",
-              line: 10,
-              diffHunk: "",
-              createdAt: "2024-01-01T00:00:00Z",
-            }],
-          },
-        },
-      ]);
-
-      const categorizer = (ctrl as any).categorizer;
-      vi.spyOn(categorizer, "categorize").mockResolvedValue({
-        comments: [{
-          threadId: "t1",
-          path: "src/main.ts",
-          line: 10,
-          body: "Fix this",
-          author: "reviewer",
-          diffHunk: "",
-          category: "should_fix",
-          confidence: 0.9,
-          reasoning: "Valid",
-          suggestedAction: "Fix it",
-        }],
-        costUsd: 0.02,
-        inputTokens: 200,
-        outputTokens: 100,
-      });
-
-      // Claude makes commits
-      let headCount = 0;
-      vi.spyOn(gitManager, "getHeadSha").mockImplementation(async () => {
-        headCount++;
-        return headCount <= 1 ? "abc123" : "def456";
-      });
-
-      vi.spyOn(executor, "execute").mockResolvedValue(
-        makeFakeFixResult({ costUsd: 0.10, inputTokens: 1000, outputTokens: 500 }),
-      );
-
-      await ctrl.start();
-
-      const state = ctrl.getState();
-      expect(state.totalCostUsd).toBeGreaterThanOrEqual(0.12);
-      expect(state.totalInputTokens).toBeGreaterThanOrEqual(1200);
-    });
-  });
 
   describe("optimistic status update", () => {
     it("emits commentsResolved with resolved thread IDs after successful fix", async () => {
@@ -836,9 +752,6 @@ describe("SessionController", () => {
             suggestedAction: "Fix it",
           },
         ],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       // Claude makes commits (head changes)
@@ -900,9 +813,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       let headCallCount = 0;
@@ -945,9 +855,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Update README",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       let headCallCount = 0;
@@ -1006,9 +913,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       vi.spyOn(executor, "execute").mockResolvedValue(
@@ -1096,9 +1000,6 @@ describe("SessionController", () => {
             suggestedAction: "Check it",
           },
         ],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       const verifyResults = new Map<string, { status: string; reason?: string; summary?: string }>();
@@ -1167,9 +1068,6 @@ describe("SessionController", () => {
           reasoning: "Valid",
           suggestedAction: "Fix it",
         }],
-        costUsd: 0.01,
-        inputTokens: 100,
-        outputTokens: 50,
       });
 
       let headCallCount = 0;

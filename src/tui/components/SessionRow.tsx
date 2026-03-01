@@ -10,22 +10,6 @@ interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
   dimmed?: boolean;
-  /** Tick counter to force re-render for countdown timer updates */
-  tick?: number;
-}
-
-
-function formatTimeLeft(expiresAt: number): string {
-  const remainMs = expiresAt - Date.now();
-  if (remainMs <= 0) return "0s";
-  const totalSec = Math.ceil(remainMs / 1000);
-  // Final minute: show seconds
-  if (totalSec < 60) return `${totalSec}s`;
-  const totalMin = Math.ceil(remainMs / 60_000);
-  if (totalMin < 60) return `${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${h}h`;
 }
 
 const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
@@ -43,7 +27,7 @@ const REVIEW_INDICATORS: Record<ReviewState, { symbol: string; color: string }> 
 };
 
 function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
-  if (prev.selected !== next.selected || prev.dimmed !== next.dimmed || prev.tick !== next.tick) return false;
+  if (prev.selected !== next.selected || prev.dimmed !== next.dimmed) return false;
   const p = prev.entry;
   const n = next.entry;
   return (
@@ -58,9 +42,7 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
     p.conflicted.length === n.conflicted.length &&
     p.state?.status === n.state?.status &&
     p.state?.mode === n.state?.mode &&
-    p.state?.totalCostUsd === n.state?.totalCostUsd &&
     p.state?.lastPushAt === n.state?.lastPushAt &&
-    p.state?.sessionExpiresAt === n.state?.sessionExpiresAt &&
     p.threadCounts?.total === n.threadCounts?.total &&
     p.threadCounts?.resolved === n.threadCounts?.resolved &&
     p.reviewState === n.reviewState
@@ -75,7 +57,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
     : entry.branch;
 
   const prLabel = `#${pr.number}`;
-  const cost = state ? `$${state.totalCostUsd.toFixed(2)}` : "—";
   const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
   // If CI is unknown but we pushed recently, show yellow dash (waiting for checks to start)
   const pushAge = state?.lastPushAt ? Date.now() - new Date(state.lastPushAt).getTime() : Infinity;
@@ -98,15 +79,9 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
   }
 
   const isWatch = state?.mode === "watch";
-  const expiresAt = state?.sessionExpiresAt ?? null;
   const internalStatus = entry.mergedAt ? "merged" : (state?.status ?? "stopped");
   const doneStatuses = ["stopped", "ready", "error", "merged"];
   const isActive = isWatch && !doneStatuses.includes(internalStatus);
-  const isUnlimited = isWatch && !expiresAt;
-  const showTimeLeft = isActive && expiresAt;
-  const timeLeft = showTimeLeft ? formatTimeLeft(expiresAt) : null;
-  const remainMs = expiresAt ? expiresAt - Date.now() : null;
-  const isLow = remainMs !== null && remainMs > 0 && remainMs < 10 * 60_000; // < 10 min
 
   return (
     <Box paddingX={1}>
@@ -124,15 +99,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
       <Box width={16}>
         <Text color={prStatus.color}>{prStatus.label}</Text>
         {isActive && <Text color={theme.info}> ⟳</Text>}
-      </Box>
-      <Box width={10}>
-        {showTimeLeft ? (
-          <Text color={isLow ? theme.warning : theme.muted}>{timeLeft}</Text>
-        ) : isActive && isUnlimited ? (
-          <Text color={theme.muted}>∞</Text>
-        ) : (
-          <Text color={theme.muted}>{"—"}</Text>
-        )}
       </Box>
       <Box width={4}>
         <Text color={ci.color}>{ci.symbol}</Text>
@@ -171,9 +137,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         ) : (
           <Text color={theme.muted} dimColor={dimmed}>—</Text>
         )}
-      </Box>
-      <Box width={10}>
-        <Text dimColor>{cost}</Text>
       </Box>
       <Box width={10}>
         <Text dimColor>{lastPush}</Text>

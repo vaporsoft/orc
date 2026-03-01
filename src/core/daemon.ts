@@ -290,9 +290,6 @@ export class Daemon extends EventEmitter {
     if (activeSessions >= maxConcurrentSessions) {
       logger.warn(`Cannot start session — max concurrent sessions (${maxConcurrentSessions}) reached`, branch);
       const lifetime = this.progressStore.getLifetimeStats(branch);
-      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
-      const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
-      const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -300,7 +297,6 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd,
         error: `Cannot start session — max concurrent sessions (${maxConcurrentSessions}) reached`,
         unresolvedCount: 0,
         commentSummary: null,
@@ -308,10 +304,7 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
-        sessionExpiresAt: null,
         ...lifetime,
-        totalInputTokens,
-        totalOutputTokens,
         ciStatus: "unknown",
         failedChecks: [],
         ciFixAttempts: 0,
@@ -329,9 +322,6 @@ export class Daemon extends EventEmitter {
     if (currentBranch === branch) {
       logger.warn("Cannot start session — branch is checked out locally. Switch to main first.", branch);
       const lifetime = this.progressStore.getLifetimeStats(branch);
-      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
-      const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
-      const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -339,9 +329,6 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd,
-        totalInputTokens,
-        totalOutputTokens,
         error: "Branch is checked out locally — switch to main first",
         unresolvedCount: 0,
         commentSummary: null,
@@ -349,7 +336,6 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
-        sessionExpiresAt: null,
         ...lifetime,
         ciStatus: "unknown",
         failedChecks: [],
@@ -692,9 +678,6 @@ export class Daemon extends EventEmitter {
     } catch (err) {
       logger.error(`Failed to create worktree for ${branch}: ${err}`);
       const lifetime = this.progressStore.getLifetimeStats(branch);
-      const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
-      const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
-      const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
       this.lastStates.set(branch, {
         branch,
         prNumber: pr.number,
@@ -702,9 +685,6 @@ export class Daemon extends EventEmitter {
         status: "error",
         mode,
         commentsAddressed: 0,
-        totalCostUsd,
-        totalInputTokens,
-        totalOutputTokens,
         error: `Failed to create worktree: ${err}`,
         unresolvedCount: 0,
         commentSummary: null,
@@ -712,7 +692,6 @@ export class Daemon extends EventEmitter {
         claudeActivity: [],
         lastSessionId: null,
         workDir: null,
-        sessionExpiresAt: null,
         ...lifetime,
         ciStatus: "unknown",
         failedChecks: [],
@@ -813,9 +792,6 @@ export class Daemon extends EventEmitter {
     const pr = this.discoveredPRs.get(branch);
     if (!pr) return;
     const lifetime = this.progressStore.getLifetimeStats(branch);
-    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
-    const totalInputTokens = lifetime.cycleHistory.reduce((sum, c) => sum + (c.inputTokens ?? 0), 0);
-    const totalOutputTokens = lifetime.cycleHistory.reduce((sum, c) => sum + (c.outputTokens ?? 0), 0);
     const prev = this.lastStates.get(branch);
     this.lastStates.set(branch, {
       branch,
@@ -824,9 +800,6 @@ export class Daemon extends EventEmitter {
       status,
       mode,
       commentsAddressed: prev?.commentsAddressed ?? 0,
-      totalCostUsd,
-      totalInputTokens,
-      totalOutputTokens,
       error: null,
       unresolvedCount: prev?.unresolvedCount ?? 0,
       commentSummary: prev?.commentSummary ?? null,
@@ -840,16 +813,12 @@ export class Daemon extends EventEmitter {
       ciFixAttempts: prev?.ciFixAttempts ?? 0,
       conflicted: prev?.conflicted ?? [],
       hasFixupCommits: prev?.hasFixupCommits ?? false,
-      sessionExpiresAt: prev?.sessionExpiresAt ?? null,
     });
     this.emit("prUpdate", branch);
   }
 
   private makeErrorState(branch: string, pr: GHPullRequest, error: string, mode: SessionMode = "once"): BranchState {
     const lifetime = this.progressStore.getLifetimeStats(branch);
-    const totalCostUsd = lifetime.cycleHistory.reduce((sum, c) => sum + c.costUsd, 0);
-    const totalInputTokens = lifetime.cycleHistory.reduce((sum, c) => sum + (c.inputTokens ?? 0), 0);
-    const totalOutputTokens = lifetime.cycleHistory.reduce((sum, c) => sum + (c.outputTokens ?? 0), 0);
     return {
       branch,
       prNumber: pr.number,
@@ -857,9 +826,6 @@ export class Daemon extends EventEmitter {
       status: "error",
       mode,
       commentsAddressed: 0,
-      totalCostUsd,
-      totalInputTokens,
-      totalOutputTokens,
       error,
       unresolvedCount: 0,
       commentSummary: null,
@@ -873,7 +839,6 @@ export class Daemon extends EventEmitter {
       ciFixAttempts: 0,
       conflicted: [],
       hasFixupCommits: false,
-      sessionExpiresAt: null,
     };
   }
 

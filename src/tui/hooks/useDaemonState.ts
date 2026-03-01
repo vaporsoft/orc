@@ -43,19 +43,13 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
     if (!state) {
       const lifetime = progressStore.getLifetimeStats(branch);
       if (lifetime.cycleCount > 0) {
-        const totalCostUsd = lifetime.cycleHistory.reduce((sum, cycle) => sum + cycle.costUsd, 0);
-        const totalInputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.inputTokens ?? 0), 0);
-        const totalOutputTokens = lifetime.cycleHistory.reduce((sum, cycle) => sum + (cycle.outputTokens ?? 0), 0);
-        state = {
+          state = {
           branch,
           prNumber: pr.number,
           prUrl: pr.url,
           status: "stopped",
           mode: "once",
           commentsAddressed: 0,
-          totalCostUsd,
-          totalInputTokens,
-          totalOutputTokens,
           error: null,
           unresolvedCount: 0,
           commentSummary: null,
@@ -69,7 +63,6 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
           ciFixAttempts: 0,
           conflicted: [],
           hasFixupCommits: false,
-          sessionExpiresAt: null,
         };
       }
     }

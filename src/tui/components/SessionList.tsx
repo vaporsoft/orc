@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { SessionRow } from "./SessionRow.js";
@@ -23,38 +23,15 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       <Box width={28}><Text dimColor>branch</Text></Box>
       <Box width={8}><Text dimColor>pr</Text></Box>
       <Box width={16}><Text dimColor>status</Text></Box>
-      <Box width={10}><Text dimColor>time left</Text></Box>
       <Box width={4}><Text dimColor>ci</Text></Box>
       <Box width={8}><Text dimColor>review</Text></Box>
       <Box width={12}><Text dimColor>conflicts</Text></Box>
       <Box width={10}><Text dimColor>comments</Text></Box>
       <Box width={12}><Text dimColor>addressable</Text></Box>
       <Box width={12}><Text dimColor>resolved</Text></Box>
-      <Box width={10}><Text dimColor>cost</Text></Box>
       <Box width={10}><Text dimColor>last push</Text></Box>
     </Box>
   );
-
-  // Tick to keep "time left" column updated — every 60s normally, every 1s in the final minute
-  const activeExpiries = [...entries.values()]
-    .filter((e) => e.state?.mode === "watch" && e.state.sessionExpiresAt
-      && !["stopped", "ready", "error"].includes(e.state.status) && !e.mergedAt)
-    .map((e) => e.state!.sessionExpiresAt!);
-  const soonestExpiry = activeExpiries.length > 0 ? Math.min(...activeExpiries) : null;
-
-  const [timeLeftTick, setTimeLeftTick] = useState(0);
-  useEffect(() => {
-    if (soonestExpiry === null) return;
-    const id = setInterval(() => {
-      const timeLeft = soonestExpiry - Date.now();
-      const nowInFinalMinute = timeLeft <= 60_000;
-      const shouldTick = nowInFinalMinute || (timeLeft % 60_000 < 1_000);
-      if (shouldTick) {
-        setTimeLeftTick((t) => t + 1);
-      }
-    }, 1_000);
-    return () => clearInterval(id);
-  }, [soonestExpiry]);
 
   return (
     <Box
@@ -67,9 +44,6 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
       {/* Open Branches section header */}
       <Box paddingX={1} gap={2}>
         <Text color={theme.accent} bold>Open Branches</Text>
-        <Text dimColor color={theme.muted}>
-          [+] add branch
-        </Text>
       </Box>
       {columnHeaders}
       {openBranches.length === 0 ? (
@@ -82,7 +56,6 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             key={branch}
             entry={entries.get(branch)!}
             selected={focused && i === selectedIndex}
-            tick={timeLeftTick}
           />
         ))
       )}
@@ -107,7 +80,6 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             entry={entries.get(branch)!}
             selected={false}
             dimmed
-            tick={timeLeftTick}
           />
         ))
       )}

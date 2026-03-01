@@ -61,7 +61,7 @@ describe("ProgressStore", () => {
     await store.load();
 
     await store.recordCycleStart("feature-a", 1, ["t1", "t2"]);
-    await store.recordCycleEnd("feature-a", 2, 0.01, 100, 50);
+    await store.recordCycleEnd("feature-a", 2);
     await store.recordCycleStart("feature-a", 1, ["t2", "t3"]);
 
     const stats = store.getLifetimeStats("feature-a");
@@ -69,19 +69,16 @@ describe("ProgressStore", () => {
     expect(stats.cycleCount).toBe(2);
   });
 
-  it("records cycle end with cost and token data", async () => {
+  it("records cycle end data", async () => {
     const store = new ProgressStore("/some/repo");
     await store.load();
 
     await store.recordCycleStart("feature-a", 1, ["t1"]);
-    await store.recordCycleEnd("feature-a", 1, 0.05, 500, 200);
+    await store.recordCycleEnd("feature-a", 1);
 
     const stats = store.getLifetimeStats("feature-a");
     expect(stats.lifetimeAddressed).toBe(1);
     expect(stats.cycleHistory[0].completedAt).not.toBeNull();
-    expect(stats.cycleHistory[0].costUsd).toBe(0.05);
-    expect(stats.cycleHistory[0].inputTokens).toBe(500);
-    expect(stats.cycleHistory[0].outputTokens).toBe(200);
   });
 
   it("accumulates lifetimeAddressed from multiple cycles", async () => {
@@ -89,9 +86,9 @@ describe("ProgressStore", () => {
     await store.load();
 
     await store.recordCycleStart("feature-a", 1, ["t1", "t2"]);
-    await store.recordCycleEnd("feature-a", 2, 0.01, 100, 50);
+    await store.recordCycleEnd("feature-a", 2);
     await store.recordCycleStart("feature-a", 1, ["t3"]);
-    await store.recordCycleEnd("feature-a", 1, 0.02, 200, 100);
+    await store.recordCycleEnd("feature-a", 1);
 
     const stats = store.getLifetimeStats("feature-a");
     expect(stats.lifetimeAddressed).toBe(3);
@@ -102,7 +99,7 @@ describe("ProgressStore", () => {
     await store.load();
 
     // Should be a no-op
-    await store.recordCycleEnd("nonexistent", 5, 0.1, 100, 50);
+    await store.recordCycleEnd("nonexistent", 5);
     const stats = store.getLifetimeStats("nonexistent");
     expect(stats.lifetimeAddressed).toBe(0);
   });
@@ -111,7 +108,7 @@ describe("ProgressStore", () => {
     const store1 = new ProgressStore("/some/repo");
     await store1.load();
     await store1.recordCycleStart("feature-a", 1, ["t1", "t2"]);
-    await store1.recordCycleEnd("feature-a", 2, 0.05, 500, 200);
+    await store1.recordCycleEnd("feature-a", 2);
 
     // Create a new instance pointing to the same repo
     const store2 = new ProgressStore("/some/repo");
@@ -148,7 +145,7 @@ describe("repoSlug", () => {
     await store2.load();
 
     await store1.recordCycleStart("branch", 1, ["t1"]);
-    await store1.recordCycleEnd("branch", 1, 0.01, 100, 50);
+    await store1.recordCycleEnd("branch", 1);
 
     // Reload store2 — if slugs collide, it would see store1's data
     await store2.load();

@@ -25,9 +25,6 @@ vi.mock("../src/utils/logger.js", () => ({
 function makeFakeFixResult(overrides: Partial<FixResult> = {}): FixResult {
   return {
     sessionId: "test-session",
-    costUsd: 0,
-    inputTokens: 0,
-    outputTokens: 0,
     durationMs: 0,
     isError: false,
     changedFiles: [],
