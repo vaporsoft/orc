@@ -66,9 +66,6 @@ export interface CycleRecord {
   completedAt: string | null;
   commentsSeen: number;
   commentsFixed: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
 }
 
 export interface MCPServerConfig {
@@ -132,9 +129,6 @@ export interface BranchState {
   status: BranchStatus;
   mode: SessionMode;
   commentsAddressed: number;
-  totalCostUsd: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
   error: string | null;
   unresolvedCount: number;
   commentSummary: CommentSummary | null;
@@ -142,8 +136,6 @@ export interface BranchState {
   claudeActivity: string[];
   lastSessionId: string | null;
   workDir: string | null;
-  /** Timestamp (ms since epoch) when the watch session will expire. null if not a watch session. */
-  sessionExpiresAt: number | null;
   /** Persistent progress — accumulated across sessions and daemon restarts. */
   lifetimeAddressed: number;
   lifetimeSeen: number;

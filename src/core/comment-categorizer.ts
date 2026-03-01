@@ -47,9 +47,6 @@ Respond with JSON only (no markdown fences):
 
 export interface CategorizationResult {
   comments: CategorizedComment[];
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
 }
 
 export class CommentCategorizer {
@@ -63,9 +60,6 @@ export class CommentCategorizer {
 
   async categorize(comments: FetchedComment[], abortSignal?: AbortSignal): Promise<CategorizationResult> {
     const results: CategorizedComment[] = [];
-    let totalCostUsd = 0;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
 
     for (const { thread, rawThread } of comments) {
       if (abortSignal?.aborted) break;
@@ -88,10 +82,7 @@ export class CommentCategorizer {
       }
 
       try {
-        const { analysis, costUsd, inputTokens, outputTokens } = await this.classifyComment(thread, abortSignal);
-        totalCostUsd += costUsd;
-        totalInputTokens += inputTokens;
-        totalOutputTokens += outputTokens;
+        const { analysis } = await this.classifyComment(thread, abortSignal);
 
         // Cap clarifications at one round per thread: if Orc has already asked
         // a clarification question, promote to should_fix instead of asking again.
@@ -156,7 +147,7 @@ export class CommentCategorizer {
       }
     }
 
-    return { comments: results, costUsd: totalCostUsd, inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
+    return { comments: results };
   }
 
   private async classifyComment(
@@ -164,9 +155,6 @@ export class CommentCategorizer {
     abortSignal?: AbortSignal,
   ): Promise<{
     analysis: Pick<CategorizedComment, "confidence" | "category" | "reasoning" | "suggestedAction" | "clarificationQuestion">;
-    costUsd: number;
-    inputTokens: number;
-    outputTokens: number;
   }> {
     const userMessage = `## File: ${thread.path}${thread.line ? ` (line ${thread.line})` : ""}
 
@@ -181,9 +169,6 @@ ${thread.body}`;
     const prompt = `${ANALYSIS_PROMPT}\n\n${userMessage}`;
 
     let resultText = "";
-    let costUsd = 0;
-    let inputTokens = 0;
-    let outputTokens = 0;
 
     const ac = new AbortController();
     if (abortSignal) {
@@ -204,9 +189,6 @@ ${thread.body}`;
     for await (const message of stream) {
       if (message.type === "result") {
         const result = message as SDKResultMessage;
-        costUsd = result.total_cost_usd ?? 0;
-        inputTokens = result.usage?.input_tokens ?? 0;
-        outputTokens = result.usage?.output_tokens ?? 0;
         if (result.subtype === "success") {
           resultText = result.result;
         }
@@ -226,9 +208,6 @@ ${thread.body}`;
           suggestedAction: parsed.suggestedAction,
           ...(parsed.clarificationQuestion ? { clarificationQuestion: parsed.clarificationQuestion } : {}),
         },
-        costUsd,
-        inputTokens,
-        outputTokens,
       };
     } catch {
       logger.warn(`Failed to parse categorization response: ${cleaned}`);
@@ -239,9 +218,6 @@ ${thread.body}`;
           reasoning: "Failed to parse analysis response",
           suggestedAction: thread.body,
         },
-        costUsd,
-        inputTokens,
-        outputTokens,
       };
     }
   }

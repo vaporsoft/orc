@@ -166,15 +166,13 @@ export async function startCommand(options: StartOptions): Promise<void> {
     return;
   }
 
-  const startTime = Date.now();
-
   const daemonPromise = daemon.run().catch((err) => {
     logger.error(`Daemon error: ${err}`);
   });
 
   const instance = render(
     React.createElement(ThemeProvider, { initialMode: config.theme },
-      React.createElement(App, { daemon, startTime }),
+      React.createElement(App, { daemon }),
     ),
     { exitOnCtrlC: true },
   );

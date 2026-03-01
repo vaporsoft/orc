@@ -414,7 +414,6 @@ describe("FixExecutor", () => {
       const result = await executor.execute([makeComment()], makeRepoConfig());
 
       expect(result.sessionId).toBeTruthy();
-      expect(result.costUsd).toBe(0.05);
       expect(result.isError).toBe(false);
     });
 

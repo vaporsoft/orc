@@ -28,10 +28,9 @@ type Pane = "sessions" | "logs";
 
 interface AppProps {
   daemon: Daemon;
-  startTime: number;
 }
 
-export function App({ daemon, startTime }: AppProps) {
+export function App({ daemon }: AppProps) {
   const { theme, toggleTheme } = useThemeContext();
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -531,7 +530,7 @@ export function App({ daemon, startTime }: AppProps) {
 
   return (
     <Box flexDirection="column" height={termHeight}>
-      <Header entries={entries} startTime={startTime} nextCheckIn={nextCheckIn} branchFilter={branchFilter} filterFocused={filterFocused} />
+      <Header nextCheckIn={nextCheckIn} branchFilter={branchFilter} filterFocused={filterFocused} />
       {!fullscreenSection && (
         <SessionList
           entries={entries}

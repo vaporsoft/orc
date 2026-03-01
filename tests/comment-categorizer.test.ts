@@ -75,7 +75,6 @@ describe("CommentCategorizer", () => {
     expect(result.comments[0].category).toBe("should_fix");
     expect(result.comments[0].confidence).toBe(0.9);
     expect(result.comments[0].reasoning).toBe("The variable is unused");
-    expect(result.costUsd).toBe(0.01);
   });
 
   it("demotes low-confidence results to verify_and_fix", async () => {
@@ -130,7 +129,6 @@ describe("CommentCategorizer", () => {
     expect(result.comments[0].category).toBe("verify_and_fix");
     expect(result.comments[0].confidence).toBe(1.0);
     expect(result.comments[0].reasoning).toContain("Conversation comment");
-    expect(result.costUsd).toBe(0);
   });
 
   it("caps clarification rounds — promotes to should_fix on second round", async () => {
@@ -253,12 +251,9 @@ describe("CommentCategorizer", () => {
     expect(result.comments).toHaveLength(0);
   });
 
-  it("accumulates costs across multiple comments", async () => {
+  it("categorizes multiple comments", async () => {
     setStreamResult(
       JSON.stringify({ confidence: 0.9, category: "should_fix", reasoning: "Valid", suggestedAction: "Fix" }),
-      0.02,
-      200,
-      100,
     );
 
     const categorizer = new CommentCategorizer("/repo");
@@ -268,8 +263,5 @@ describe("CommentCategorizer", () => {
     ]);
 
     expect(result.comments).toHaveLength(2);
-    expect(result.costUsd).toBe(0.04);
-    expect(result.inputTokens).toBe(400);
-    expect(result.outputTokens).toBe(200);
   });
 });
