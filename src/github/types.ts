@@ -9,6 +9,9 @@ export interface GHPullRequest {
   headRefName: string;
   baseRefName: string;
   headRefOid: string;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
   author: { login: string } | null;
   commits?: {
     nodes: {

@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { PREntry } from "../hooks/useDaemonState.js";
 import { useTheme } from "../theme.js";
-import { formatTime } from "../../utils/time.js";
+import { formatCompact } from "../../utils/format.js";
 import type { CIStatus } from "../../types/index.js";
 import type { ReviewState } from "../hooks/useDaemonState.js";
 
@@ -45,6 +45,9 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
     p.state?.lastPushAt === n.state?.lastPushAt &&
     p.threadCounts?.total === n.threadCounts?.total &&
     p.threadCounts?.resolved === n.threadCounts?.resolved &&
+    p.pr.additions === n.pr.additions &&
+    p.pr.deletions === n.pr.deletions &&
+    p.pr.changedFiles === n.pr.changedFiles &&
     p.reviewState === n.reviewState
   );
 }
@@ -57,7 +60,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
     : entry.branch;
 
   const prLabel = `#${pr.number}`;
-  const lastPush = state?.lastPushAt ? formatTime(state.lastPushAt) : "—";
   // If CI is unknown but we pushed recently, show yellow dash (waiting for checks to start)
   const pushAge = state?.lastPushAt ? Date.now() - new Date(state.lastPushAt).getTime() : Infinity;
   const ciWaiting = ciStatus === "unknown" && pushAge < 5 * 60_000;
@@ -100,6 +102,20 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         <Text color={prStatus.color}>{prStatus.label}</Text>
         {isActive && <Text color={theme.info}> ⟳</Text>}
       </Box>
+      <Box width={16}>
+        {pr.additions != null && pr.deletions != null ? (
+          <Text>
+            <Text color="green">+{formatCompact(pr.additions)}</Text>
+            <Text dimColor> </Text>
+            <Text color="red">-{formatCompact(pr.deletions)}</Text>
+            {pr.changedFiles != null && (
+              <Text dimColor> ({pr.changedFiles})</Text>
+            )}
+          </Text>
+        ) : (
+          <Text color={theme.muted} dimColor={dimmed}>—</Text>
+        )}
+      </Box>
       <Box width={4}>
         <Text color={ci.color}>{ci.symbol}</Text>
       </Box>
@@ -137,9 +153,6 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         ) : (
           <Text color={theme.muted} dimColor={dimmed}>—</Text>
         )}
-      </Box>
-      <Box width={10}>
-        <Text dimColor>{lastPush}</Text>
       </Box>
     </Box>
   );

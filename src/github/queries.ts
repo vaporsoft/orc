@@ -104,6 +104,9 @@ query MyOpenPRs($searchQuery: String!) {
         baseRefName
         headRefOid
         author { login }
+        additions
+        deletions
+        changedFiles
         commits(last: 1) {
           nodes {
             commit {
@@ -177,6 +180,9 @@ query BrowseOpenPRs($owner: String!, $repo: String!, $cursor: String) {
         baseRefName
         headRefOid
         author { login }
+        additions
+        deletions
+        changedFiles
         commits(last: 1) {
           nodes {
             commit {
@@ -226,6 +232,9 @@ query SearchOpenPRs($searchQuery: String!, $cursor: String) {
         baseRefName
         headRefOid
         author { login }
+        additions
+        deletions
+        changedFiles
         commits(last: 1) {
           nodes {
             commit {
