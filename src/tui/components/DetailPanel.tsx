@@ -5,6 +5,7 @@ import type { CategorizedComment, CommentCategory, CycleRecord, ThreadReply } fr
 import { useTheme } from "../theme.js";
 import { formatTime } from "../../utils/time.js";
 import { stripMarkdown } from "../../utils/markdown.js";
+import { formatCompact } from "../../utils/format.js";
 
 export type DetailSection = "cycles" | "conflicts" | "ci" | "comments";
 
@@ -525,6 +526,17 @@ export function DetailPanel({
         {/* Status summary — always visible */}
         <Box>
           <Text dimColor>base: {pr.baseRefName}</Text>
+          {pr.additions != null && pr.deletions != null && (
+            <>
+              <Text dimColor> · </Text>
+              <Text color="green">+{formatCompact(pr.additions)}</Text>
+              <Text dimColor> / </Text>
+              <Text color="red">-{formatCompact(pr.deletions)}</Text>
+              {pr.changedFiles != null && (
+                <Text dimColor> ({pr.changedFiles} files)</Text>
+              )}
+            </>
+          )}
           {state && (
             <>
               <Text dimColor> · </Text>
