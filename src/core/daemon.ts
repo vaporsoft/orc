@@ -457,13 +457,26 @@ export class Daemon extends EventEmitter {
     }
 
     for (const pr of prs) {
-      if (!this.discoveredPRs.has(pr.headRefName)) {
+      const existing = this.discoveredPRs.get(pr.headRefName);
+      if (!existing) {
         logger.info(`Discovered PR #${pr.number}: ${pr.title}`, pr.headRefName);
         this.discoveredPRs.set(pr.headRefName, pr);
         // Remove any stale merged entry for this branch to prevent conflicts
         this.mergedPRs.delete(pr.headRefName);
         this.emit("prDiscovered", pr.headRefName, pr);
         // No notification for new PR discovery — we only notify on actionable state changes
+      } else {
+        // Always refresh PR data so diff stats, title, head OID, etc. stay current
+        this.discoveredPRs.set(pr.headRefName, pr);
+        if (
+          existing.headRefOid !== pr.headRefOid ||
+          existing.additions !== pr.additions ||
+          existing.deletions !== pr.deletions ||
+          existing.changedFiles !== pr.changedFiles ||
+          existing.title !== pr.title
+        ) {
+          this.emit("prUpdate", pr.headRefName, pr);
+        }
       }
     }
 
