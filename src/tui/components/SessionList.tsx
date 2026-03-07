@@ -22,6 +22,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
   const columnHeaders = (
     <Box paddingX={1}>
       <Box width={2}><Text> </Text></Box>
+      <Box width={3}><Text> </Text></Box>
       <Box width={28}><Text dimColor>branch</Text></Box>
       <Box width={8}><Text dimColor>pr</Text></Box>
       <Box width={16}><Text dimColor>status</Text></Box>

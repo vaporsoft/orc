@@ -56,9 +56,8 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
 export const SessionRow = React.memo(function SessionRow({ entry, selected, dimmed, checkedOut }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount, ciStatus, conflicted, reviewState } = entry;
-  const maxBranchLen = checkedOut ? 24 : 26;
-  const branch = entry.branch.length > maxBranchLen
-    ? entry.branch.slice(0, maxBranchLen - 1) + "…"
+  const branch = entry.branch.length > 26
+    ? entry.branch.slice(0, 25) + "…"
     : entry.branch;
 
   const prLabel = `#${pr.number}`;
@@ -94,8 +93,10 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
           {selected ? "▍" : " "}
         </Text>
       </Box>
+      <Box width={3}>
+        {checkedOut ? <Text color={theme.info}>⎇</Text> : <Text> </Text>}
+      </Box>
       <Box width={28}>
-        {checkedOut && <Text color={theme.info}>⎇ </Text>}
         <Text color={selected ? theme.accent : (dimmed ? theme.muted : theme.text)} dimColor={dimmed}>{branch}</Text>
       </Box>
       <Box width={8}>
