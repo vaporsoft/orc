@@ -10,6 +10,7 @@ interface SessionRowProps {
   entry: PREntry;
   selected: boolean;
   dimmed?: boolean;
+  checkedOut?: boolean;
 }
 
 const CI_INDICATORS: Record<CIStatus, { symbol: string; color: string }> = {
@@ -27,7 +28,7 @@ const REVIEW_INDICATORS: Record<ReviewState, { symbol: string; color: string }> 
 };
 
 function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
-  if (prev.selected !== next.selected || prev.dimmed !== next.dimmed) return false;
+  if (prev.selected !== next.selected || prev.dimmed !== next.dimmed || prev.checkedOut !== next.checkedOut) return false;
   const p = prev.entry;
   const n = next.entry;
   return (
@@ -52,11 +53,12 @@ function arePropsEqual(prev: SessionRowProps, next: SessionRowProps): boolean {
   );
 }
 
-export const SessionRow = React.memo(function SessionRow({ entry, selected, dimmed }: SessionRowProps) {
+export const SessionRow = React.memo(function SessionRow({ entry, selected, dimmed, checkedOut }: SessionRowProps) {
   const theme = useTheme();
   const { pr, state, commentCount, ciStatus, conflicted, reviewState } = entry;
-  const branch = entry.branch.length > 26
-    ? entry.branch.slice(0, 25) + "…"
+  const maxBranchLen = checkedOut ? 24 : 26;
+  const branch = entry.branch.length > maxBranchLen
+    ? entry.branch.slice(0, maxBranchLen - 1) + "…"
     : entry.branch;
 
   const prLabel = `#${pr.number}`;
@@ -93,6 +95,7 @@ export const SessionRow = React.memo(function SessionRow({ entry, selected, dimm
         </Text>
       </Box>
       <Box width={28}>
+        {checkedOut && <Text color={theme.info}>⎇ </Text>}
         <Text color={selected ? theme.accent : (dimmed ? theme.muted : theme.text)} dimColor={dimmed}>{branch}</Text>
       </Box>
       <Box width={8}>

@@ -12,9 +12,11 @@ interface SessionListProps {
   mergedBranches: string[];
   /** True while the daemon's initial PR discovery is still in progress. */
   isDiscovering?: boolean;
+  /** Branch currently checked out in the main repo. */
+  currentBranch?: string | null;
 }
 
-export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, isDiscovering }: SessionListProps) {
+export function SessionList({ entries, selectedIndex, focused, openBranches, mergedBranches, isDiscovering, currentBranch }: SessionListProps) {
   const theme = useTheme();
 
   const columnHeaders = (
@@ -56,6 +58,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             key={branch}
             entry={entries.get(branch)!}
             selected={focused && i === selectedIndex}
+            checkedOut={branch === currentBranch}
           />
         ))
       )}
@@ -80,6 +83,7 @@ export function SessionList({ entries, selectedIndex, focused, openBranches, mer
             entry={entries.get(branch)!}
             selected={false}
             dimmed
+            checkedOut={branch === currentBranch}
           />
         ))
       )}
