@@ -107,8 +107,14 @@ function buildEntries(daemon: Daemon): Map<string, PREntry> {
 
 const THROTTLE_MS = 200;
 
-export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
+export interface DaemonState {
+  entries: Map<string, PREntry>;
+  currentBranch: string | null;
+}
+
+export function useDaemonState(daemon: Daemon): DaemonState {
   const [entries, setEntries] = useState<Map<string, PREntry>>(() => buildEntries(daemon));
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef(false);
 
@@ -136,6 +142,10 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
     }, THROTTLE_MS);
   }, [flush]);
 
+  const onCurrentBranchUpdate = useCallback((branch: string | null) => {
+    setCurrentBranch(branch);
+  }, []);
+
   useEffect(() => {
     daemon.on("prDiscovered", rebuild);
     daemon.on("prRemoved", rebuild);
@@ -146,6 +156,7 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
     daemon.on("ciStatusUpdate", rebuild);
     daemon.on("conflictStatusUpdate", rebuild);
     daemon.on("reviewStateUpdate", rebuild);
+    daemon.on("currentBranchUpdate", onCurrentBranchUpdate);
 
     return () => {
       daemon.off("prDiscovered", rebuild);
@@ -157,12 +168,13 @@ export function useDaemonState(daemon: Daemon): Map<string, PREntry> {
       daemon.off("ciStatusUpdate", rebuild);
       daemon.off("conflictStatusUpdate", rebuild);
       daemon.off("reviewStateUpdate", rebuild);
+      daemon.off("currentBranchUpdate", onCurrentBranchUpdate);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [daemon, rebuild]);
+  }, [daemon, rebuild, onCurrentBranchUpdate]);
 
-  return entries;
+  return { entries, currentBranch };
 }

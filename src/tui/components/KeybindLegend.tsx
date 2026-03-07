@@ -50,6 +50,12 @@ function getGroups(showingLogs: boolean, defaultBranch: string): KeybindGroup[] 
         { key: "q", label: "quit" },
       ],
     },
+    {
+      title: "symbols",
+      binds: [
+        { key: "⎇", label: "checked-out branch" },
+      ],
+    },
   ];
 }
 

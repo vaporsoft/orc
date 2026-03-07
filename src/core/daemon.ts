@@ -255,6 +255,9 @@ export class Daemon extends EventEmitter {
         logger.error(`Discovery failed: ${err}`);
       }
       if (!this.running) break;
+      // Refresh checked-out branch for TUI indicator (independent of discovery)
+      const currentBranch = await this.getCurrentBranch();
+      this.emit("currentBranchUpdate", currentBranch);
       // Skip sleep if refreshNow() was called (during or before discover)
       if (this.skipNextSleep) {
         this.skipNextSleep = false;
@@ -855,7 +858,7 @@ export class Daemon extends EventEmitter {
     };
   }
 
-  private async getCurrentBranch(): Promise<string | null> {
+  async getCurrentBranch(): Promise<string | null> {
     try {
       const { stdout } = await exec("git", ["-c", "gc.auto=0", "branch", "--show-current"], { cwd: this.cwd });
       return stdout.trim() || null;

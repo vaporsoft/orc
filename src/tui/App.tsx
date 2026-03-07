@@ -35,7 +35,7 @@ export function App({ daemon }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
-  const entries = useDaemonState(daemon);
+  const { entries, currentBranch } = useDaemonState(daemon);
   const { entries: logEntries } = useLogBuffer();
   const nextCheckIn = useNextCheckCountdown(daemon);
   const isDiscovering = useInitialDiscovery(daemon);
@@ -392,7 +392,7 @@ export function App({ daemon }: AppProps) {
       if (branch) {
         showToast(`Checking out ${branch}...`, "info");
         exec("git", ["checkout", branch], { cwd: daemon.getCwd() })
-          .then(() => showToast(`Checked out ${branch}`, "success"))
+          .then(() => { daemon.emit("currentBranchUpdate", branch); showToast(`Checked out ${branch}`, "success"); })
           .catch((err) => showToast(`Failed to checkout ${branch}: ${err}`, "error"));
       }
       return;
@@ -403,7 +403,7 @@ export function App({ daemon }: AppProps) {
       const defaultBranch = daemon.getDefaultBranch();
       showToast(`Checking out ${defaultBranch}...`, "info");
       exec("git", ["checkout", defaultBranch], { cwd: daemon.getCwd() })
-        .then(() => showToast(`Checked out ${defaultBranch}`, "success"))
+        .then(() => { daemon.emit("currentBranchUpdate", defaultBranch); showToast(`Checked out ${defaultBranch}`, "success"); })
         .catch((err) => showToast(`Failed to checkout ${defaultBranch}: ${err}`, "error"));
       return;
     }
@@ -539,6 +539,7 @@ export function App({ daemon }: AppProps) {
           openBranches={openBranches}
           mergedBranches={mergedBranches}
           isDiscovering={isDiscovering}
+          currentBranch={currentBranch}
         />
       )}
       {detailMode !== "logs" && (
